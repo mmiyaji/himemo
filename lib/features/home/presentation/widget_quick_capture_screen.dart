@@ -22,6 +22,7 @@ class _WidgetQuickCaptureScreenState
     extends ConsumerState<WidgetQuickCaptureScreen> {
   final TextEditingController _controller = TextEditingController();
   bool _saving = false;
+  String? _loadedNonce;
 
   @override
   void dispose() {
@@ -42,7 +43,8 @@ class _WidgetQuickCaptureScreenState
     final rejectedFiles =
         request?.rejectedFiles ?? const <QuickCaptureRejectedFile>[];
 
-    if (requestText.isNotEmpty && _controller.text != requestText) {
+    if (_loadedNonce != request?.nonce) {
+      _loadedNonce = request?.nonce;
       _controller.value = TextEditingValue(
         text: requestText,
         selection: TextSelection.collapsed(offset: requestText.length),
@@ -75,7 +77,8 @@ class _WidgetQuickCaptureScreenState
                       double.infinity,
                     ),
                   ),
-                  child: enabled && onboardingReady
+                  child:
+                      (enabled || request?.shareId != null) && onboardingReady
                       ? _CapturePanel(
                           controller: _controller,
                           vault: everydayVault,
@@ -84,6 +87,11 @@ class _WidgetQuickCaptureScreenState
                           files: requestFiles,
                           rejectedFiles: rejectedFiles,
                           onSubmit: _submit,
+                          onCancel: _close,
+                          discardUnavailable:
+                              request?.shareId != null &&
+                              requestText.isEmpty &&
+                              requestFiles.isEmpty,
                         )
                       : Container(
                           padding: const EdgeInsets.all(24),
@@ -137,35 +145,52 @@ class _WidgetQuickCaptureScreenState
     );
   }
 
-  Future<void> _submit() async {
+  Future<void> _submit({bool discardUnavailable = false}) async {
     final text = _controller.text.trim();
     final request = ref.read(widgetQuickCaptureRequestControllerProvider);
     final files = request?.files ?? const <QuickCaptureFile>[];
-    if ((text.isEmpty && files.isEmpty) || _saving) {
+    if ((text.isEmpty && files.isEmpty && !discardUnavailable) || _saving) {
       return;
     }
     setState(() {
       _saving = true;
     });
     try {
-      await ref
-          .read(notesControllerProvider.notifier)
-          .createSharedFileCapture(rawText: text, files: files);
-      await ref
-          .read(widgetQuickCaptureBridgeProvider)
-          .deleteImportedFiles(files);
-      ref.read(widgetQuickCaptureRequestControllerProvider.notifier).clear();
+      final bridge = ref.read(widgetQuickCaptureBridgeProvider);
+      final requests = ref.read(
+        widgetQuickCaptureRequestControllerProvider.notifier,
+      );
+      final shareId = request?.shareId;
+      if (text.isNotEmpty || files.isNotEmpty) {
+        await ref
+            .read(notesControllerProvider.notifier)
+            .createSharedFileCapture(
+              rawText: text,
+              files: files,
+              shareId: shareId,
+            );
+      }
+      if (shareId == null) {
+        await bridge.deleteImportedFiles(files);
+      } else {
+        await bridge.acknowledgeSharedCapture(shareId);
+      }
+      requests.clear();
+      if (shareId != null) await bridge.openNextPending();
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          showCloseIcon: true,
-          content: Text(context.strings.quickMemoSaved),
-        ),
-      );
-      await Future<void>.delayed(const Duration(milliseconds: 250));
-      _close();
+      if (text.isNotEmpty || files.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            showCloseIcon: true,
+            content: Text(context.strings.quickMemoSaved),
+          ),
+        );
+      }
+      if (ref.read(widgetQuickCaptureRequestControllerProvider) == null) {
+        _navigateAway();
+      }
     } catch (_) {
       if (!mounted) {
         return;
@@ -186,13 +211,20 @@ class _WidgetQuickCaptureScreenState
   }
 
   void _close() {
+    if (_saving) return;
     final request = ref.read(widgetQuickCaptureRequestControllerProvider);
-    unawaited(
-      ref
-          .read(widgetQuickCaptureBridgeProvider)
-          .deleteImportedFiles(request?.files ?? const <QuickCaptureFile>[]),
-    );
+    if (request?.shareId == null) {
+      unawaited(
+        ref
+            .read(widgetQuickCaptureBridgeProvider)
+            .deleteImportedFiles(request?.files ?? const <QuickCaptureFile>[]),
+      );
+    }
     ref.read(widgetQuickCaptureRequestControllerProvider.notifier).clear();
+    _navigateAway();
+  }
+
+  void _navigateAway() {
     final navigator = Navigator.of(context);
     if (navigator.canPop()) {
       navigator.pop();
@@ -216,6 +248,8 @@ class _CapturePanel extends StatelessWidget {
     required this.files,
     required this.rejectedFiles,
     required this.onSubmit,
+    required this.onCancel,
+    required this.discardUnavailable,
   });
 
   final TextEditingController controller;
@@ -224,7 +258,9 @@ class _CapturePanel extends StatelessWidget {
   final QuickCaptureSource source;
   final List<QuickCaptureFile> files;
   final List<QuickCaptureRejectedFile> rejectedFiles;
-  final Future<void> Function() onSubmit;
+  final Future<void> Function({bool discardUnavailable}) onSubmit;
+  final VoidCallback onCancel;
+  final bool discardUnavailable;
 
   @override
   Widget build(BuildContext context) {
@@ -325,10 +361,22 @@ class _CapturePanel extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
+          if (discardUnavailable)
+            TextButton(
+              onPressed: saving
+                  ? null
+                  : () => onSubmit(discardUnavailable: true),
+              child: Text(
+                context.strings.localized(
+                  en: 'Discard unavailable share',
+                  ja: '取り込めない共有を破棄',
+                ),
+              ),
+            ),
           Row(
             children: [
               OutlinedButton(
-                onPressed: saving ? null : SystemNavigator.pop,
+                onPressed: saving ? null : onCancel,
                 child: Text(context.strings.cancel),
               ),
               const Spacer(),

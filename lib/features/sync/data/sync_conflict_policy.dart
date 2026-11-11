@@ -22,8 +22,17 @@ SyncConflictAssessment assessSyncConflict({
       queue == null ||
       remoteStatus == null ||
       bundleState == null ||
-      !queue.hasPendingChanges ||
+      queue.totalChanges <=
+          queue.profileNameChanges + queue.profileCredentialChanges ||
       remoteStatus.modifiedAt == null) {
+    return const SyncConflictAssessment.clear();
+  }
+  // Uploads no longer advance the apply anchor, so the newest remote record is
+  // often this device's own publication. Neither it nor an already applied
+  // record can contain changes this device has not seen.
+  if (remoteStatus.fileId == bundleState.lastUploadedRemoteFileId ||
+      (bundleState.appliedRemoteFileIds?.contains(remoteStatus.fileId) ??
+          false)) {
     return const SyncConflictAssessment.clear();
   }
 

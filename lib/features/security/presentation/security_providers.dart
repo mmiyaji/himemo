@@ -58,12 +58,28 @@ final encryptedNoteStoreProvider = Provider<EncryptedNoteStore>((ref) {
   );
 });
 
+bool get supportsDeviceProfilePin =>
+    !kIsWeb &&
+    (defaultTargetPlatform == TargetPlatform.iOS ||
+        defaultTargetPlatform == TargetPlatform.android);
+
 final profileDataKeyServiceProvider = Provider<ProfileDataKeyService>((ref) {
+  final secureStore = ref.watch(secureKeyValueStoreProvider);
   return ProfileDataKeyService(
-    secureStore: ref.watch(secureKeyValueStoreProvider),
+    secureStore: secureStore,
     encryptionService: ref.watch(encryptionServiceProvider),
     normalMasterKeyService: ref.watch(masterKeyServiceProvider),
     enableLocalAdminAccess: !kIsWeb,
+    devicePinStore: !supportsDeviceProfilePin
+        ? null
+        : secureStore is FlutterSecureKeyValueStore
+        ? FlutterSecureKeyValueStore(
+            iOptions: const IOSOptions(
+              accountName: 'org.ruhenheim.himemo.device_profile_pin',
+              accessibility: KeychainAccessibility.unlocked_this_device,
+            ),
+          )
+        : secureStore,
   );
 });
 

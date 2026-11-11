@@ -81,22 +81,8 @@ class SecureSyncBundleStore {
       secretKey: key,
     );
 
-    if (kIsWeb) {
-      final prefs = await _sharedPreferencesProvider();
-      await prefs.setString(webStorageKey, payload);
-      return StoredSyncBundle(
-        reference: webStorageKey,
-        noteCount: snapshot.notes.length + encryptedPrivateNotes.length,
-        attachmentCount: snapshot.attachments.length,
-      );
-    }
-
-    final directory = await _directoryProvider();
-    final file = File(path.join(directory.path, 'sync_exports', fileName));
-    await file.create(recursive: true);
-    await file.writeAsString(payload, flush: true);
-    return StoredSyncBundle(
-      reference: file.path,
+    return writeEncryptedBundlePayload(
+      payload,
       noteCount: snapshot.notes.length + encryptedPrivateNotes.length,
       attachmentCount: snapshot.attachments.length,
     );
@@ -122,9 +108,10 @@ class SecureSyncBundleStore {
   }) async {
     if (kIsWeb) {
       final prefs = await _sharedPreferencesProvider();
-      await prefs.setString(webStorageKey, encodedPayload);
+      final reference = _webBundleReference(fileNameOverride);
+      await prefs.setString(reference, encodedPayload);
       return StoredSyncBundle(
-        reference: webStorageKey,
+        reference: reference,
         noteCount: noteCount,
         attachmentCount: attachmentCount,
       );
@@ -145,22 +132,24 @@ class SecureSyncBundleStore {
 
   Future<StoredSyncBundle?> readStoredEncryptedBundle({
     String? fileNameOverride,
+    bool allowLegacyWebKey = false,
   }) async {
-    final reference = kIsWeb
-        ? webStorageKey
+    var reference = kIsWeb
+        ? _webBundleReference(fileNameOverride)
         : path.join(
             (await _directoryProvider()).path,
             'sync_exports',
             fileNameOverride ?? fileName,
           );
-    final encodedPayload = await readEncryptedBundlePayload(reference);
+    var encodedPayload = await readEncryptedBundlePayload(reference);
+    if (kIsWeb && allowLegacyWebKey && encodedPayload == null) {
+      reference = webStorageKey;
+      encodedPayload = await readEncryptedBundlePayload(reference);
+    }
     if (encodedPayload == null || encodedPayload.isEmpty) {
       return null;
     }
-    final decoded = await readBundleJson(reference);
-    if (decoded == null) {
-      return null;
-    }
+    final decoded = await _decryptBundleJson(encodedPayload);
     final notes =
         (decoded['notes'] as List<dynamic>? ?? const <dynamic>[]).length;
     final encryptedPrivateNotes =
@@ -175,6 +164,9 @@ class SecureSyncBundleStore {
       attachmentCount: attachments,
     );
   }
+
+  String _webBundleReference(String? fileNameOverride) =>
+      '$webStorageKey.${fileNameOverride ?? fileName}';
 
   Future<String> writeAttachmentObjectPayload(
     PreparedSyncAttachment attachment,

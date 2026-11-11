@@ -3558,12 +3558,12 @@ class AppStrings {
     de: 'Setze diese Sitzung mit Geräteauthentifizierung fort.',
   );
   String get unlockWithPinInstruction => localized(
-    en: 'Enter your PIN to unlock this session.',
-    ja: 'PIN を入力してこのセッションを解除します。',
-    zh: '输入 PIN 以解锁此会话。',
-    ko: 'PIN을 입력해 이 세션의 잠금을 해제하세요.',
-    es: 'Introduce tu PIN para desbloquear esta sesión.',
-    de: 'Gib deine PIN ein, um diese Sitzung zu entsperren.',
+    en: 'Enter your 4-digit PIN.',
+    ja: '4桁のPINを入力してください。',
+    zh: '请输入 4 位 PIN。',
+    ko: '4자리 PIN을 입력하세요.',
+    es: 'Introduce tu PIN de 4 dígitos.',
+    de: 'Gib deine 4-stellige PIN ein.',
   );
   String get authenticating => localized(
     en: 'Authenticating...',
@@ -3841,12 +3841,12 @@ class AppStrings {
     de: 'Notes bleibt standardmäßig sichtbar. Öffne ein anderes Profil nur bei Bedarf.',
   );
   String get privateProfilesSettingsBody => localized(
-    en: 'Enter a password from the key icon in the top bar to open only the matching profile. Admin mode lists profiles so you can focus or rename one when maintenance is needed. When a profile is open, Appearance can set its accent color separately from normal mode.',
-    ja: '右上の鍵アイコンからパスワードを入力すると、一致するプロファイルだけを開けます。管理者モードでは全プロファイルを一覧表示し、切り替えや名前の変更ができます。プロファイルを開いている間は、「表示」から通常モードとは別のアクセントカラーを設定できます。',
-    zh: '从顶部栏的钥匙图标输入密码后，只会打开匹配的档案。管理员模式会列出所有档案，可切换或重命名。打开档案时，可在“外观”中设置单独的强调色。',
-    ko: '상단 열쇠 아이콘에서 비밀번호를 입력하면 일치하는 프로필만 열립니다. 관리자 모드에서는 모든 프로필을 표시하고 전환하거나 이름을 변경할 수 있습니다. 열린 프로필의 강조 색상은 표시 설정에서 따로 지정할 수 있습니다.',
-    es: 'Introduce una contraseña desde el icono de llave para abrir solo el perfil correspondiente. El modo administrador muestra todos los perfiles para abrirlos o cambiar su nombre. Apariencia permite configurar un color de acento para el perfil abierto.',
-    de: 'Über das Schlüsselsymbol öffnet ein Passwort nur das passende Profil. Im Administratormodus werden alle Profile zum Öffnen oder Umbenennen angezeigt. Unter Darstellung lässt sich eine eigene Akzentfarbe für das geöffnete Profil festlegen.',
+    en: 'Use the lock icon in the top right to open a private profile.',
+    ja: 'プライベートプロファイルを開くには、右上の鍵アイコンを使います。',
+    zh: '使用右上角的锁图标打开私密档案。',
+    ko: '오른쪽 위의 자물쇠 아이콘으로 비공개 프로필을 여세요.',
+    es: 'Usa el icono del candado en la esquina superior derecha para abrir un perfil privado.',
+    de: 'Öffne ein privates Profil über das Schlosssymbol oben rechts.',
   );
   String get addPrivateProfile => localized(
     en: 'Add profile',

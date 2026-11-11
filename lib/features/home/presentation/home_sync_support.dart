@@ -295,6 +295,18 @@ String _localizedSyncTransferMessage(
   SyncProvider provider,
 ) {
   final providerName = _syncProviderName(provider);
+  if (message.startsWith('$localAttachmentMissingMessageCode\n')) {
+    final parts = message.split('\n');
+    final label = parts.length > 1 ? parts[1] : '';
+    final title = parts.length > 2 ? parts.sublist(2).join(' ').trim() : '';
+    final noteName = title.isEmpty
+        ? strings.localized(en: 'a note', ja: '無題のメモ')
+        : strings.localized(en: '"$title"', ja: '「$title」');
+    return strings.localized(
+      en: 'The attachment "$label" in $noteName is missing on this device and could not be restored from the cloud. Open the note, remove or replace that attachment, then sync again.',
+      ja: '$noteNameの添付「$label」がこの端末になく、クラウドからも復元できませんでした。メモを開いてこの添付を削除するか差し替えてから、もう一度同期してください。',
+    );
+  }
   switch (message) {
     case 'sync.error.local_snapshot_incomplete':
       return strings.localized(
@@ -466,6 +478,15 @@ String _localizedSyncTransferMessage(
         ko: '같은 비공개 메모가 두 기기에서 변경되었습니다. 어느 버전도 덮어쓰지 않았습니다. 내용을 확인한 후 업로드할 버전을 선택하세요.',
         es: 'La misma nota privada se modifico en ambos dispositivos. No se sobrescribio ninguna version. Revisa ambos dispositivos antes de elegir que version subir.',
         de: 'Dieselbe private Notiz wurde auf beiden Geraten geandert. Keine Version wurde uberschrieben. Prufe beide Gerate, bevor du eine Version hochladst.',
+      );
+    case 'sync.error.private_profile_unlock_required':
+      return strings.localized(
+        en: 'Unlock the affected private profile to compare its pending note before syncing.',
+        ja: '保留中のメモを安全に比較するため、該当するプライベートプロファイルを解除してから同期してください。',
+        zh: '请先解锁相应的私密档案，再同步待处理的笔记。',
+        ko: '보류 중인 메모를 비교할 수 있도록 해당 비공개 프로필을 먼저 잠금 해제하세요.',
+        es: 'Desbloquea el perfil privado correspondiente para comparar la nota pendiente antes de sincronizar.',
+        de: 'Entsperre das betroffene private Profil, um die ausstehende Notiz vor der Synchronisierung zu vergleichen.',
       );
     case 'sync.error.malformed_private_note':
       return strings.localized(
@@ -828,38 +849,6 @@ String _localizedSyncTransferMessage(
   return message;
 }
 
-double? _syncProgressValueForState(SyncTransferState state) {
-  final completed = state.completedItems;
-  final total = state.totalItems;
-  if (completed != null && total != null && total > 0) {
-    final base = _syncProgressBaseValue(state.progress) ?? 0;
-    final next = switch (state.progress) {
-      SyncTransferProgress.checkingRemote => 0.30,
-      SyncTransferProgress.preparingBundle => 0.55,
-      SyncTransferProgress.uploadingBundle => 0.76,
-      SyncTransferProgress.downloadingBundle => 0.64,
-      SyncTransferProgress.applyingBundle => 0.88,
-      SyncTransferProgress.finalizing => 0.98,
-      SyncTransferProgress.none => 1.0,
-    };
-    final ratio = (completed / total).clamp(0.0, 1.0);
-    return base + (next - base) * ratio;
-  }
-  return _syncProgressBaseValue(state.progress);
-}
-
-double? _syncProgressBaseValue(SyncTransferProgress progress) {
-  return switch (progress) {
-    SyncTransferProgress.checkingRemote => 0.18,
-    SyncTransferProgress.preparingBundle => 0.38,
-    SyncTransferProgress.uploadingBundle => 0.64,
-    SyncTransferProgress.downloadingBundle => 0.48,
-    SyncTransferProgress.applyingBundle => 0.78,
-    SyncTransferProgress.finalizing => 0.92,
-    SyncTransferProgress.none => null,
-  };
-}
-
 String _remoteBundleSummary(
   AppStrings strings,
   SyncProvider provider,
@@ -922,13 +911,7 @@ String _remoteBundleSummary(
   );
 }
 
-enum _CloudSyncSnackBarAction {
-  syncNow,
-  refreshRemote,
-  upload,
-  download,
-  apply,
-}
+enum _CloudSyncSnackBarAction { syncNow, upload, download, apply }
 
 String _cloudSyncSnackBarMessage(
   AppStrings strings,
@@ -948,14 +931,6 @@ String _cloudSyncSnackBarMessage(
       if (explanation != detail) return explanation;
     }
     return switch (action) {
-      _CloudSyncSnackBarAction.refreshRemote => strings.localized(
-        en: 'Could not check the cloud backup. Check your connection and try again.',
-        ja: 'クラウドのバックアップを確認できませんでした。通信状態を確認して再試行してください。',
-        zh: '无法刷新远程同步状态。',
-        ko: '원격 동기화 상태를 새로 고칠 수 없습니다.',
-        es: 'No se pudo actualizar el estado de sincronizacion remota.',
-        de: 'Der Remote-Synchronisierungsstatus konnte nicht aktualisiert werden.',
-      ),
       _CloudSyncSnackBarAction.upload => strings.localized(
         en: 'Could not send the backup. Check your connection and try again.',
         ja: 'バックアップを送信できませんでした。通信状態を確認して再試行してください。',
@@ -991,24 +966,6 @@ String _cloudSyncSnackBarMessage(
     };
   }
   return switch (action) {
-    _CloudSyncSnackBarAction.refreshRemote =>
-      state.remoteStatus == null
-          ? strings.localized(
-              en: 'No cloud backup has been saved yet.',
-              ja: 'クラウドにバックアップがまだありません。',
-              zh: '远程还没有保存同步包。',
-              ko: '원격에 저장된 동기화 번들이 아직 없습니다.',
-              es: 'Todavia no se ha guardado ningun paquete de sincronizacion remoto.',
-              de: 'Es wurde noch kein Remote-Synchronisierungspaket gespeichert.',
-            )
-          : strings.localized(
-              en: '$providerName backup status was refreshed.',
-              ja: '$providerName のバックアップ状態を更新しました。',
-              zh: '$providerName 的同步包信息已更新。',
-              ko: '$providerName 번들 정보를 새로 고쳤습니다.',
-              es: 'Se actualizo la informacion del paquete de $providerName.',
-              de: 'Die Paketinformationen von $providerName wurden aktualisiert.',
-            ),
     _CloudSyncSnackBarAction.upload => strings.localized(
       en: 'Your encrypted backup was sent to $providerName.',
       ja: '暗号化したバックアップを $providerName に保存しました。',
@@ -1780,10 +1737,26 @@ class _NoteConflictResolverDialogState
         if (!confirmed) {
           return const NoteConflictResolutionOutcome.cancelled();
         }
+        final isPrivate = isPrivateVaultId(widget.localNote.vaultId);
+        final remoteContentHash = remoteChange.note.contentHash;
+        if (isPrivate &&
+            (remoteContentHash == null || remoteContentHash.isEmpty)) {
+          throw StateError('sync.error.private_conflict_review_expired');
+        }
         await notes.resolveConflictKeepingLocal(
           widget.localNote.id,
           remoteRevision: remoteChange.note.revision,
         );
+        // Record the choice only after the local version is committed, so a
+        // failed resolution never silently skips the remote version later.
+        if (isPrivate) {
+          await ref
+              .read(syncBundleStateStoreProvider)
+              .rememberLocalPrivateConflictChoice(
+                widget.localNote.id,
+                remoteContentHash!,
+              );
+        }
         try {
           await transfer.uploadCurrentBundle(
             deltaOnly: true,
@@ -4627,12 +4600,12 @@ class _PreviewTitlesSection extends StatelessWidget {
   }
 }
 
-Future<RemoteSyncBundleStatus?> _showBundleHistoryDialog(
+Future<void> _showBundleHistoryDialog(
   BuildContext context,
   List<RemoteSyncBundleStatus> history,
 ) {
   final strings = context.strings;
-  return showDialog<RemoteSyncBundleStatus>(
+  return showDialog<void>(
     context: context,
     builder: (context) {
       return AlertDialog(
@@ -4663,32 +4636,11 @@ Future<RemoteSyncBundleStatus?> _showBundleHistoryDialog(
                 trailing: index == 0
                     ? const Icon(Icons.history_toggle_off_rounded)
                     : null,
-                onTap: () => Navigator.of(context).pop(entry),
               );
             },
           ),
         ),
         actions: [
-          if (_syncKeyQrScannerSupported)
-            TextButton.icon(
-              onPressed: () async {
-                final scanned = await _showSyncKeyQrScannerDialog(context);
-                if (scanned != null && context.mounted) {
-                  Navigator.of(context).pop(scanned);
-                }
-              },
-              icon: const Icon(Icons.qr_code_scanner_rounded),
-              label: Text(
-                strings.localized(
-                  en: 'Scan QR',
-                  ja: 'QRを読み取り',
-                  zh: '扫描 QR',
-                  ko: 'QR 스캔',
-                  es: 'Escanear QR',
-                  de: 'QR scannen',
-                ),
-              ),
-            ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
             child: Text(strings.close),
@@ -4717,6 +4669,26 @@ Future<String?> _showSyncKeyImportDialog(BuildContext context) {
           ),
         ),
         actions: [
+          if (_syncKeyQrScannerSupported)
+            TextButton.icon(
+              onPressed: () async {
+                final scanned = await _showSyncKeyQrScannerDialog(context);
+                if (scanned != null && context.mounted) {
+                  controller.text = scanned;
+                }
+              },
+              icon: const Icon(Icons.qr_code_scanner_rounded),
+              label: Text(
+                strings.localized(
+                  en: 'Scan QR',
+                  ja: 'QRを読み取り',
+                  zh: '扫描 QR',
+                  ko: 'QR 스캔',
+                  es: 'Escanear QR',
+                  de: 'QR scannen',
+                ),
+              ),
+            ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
             child: Text(strings.cancel),

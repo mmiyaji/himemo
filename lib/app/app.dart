@@ -8,12 +8,12 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
-import 'package:pinput/pinput.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../features/home/domain/note_entry.dart';
 import '../features/home/presentation/home_providers.dart';
+import '../features/security/presentation/app_pin_input.dart';
 import '../features/sync/data/sync_engine.dart';
 import '../l10n/app_localizations.dart';
 import '../l10n/app_strings.dart';
@@ -372,6 +372,12 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       _lockProtectedSessions(lockAppSession: false);
     }
     await _syncLockState(triggerPrompt: true);
+    if (mounted &&
+        !kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.iOS &&
+        ref.read(widgetQuickCaptureRequestControllerProvider) == null) {
+      await ref.read(widgetQuickCaptureBridgeProvider).openNextPending();
+    }
     _deactivateAppLockPrivacyCover();
     _cleanupExpiredSharedAttachments();
     _refreshPrivateSessionTimer();
@@ -1151,6 +1157,12 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
             builder: (context) {
               final colorScheme = Theme.of(context).colorScheme;
               final lockBackgroundColor = colorScheme.surface;
+              if (usePinUnlock) {
+                return Scaffold(
+                  backgroundColor: lockBackgroundColor,
+                  body: const SafeArea(child: _PinUnlockPanel()),
+                );
+              }
               return Scaffold(
                 backgroundColor: lockBackgroundColor,
                 body: ColoredBox(
@@ -1208,9 +1220,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
                                     ),
                                     const SizedBox(height: 12),
                                     Text(
-                                      usePinUnlock
-                                          ? strings.unlockWithPinInstruction
-                                          : strings.deviceAuthGate,
+                                      strings.deviceAuthGate,
                                       style: Theme.of(context)
                                           .textTheme
                                           .bodyLarge
@@ -1248,9 +1258,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
                                         Text(
-                                          usePinUnlock
-                                              ? pinState.summary
-                                              : authState.summary,
+                                          authState.summary,
                                           textAlign: TextAlign.center,
                                           style: Theme.of(context)
                                               .textTheme
@@ -1261,9 +1269,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
                                               ),
                                         ),
                                         const SizedBox(height: 24),
-                                        if (usePinUnlock)
-                                          const _PinUnlockPanel()
-                                        else if (canUseDeviceAuth)
+                                        if (canUseDeviceAuth)
                                           FilledButton.icon(
                                             onPressed:
                                                 authState.isAuthenticating
@@ -1471,6 +1477,7 @@ class _PinUnlockPanel extends ConsumerStatefulWidget {
 
 class _PinUnlockPanelState extends ConsumerState<_PinUnlockPanel> {
   final TextEditingController _pinController = TextEditingController();
+  bool _verifying = false;
 
   @override
   void dispose() {
@@ -1482,65 +1489,94 @@ class _PinUnlockPanelState extends ConsumerState<_PinUnlockPanel> {
   Widget build(BuildContext context) {
     final strings = context.strings;
     final pinState = ref.watch(appPinLockControllerProvider);
-    final colorScheme = Theme.of(context).colorScheme;
-
-    return Column(
-      children: [
-        Pinput(
-          key: const Key('web-pin-unlock-input'),
-          controller: _pinController,
-          length: 4,
-          obscureText: true,
-          obscuringCharacter: '•',
-          keyboardType: TextInputType.number,
-          defaultPinTheme: PinTheme(
-            width: 48,
-            height: 56,
-            textStyle: Theme.of(context).textTheme.titleLarge,
-            decoration: BoxDecoration(
-              border: Border.all(color: Theme.of(context).dividerColor),
-              borderRadius: BorderRadius.circular(8),
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxHeight < 420;
+        return Center(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(24, compact ? 12 : 32, 24, 24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 360),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Image.asset(
+                        'assets/app-icon.png',
+                        width: 30,
+                        height: 30,
+                        excludeFromSemantics: true,
+                      ),
+                      const SizedBox(width: 8),
+                      Text('HiMemo', style: theme.textTheme.titleLarge),
+                    ],
+                  ),
+                  SizedBox(height: compact ? 16 : 40),
+                  Icon(
+                    Icons.lock_outline_rounded,
+                    color: colors.primary,
+                    size: compact ? 32 : 44,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    strings.unlockWithPin,
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.headlineSmall,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    strings.unlockWithPinInstruction,
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                  SizedBox(height: compact ? 16 : 24),
+                  AppPinInput(
+                    key: const Key('web-pin-unlock-input'),
+                    controller: _pinController,
+                    autofocus: true,
+                    onSubmit: _submit,
+                  ),
+                  if (pinState.lastError case final error?) ...[
+                    const SizedBox(height: 12),
+                    Semantics(
+                      liveRegion: true,
+                      child: Text(
+                        strings.localizedPinLockError(error),
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colors.error,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
-          focusedPinTheme: PinTheme(
-            width: 48,
-            height: 56,
-            textStyle: Theme.of(context).textTheme.titleLarge,
-            decoration: BoxDecoration(
-              border: Border.all(color: colorScheme.primary, width: 1.5),
-              borderRadius: BorderRadius.circular(8),
-            ),
-          ),
-          onCompleted: (_) async => _submit(),
-        ),
-        const SizedBox(height: 16),
-        FilledButton.icon(
-          onPressed: _submit,
-          icon: const Icon(Icons.lock_open_rounded),
-          label: Text(strings.unlockWithPin),
-        ),
-        if (pinState.lastError != null) ...[
-          const SizedBox(height: 12),
-          Text(
-            strings.localizedPinLockError(pinState.lastError!),
-            style: Theme.of(context).textTheme.bodySmall
-                ?.copyWith(color: colorScheme.error),
-          ),
-        ],
-      ],
+        );
+      },
     );
   }
 
   Future<void> _submit() async {
     final pin = _pinController.text.trim();
-    if (pin.length != 4) {
+    if (pin.length != 4 || _verifying) {
       return;
     }
-    final matched = await ref
-        .read(appPinLockControllerProvider.notifier)
-        .verify(pin);
-    if (matched) {
-      _pinController.clear();
+    _verifying = true;
+    try {
+      await ref.read(appPinLockControllerProvider.notifier).verify(pin);
+      if (mounted && _pinController.text == pin) {
+        _pinController.clear();
+      }
+    } finally {
+      _verifying = false;
     }
   }
 }
@@ -2501,15 +2537,22 @@ Future<String?> _showOnboardingPinSetupDialog(BuildContext context) {
             title: Text(strings.setAppUnlockPin),
             content: SizedBox(
               width: 320,
-              child: TextField(
-                controller: controller,
-                obscureText: true,
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                  labelText: strings.pin,
-                  border: const OutlineInputBorder(),
-                  errorText: errorText,
-                ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(strings.useExactly4Digits),
+                  const SizedBox(height: 12),
+                  AppPinInput(controller: controller, autofocus: true),
+                  if (errorText case final error?) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      error,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
             actions: [

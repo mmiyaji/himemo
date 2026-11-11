@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../app/diagnostic_log.dart';
 import '../../security/data/secure_key_value_store.dart';
 import '../../security/data/storage_serial_executor.dart';
 
@@ -20,6 +21,7 @@ class SyncBundleState {
     this.lastFullUploadedAt,
     this.deltaUploadsSinceFull = 0,
     this.appliedRemoteFileIds,
+    this.localPrivateConflictChoices = const <String, String>{},
   });
 
   final String? lastRemoteFileId;
@@ -49,6 +51,10 @@ class SyncBundleState {
   /// with unknown coverage; an empty set means known to have applied none.
   final Set<String>? appliedRemoteFileIds;
 
+  /// Remote content hashes the user explicitly chose to replace with their
+  /// local private note. Kept until the containing bundle is applied.
+  final Map<String, String> localPrivateConflictChoices;
+
   SyncBundleState copyWith({
     String? lastRemoteFileId,
     DateTime? lastRemoteModifiedAt,
@@ -61,6 +67,7 @@ class SyncBundleState {
     DateTime? lastFullUploadedAt,
     int? deltaUploadsSinceFull,
     Set<String>? appliedRemoteFileIds,
+    Map<String, String>? localPrivateConflictChoices,
   }) {
     return SyncBundleState(
       lastRemoteFileId: lastRemoteFileId ?? this.lastRemoteFileId,
@@ -78,6 +85,8 @@ class SyncBundleState {
       deltaUploadsSinceFull:
           deltaUploadsSinceFull ?? this.deltaUploadsSinceFull,
       appliedRemoteFileIds: appliedRemoteFileIds ?? this.appliedRemoteFileIds,
+      localPrivateConflictChoices:
+          localPrivateConflictChoices ?? this.localPrivateConflictChoices,
     );
   }
 
@@ -97,6 +106,7 @@ class SyncBundleState {
       'deltaUploadsSinceFull': deltaUploadsSinceFull,
       if (appliedRemoteFileIds != null)
         'appliedRemoteFileIds': appliedRemoteFileIds!.toList()..sort(),
+      'localPrivateConflictChoices': localPrivateConflictChoices,
     };
   }
 
@@ -129,7 +139,28 @@ class SyncBundleState {
       appliedRemoteFileIds: knownIds == null
           ? null
           : Set.unmodifiable(knownIds),
+      localPrivateConflictChoices: _parseLocalPrivateConflictChoices(
+        json['localPrivateConflictChoices'],
+      ),
     );
+  }
+
+  static Map<String, String> _parseLocalPrivateConflictChoices(Object? raw) {
+    if (raw == null) return const <String, String>{};
+    if (raw is! Map ||
+        raw.entries.any(
+          (entry) =>
+              entry.key is! String ||
+              entry.key == '' ||
+              entry.value is! String ||
+              entry.value == '',
+        )) {
+      // Dropping a damaged choice only makes the conflict reviewable again;
+      // failing here would make the whole sync state unreadable.
+      logDiagnostic('sync', 'invalid local private conflict choices ignored');
+      return const <String, String>{};
+    }
+    return Map.unmodifiable(Map<String, String>.from(raw));
   }
 }
 
@@ -157,6 +188,47 @@ class SyncBundleStateStore {
   Future<void> write(SyncBundleState state) async {
     final prefs = await _sharedPreferencesProvider();
     await prefs.setString(storageKey, jsonEncode(state.toJson()));
+  }
+
+  Future<void> rememberLocalPrivateConflictChoice(
+    String noteId,
+    String remoteContentHash,
+  ) async {
+    if (noteId.isEmpty || remoteContentHash.isEmpty) return;
+    await _serialized(() async {
+      final current = await read();
+      await write(
+        current.copyWith(
+          localPrivateConflictChoices: {
+            ...current.localPrivateConflictChoices,
+            noteId: remoteContentHash,
+          },
+        ),
+      );
+    });
+  }
+
+  bool hasLocalPrivateConflictChoice(
+    SyncBundleState state,
+    String noteId,
+    String remoteContentHash,
+  ) => state.localPrivateConflictChoices[noteId] == remoteContentHash;
+
+  /// Drops choices whose local version is no longer waiting for upload.
+  Future<void> retainLocalPrivateConflictChoices(Set<String> noteIds) async {
+    await _serialized(() async {
+      final current = await read();
+      final choices = current.localPrivateConflictChoices;
+      if (choices.keys.every(noteIds.contains)) return;
+      await write(
+        current.copyWith(
+          localPrivateConflictChoices: Map.unmodifiable({
+            for (final entry in choices.entries)
+              if (noteIds.contains(entry.key)) entry.key: entry.value,
+          }),
+        ),
+      );
+    });
   }
 
   Future<void> recordRemoteStatus(RemoteSyncBundleStatus remoteStatus) async {

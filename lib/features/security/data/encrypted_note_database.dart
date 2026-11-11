@@ -186,18 +186,10 @@ class EncryptedNoteDatabase extends _$EncryptedNoteDatabase {
       final incomingIds = notes.map((record) => record.id).toSet();
       if (incomingIds.isEmpty) {
         await delete(encryptedNotes).go();
-        await delete(encryptedNoteAttachments).go();
-        await delete(pendingNoteChanges).go();
       } else {
         await (delete(
           encryptedNotes,
         )..where((table) => table.id.isNotIn(incomingIds))).go();
-        await (delete(
-          encryptedNoteAttachments,
-        )..where((table) => table.noteId.isNotIn(incomingIds))).go();
-        await (delete(
-          pendingNoteChanges,
-        )..where((table) => table.noteId.isNotIn(incomingIds))).go();
       }
 
       await delete(encryptedNoteAttachments).go();

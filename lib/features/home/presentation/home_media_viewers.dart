@@ -186,37 +186,12 @@ class _PinEntryField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label, style: Theme.of(context).textTheme.labelLarge),
         const SizedBox(height: 8),
-        Pinput(
-          controller: controller,
-          length: 4,
-          obscureText: true,
-          obscuringCharacter: '•',
-          keyboardType: TextInputType.number,
-          defaultPinTheme: PinTheme(
-            width: 42,
-            height: 52,
-            textStyle: Theme.of(context).textTheme.titleMedium,
-            decoration: BoxDecoration(
-              border: Border.all(color: Theme.of(context).dividerColor),
-              borderRadius: BorderRadius.circular(8),
-            ),
-          ),
-          focusedPinTheme: PinTheme(
-            width: 42,
-            height: 52,
-            textStyle: Theme.of(context).textTheme.titleMedium,
-            decoration: BoxDecoration(
-              border: Border.all(color: colorScheme.primary, width: 1.5),
-              borderRadius: BorderRadius.circular(8),
-            ),
-          ),
-        ),
+        AppPinInput(controller: controller),
       ],
     );
   }

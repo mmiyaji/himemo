@@ -16,12 +16,16 @@ class SyncQueueSummary {
     required this.upserts,
     required this.deletes,
     this.lastQueuedAt,
+    this.profileNameChanges = 0,
+    this.profileCredentialChanges = 0,
   });
 
   final int totalChanges;
   final int upserts;
   final int deletes;
   final DateTime? lastQueuedAt;
+  final int profileNameChanges;
+  final int profileCredentialChanges;
 
   bool get hasPendingChanges => totalChanges > 0;
 }
@@ -236,6 +240,10 @@ typedef SyncSnapshotPreparationProgressCallback = Future<void> Function(
   SyncSnapshotPreparationProgress progress,
 );
 
+/// First line of the user-facing failure message; the attachment label and
+/// note title follow on separate lines.
+const localAttachmentMissingMessageCode = 'sync.error.local_attachment_missing';
+
 class SyncAttachmentMissingException implements Exception {
   const SyncAttachmentMissingException({
     required this.noteId,
@@ -273,9 +281,13 @@ class SyncEngine {
   final EncryptedAttachmentStore _attachmentStore;
   final DeviceIdentityStore _deviceIdentityStore;
 
-  Future<SyncQueueSummary> summarizeQueue() async {
+  Future<SyncQueueSummary> summarizeQueue({
+    bool Function(PendingNoteChangeRecord change)? include,
+  }) async {
     final changes = await loadPendingChanges();
-    return _summarize(changes);
+    return _summarize(
+      include == null ? changes : changes.where(include).toList(),
+    );
   }
 
   Future<List<PendingNoteChangeRecord>> loadPendingChanges() {

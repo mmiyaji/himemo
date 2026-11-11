@@ -190,6 +190,51 @@ void main() {
     },
   );
 
+  test('sync rejects pre-rotation credentials on both devices', () async {
+    final source = service(MemorySecureKeyValueStore());
+    final target = service(MemorySecureKeyValueStore());
+    const vaultId = 'private_profile:credential-sync';
+    await source.configureProfile(vaultId: vaultId, password: 'old');
+    final old = await source.exportWrappedProfileKey(vaultId);
+    await target.importWrappedProfileKeys([old], requireNewerCredential: true);
+    expect(
+      await source.changeProfilePassword(vaultId: vaultId, newPassword: 'new'),
+      isTrue,
+    );
+    final revision = await source.pendingCredentialRevisions([vaultId]);
+    expect(revision, {vaultId: 1});
+    final rotated = await source.exportWrappedProfileKey(vaultId);
+    expect(rotated!.containsKey('credentialPending'), isFalse);
+    expect(
+      await target.importWrappedProfileKeys(
+        [rotated, old],
+        overwrite: true,
+        requireNewerCredential: true,
+      ),
+      1,
+    );
+    expect(
+      await source.importWrappedProfileKeys(
+        [old],
+        overwrite: true,
+        requireNewerCredential: true,
+      ),
+      0,
+    );
+    for (final keys in [source, target]) {
+      expect(
+        await keys.verifyProfilePassword(vaultId: vaultId, password: 'old'),
+        isFalse,
+      );
+      expect(
+        await keys.verifyProfilePassword(vaultId: vaultId, password: 'new'),
+        isTrue,
+      );
+    }
+    await source.acknowledgeCredentialRevisions(revision);
+    expect(await source.pendingCredentialRevisions([vaultId]), isEmpty);
+  });
+
   test('rotation updates admin wrap and deletion removes it', () async {
     final store = MemorySecureKeyValueStore();
     final keys = service(store);

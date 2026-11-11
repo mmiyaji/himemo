@@ -6,6 +6,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:crypto/crypto.dart';
 import 'package:drift/native.dart';
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:flutter/foundation.dart';
@@ -30,6 +31,7 @@ import 'package:himemo/features/security/data/encrypted_note_store.dart';
 import 'package:himemo/features/security/data/encryption_service.dart';
 import 'package:himemo/features/security/data/master_key_service.dart';
 import 'package:himemo/features/security/data/profile_data_key_service.dart';
+import 'package:himemo/features/security/data/profile_name_sync.dart';
 import 'package:himemo/features/security/data/secure_key_value_store.dart';
 import 'package:himemo/features/sync/data/secure_sync_bundle_store.dart';
 import 'package:himemo/features/sync/data/google_drive_sync_transport.dart';
@@ -228,6 +230,44 @@ void main() {
     expect(note.title, 'Title line');
     expect(note.body, 'Body line');
     expect(note.blocks.single.text, 'Body line');
+    final notes = container.read(notesControllerProvider.notifier);
+    await Future.wait([
+      for (var index = 0; index < 2; index++)
+        notes.createSharedFileCapture(
+          rawText: 'Shared text',
+          files: const [],
+          shareId: 'same-queue-entry',
+        ),
+    ]);
+    expect(
+      container
+          .read(notesControllerProvider)
+          .where((note) => note.id == 'ios-share-same-queue-entry'),
+      hasLength(1),
+    );
+  });
+
+  test('iOS share bridge acknowledges only the supplied queue ID', () async {
+    const channel = MethodChannel('org.ruhenheim.himemo/widget');
+    const shareId = '78F45394-C682-45A0-B539-90EBA2988D1F';
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final calls = <MethodCall>[];
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      calls.add(call);
+      return call.method == 'consumePendingQuickCapture'
+          ? {'source': 'share', 'shareId': shareId, 'nonce': shareId}
+          : null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final opened = <QuickCaptureRequest>[];
+    final bridge = WidgetQuickCaptureBridge(opened.add);
+    await bridge.openNextPending();
+    expect(opened.single.shareId, shareId);
+    expect(calls.single.method, 'consumePendingQuickCapture');
+    await bridge.acknowledgeSharedCapture(shareId);
+    expect(calls.last.method, 'acknowledgeSharedCapture');
+    expect(calls.last.arguments, shareId);
   });
 
   test(
@@ -1886,6 +1926,352 @@ void main() {
     },
   );
 
+  test(
+    'locked legacy notes do not block sync or lose their cloud bundle',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final transport = InMemoryGoogleDriveSyncTransport(
+        uploadDelay: Duration.zero,
+      );
+      final harness = await _createGoogleDriveSyncHarness(
+        transport,
+        tempPrefix: 'himemo-ignored-legacy-vault-',
+        randomSeed: 243,
+      );
+      final container = harness.container;
+      final bundleStore = container.read(secureSyncBundleStoreProvider);
+      final sync = container.read(syncTransferControllerProvider.notifier);
+      final notes = container.read(notesControllerProvider.notifier);
+      final createdAt = DateTime.utc(2026, 6, 2);
+      final stored = await bundleStore.writeBundle(
+        PreparedSyncSnapshot(
+          deviceId: 'older-device',
+          exportedAt: createdAt,
+          summary: const SyncQueueSummary(
+            totalChanges: 2,
+            upserts: 2,
+            deletes: 0,
+          ),
+          notes: [
+            for (final (id, vault) in [
+              ('forgotten-private-note', legacyPrivateVaultId),
+              ('ordinary-remote-note', 'everyday'),
+            ])
+              PreparedSyncNote(
+                action: PendingNoteChangeAction.upsert,
+                note: NoteEntry(
+                  id: id,
+                  vaultId: vault,
+                  title: id,
+                  body: '',
+                  createdAt: createdAt,
+                  contentHash: '$id-hash',
+                ),
+              ),
+          ],
+          attachments: const [],
+        ),
+        bundleKind: SyncBundleKind.full,
+      );
+      final legacy = await transport.uploadBundle(
+        encodedPayload: (await bundleStore.readEncryptedBundlePayload(
+          stored.reference,
+        ))!,
+        deviceId: 'older-device',
+        noteCount: 2,
+        attachmentCount: 0,
+        bundleKind: SyncBundleKind.full,
+      );
+      await notes.upsert(
+        NoteEntry(
+          id: 'ordinary-local-note',
+          vaultId: 'everyday',
+          title: 'Pending local edit',
+          body: '',
+          createdAt: createdAt,
+        ),
+      );
+
+      await sync.syncNow(allowCachedRemoteStatus: false);
+      final state = container.read(syncTransferControllerProvider);
+      expect(state.stage, SyncTransferStage.success, reason: state.message);
+      expect(
+        (await container.read(syncQueueSummaryProvider.future)).totalChanges,
+        0,
+      );
+      expect(
+        container.read(notesControllerProvider).map((note) => note.id),
+        unorderedEquals(['ordinary-remote-note', 'ordinary-local-note']),
+      );
+      expect(
+        (await transport.fetchLatestBundleStatus())?.fileId,
+        isNot(legacy.fileId),
+      );
+
+      // Push the legacy source outside the newest-three retention window.
+      for (var index = 0; index < 4; index++) {
+        await sync.reuploadAllCurrentNotes();
+        final state = container.read(syncTransferControllerProvider);
+        expect(state.stage, SyncTransferStage.success, reason: state.message);
+      }
+      final history = await transport.listBundleHistory(limit: 100);
+      expect(
+        history.take(3).map((item) => item.fileId),
+        isNot(contains(legacy.fileId)),
+      );
+      expect(history.map((item) => item.fileId), contains(legacy.fileId));
+    },
+  );
+
+  test('credential rotation uploads even without a note change', () async {
+    SharedPreferences.setMockInitialValues({});
+    final transport = _BeforeUploadGoogleDriveTransport();
+    final harness = await _createGoogleDriveSyncHarness(
+      transport,
+      tempPrefix: 'himemo-profile-credential-delta-',
+      randomSeed: 245,
+      devicePinStore: MemorySecureKeyValueStore(),
+    );
+    final container = harness.container;
+    final profiles = container.read(privateMemoProfileStoreProvider);
+    expect(
+      await profiles.addProfile(name: 'Private', password: 'old-passphrase'),
+      isNull,
+    );
+    final profile = (await profiles.listProfiles()).single;
+    expect(
+      await profiles.updateProfilePassword(
+        id: profile.id,
+        password: 'new-passphrase',
+      ),
+      isNull,
+    );
+    final keys = container.read(profileDataKeyServiceProvider);
+    expect(
+      await keys.setDevicePin(
+        vaultId: profile.vaultId,
+        recoveryPassword: 'new-passphrase',
+        pin: '1234',
+      ),
+      isTrue,
+    );
+    expect(
+      await container.read(syncEngineProvider).loadPendingChanges(),
+      isEmpty,
+    );
+    final sync = container.read(syncTransferControllerProvider.notifier);
+    await sync.syncNow(allowCachedRemoteStatus: false);
+    final result = container.read(syncTransferControllerProvider);
+    expect(result.stage, SyncTransferStage.success, reason: result.message);
+    final remote = (await transport.downloadLatestBundle())!;
+    final decoded = await container
+        .read(secureSyncBundleStoreProvider)
+        .readRemoteBundlePayloadJson(remote.encodedPayload);
+    final metadata = (decoded['privateProfiles'] as List).single as Map;
+    final credential = (metadata['dataKeys'] as List).single as Map;
+    expect(credential['credentialRevision'], 1);
+    expect(credential.containsKey('credentialPending'), isFalse);
+    final receiverStore = MemorySecureKeyValueStore();
+    final receiverEncryption = EncryptionService();
+    final receiver = ProfileDataKeyService(
+      secureStore: receiverStore,
+      encryptionService: receiverEncryption,
+      normalMasterKeyService: MasterKeyService(
+        secureStore: receiverStore,
+        keyFactory: receiverEncryption.generateKeyBytes,
+      ),
+    );
+    expect(await receiver.importWrappedProfileKeys([credential]), 1);
+    expect(
+      await receiver.unlockProfile(vaultId: profile.vaultId, password: '1234'),
+      isFalse,
+    );
+    expect(
+      await receiver.unlockProfile(
+        vaultId: profile.vaultId,
+        password: 'new-passphrase',
+      ),
+      isTrue,
+    );
+    expect(await profiles.pendingCredentialRevisions([profile]), isEmpty);
+  });
+
+  test(
+    'profile rename alone uploads and preserves a newer queued rename',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final transport = _BeforeUploadGoogleDriveTransport();
+      final harness = await _createGoogleDriveSyncHarness(
+        transport,
+        tempPrefix: 'himemo-profile-name-delta-',
+        randomSeed: 244,
+      );
+      final container = harness.container;
+      final store = container.read(privateMemoProfileStoreProvider);
+      final profiles = container.read(
+        privateMemoProfilesControllerProvider.notifier,
+      );
+      final bundleStore = container.read(secureSyncBundleStoreProvider);
+      final sync = container.read(syncTransferControllerProvider.notifier);
+      const profileId = 'rename-only-profile';
+      final now = DateTime.utc(2026, 6, 2);
+      final oldProfiles = <String, dynamic>{
+        'version': 1,
+        'profiles': [
+          {
+            'id': profileId,
+            'name': 'Old name',
+            'createdAt': now.toIso8601String(),
+          },
+        ],
+      };
+      await store.importSyncPayload(oldProfiles);
+      final oldBundle = await bundleStore.writeBundle(
+        PreparedSyncSnapshot(
+          deviceId: 'older-device',
+          exportedAt: now,
+          summary: const SyncQueueSummary(
+            totalChanges: 0,
+            upserts: 0,
+            deletes: 0,
+          ),
+          notes: const [],
+          attachments: const [],
+        ),
+        privateProfiles: [oldProfiles],
+      );
+      await transport.uploadBundle(
+        encodedPayload: (await bundleStore.readEncryptedBundlePayload(
+          oldBundle.reference,
+        ))!,
+        deviceId: 'older-device',
+        noteCount: 0,
+        attachmentCount: 0,
+      );
+
+      await profiles.renameProfile(id: profileId, name: 'First rename');
+      final firstChangeId =
+          (await store.listProfiles()).single.nameSync.pendingId;
+      expect(firstChangeId, isNotNull);
+      expect(
+        await container.read(syncEngineProvider).loadPendingChanges(),
+        isEmpty,
+      );
+      transport.beforeNextUpload = () async {
+        expect((await store.listProfiles()).single.name, 'First rename');
+        await profiles.renameProfile(id: profileId, name: 'Second rename');
+      };
+
+      Future<void> expectLatestRename(String name) async {
+        final latest = (await transport.downloadLatestBundle())!;
+        expect(latest.status.bundleKind, SyncBundleKind.delta);
+        expect(latest.status.noteCount, 0);
+        final decoded = await bundleStore.readRemoteBundlePayloadJson(
+          latest.encodedPayload,
+        );
+        final metadata = (decoded['privateProfiles'] as List).single as Map;
+        expect(metadata['namesOnly'], isTrue);
+        expect(metadata.containsKey('verifiers'), isFalse);
+        expect(metadata.containsKey('dataKeys'), isFalse);
+        final profile = (metadata['profiles'] as List).single as Map;
+        expect(profile['name'], name);
+        expect((profile['nameSync'] as Map).containsKey('pendingId'), isFalse);
+      }
+
+      await sync.syncNow(allowCachedRemoteStatus: false);
+      final firstResult = container.read(syncTransferControllerProvider);
+      expect(
+        firstResult.stage,
+        SyncTransferStage.success,
+        reason: firstResult.message,
+      );
+      await expectLatestRename('First rename');
+      final pending = (await store.listProfiles()).single;
+      expect(pending.name, 'Second rename');
+      expect(
+        pending.nameSync.pendingId,
+        allOf(isNotNull, isNot(firstChangeId)),
+      );
+
+      await sync.syncNow(allowCachedRemoteStatus: false);
+      final secondResult = container.read(syncTransferControllerProvider);
+      expect(
+        secondResult.stage,
+        SyncTransferStage.success,
+        reason: secondResult.message,
+      );
+      await expectLatestRename('Second rename');
+      expect((await store.listProfiles()).single.nameSync.pendingId, isNull);
+
+      final otherDevice = const ProfileNameSync().rename(
+        name: 'Name on iPad',
+        deviceId: 'ipad',
+        changeId: 'ipad-rename',
+      );
+      final concurrent = await bundleStore.writeBundle(
+        PreparedSyncSnapshot(
+          deviceId: 'ipad',
+          exportedAt: now,
+          summary: const SyncQueueSummary(
+            totalChanges: 0,
+            upserts: 0,
+            deletes: 0,
+          ),
+          notes: const [],
+          attachments: const [],
+        ),
+        privateProfiles: [
+          {
+            'version': 1,
+            'namesOnly': true,
+            'profiles': [
+              pending
+                  .copyWith(name: 'Name on iPad', nameSync: otherDevice)
+                  .toJson(includePending: false),
+            ],
+          },
+        ],
+        bundleKind: SyncBundleKind.delta,
+      );
+      final remote = await transport.uploadBundle(
+        encodedPayload: (await bundleStore.readEncryptedBundlePayload(
+          concurrent.reference,
+        ))!,
+        deviceId: 'ipad',
+        noteCount: 0,
+        attachmentCount: 0,
+        bundleKind: SyncBundleKind.delta,
+      );
+      await sync.syncNow(allowCachedRemoteStatus: false);
+      final conflicted = container.read(privateMemoProfilesProvider).single;
+      expect(conflicted.nameSync.hasConflict, isTrue);
+      expect(
+        conflicted.nameSync.heads.map((head) => head.name),
+        unorderedEquals(['Second rename', 'Name on iPad']),
+      );
+      expect(
+        (await transport.fetchLatestBundleStatus())?.fileId,
+        remote.fileId,
+      );
+      await container
+          .read(adminModeSessionControllerProvider.notifier)
+          .unlock();
+      expect(
+        await profiles.resolveNameConflict(
+          id: profileId,
+          name: 'Name on iPad',
+          expectedChangeIds: conflicted.nameSync.heads
+              .map((head) => head.id)
+              .toSet(),
+        ),
+        isTrue,
+      );
+      await sync.syncNow(allowCachedRemoteStatus: false);
+      await expectLatestRename('Name on iPad');
+      expect((await store.listProfiles()).single.nameSync.hasConflict, isFalse);
+    },
+  );
+
   test('full upload coverage excludes an injected older delta and preserves it for replay', () async {
     SharedPreferences.setMockInitialValues({});
     final transport = _ReorderedHistoryGoogleDriveTransport();
@@ -2356,6 +2742,106 @@ void main() {
       'bytes; attachment objects ${attachments.length}.',
     );
   });
+
+  test(
+    'missing local attachments reuse the cloud object or name the note',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final transport = _AttachmentRepairTestTransport();
+      final harness = await _createGoogleDriveSyncHarness(
+        transport,
+        tempPrefix: 'himemo-missing-local-attachment-',
+      );
+      final notes = harness.container.read(notesControllerProvider.notifier);
+      final sync = harness.container.read(
+        syncTransferControllerProvider.notifier,
+      );
+      Future<String> storePhoto(String name, int byte) async {
+        final source = await _writePayloadFile(
+          harness.tempDirectory,
+          name,
+          sizeBytes: 1024,
+          byte: byte,
+        );
+        return (await harness.attachmentStore.storeAttachment(
+          XFile(source.path, name: name),
+          type: AttachmentType.photo,
+        ))!;
+      }
+
+      NoteEntry photoNote(String id, String title, String path) => NoteEntry(
+        id: id,
+        vaultId: 'everyday',
+        title: title,
+        body: 'Has a photo',
+        createdAt: DateTime.utc(2026, 11, 8, 1),
+        updatedAt: DateTime.utc(2026, 11, 8, 1, 1),
+        attachments: [
+          NoteAttachment(
+            type: AttachmentType.photo,
+            label: '$id.png',
+            filePath: path,
+          ),
+        ],
+      );
+
+      final uploadedPath = await storePhoto('uploaded.png', 0x41);
+      final secondPath = await storePhoto('uploaded-second.png', 0x43);
+      await notes.upsert(photoNote('uploaded-note', 'Uploaded', uploadedPath));
+      await notes.upsert(photoNote('second-photo-note', 'Second', secondPath));
+      await sync.uploadCurrentBundle(force: true);
+      expect(
+        harness.container.read(syncTransferControllerProvider).stage,
+        SyncTransferStage.success,
+      );
+      // The latest bundle no longer contains the photo note.
+      await notes.upsert(
+        NoteEntry(
+          id: 'later-note',
+          vaultId: 'everyday',
+          title: 'Later',
+          body: 'No attachment',
+          createdAt: DateTime.utc(2026, 11, 8, 2),
+        ),
+      );
+      await sync.uploadCurrentBundle(force: true);
+
+      await harness.attachmentStore.deleteAttachment(uploadedPath);
+      await harness.attachmentStore.deleteAttachment(secondPath);
+      final latestDownloadsBeforeRepair = transport.latestDownloads;
+      await sync.uploadCurrentBundle(force: true, fullSnapshot: true);
+      expect(
+        harness.container.read(syncTransferControllerProvider).stage,
+        SyncTransferStage.success,
+      );
+      expect(transport.latestDownloads, latestDownloadsBeforeRepair);
+      final repaired = harness.container
+          .read(notesControllerProvider)
+          .singleWhere((note) => note.id == 'uploaded-note');
+      expect(
+        isSyncAttachmentObjectRef(repaired.attachments.single.filePath),
+        isTrue,
+      );
+      final repairedSecond = harness.container
+          .read(notesControllerProvider)
+          .singleWhere((note) => note.id == 'second-photo-note');
+      expect(
+        isSyncAttachmentObjectRef(repairedSecond.attachments.single.filePath),
+        isTrue,
+      );
+
+      final lostPath = await storePhoto('lost.png', 0x42);
+      await notes.upsert(photoNote('lost-note', 'Lost photo', lostPath));
+      await harness.attachmentStore.deleteAttachment(lostPath);
+      await sync.uploadCurrentBundle(force: true);
+      final failed = harness.container.read(syncTransferControllerProvider);
+      expect(failed.stage, SyncTransferStage.error);
+      expect(
+        failed.message,
+        '$localAttachmentMissingMessageCode\nlost-note.png\nLost photo',
+      );
+    },
+  );
 
   test(
     'Google Drive attachment upload failure keeps local attachment pending',
@@ -2917,6 +3403,346 @@ void main() {
     },
   );
 
+  test(
+    'a note conflict is held while the rest of the history applies',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final transport = InMemoryGoogleDriveSyncTransport(
+        uploadDelay: Duration.zero,
+      );
+      final harness = await _createGoogleDriveSyncHarness(
+        transport,
+        tempPrefix: 'himemo-conflict-held-replay-',
+      );
+      final container = harness.container;
+      final notes = container.read(notesControllerProvider.notifier);
+      final bundles = container.read(secureSyncBundleStoreProvider);
+      NoteEntry note(String id, String hash, {int revision = 1}) => NoteEntry(
+        id: id,
+        vaultId: 'everyday',
+        title: id,
+        body: 'Remote $hash',
+        createdAt: DateTime.utc(2026, 11, 1),
+        revision: revision,
+        contentHash: hash,
+      );
+      Future<void> publish(
+        List<NoteEntry> entries, {
+        required String kind,
+      }) async {
+        final stored = await bundles.writeBundle(
+          PreparedSyncSnapshot(
+            deviceId: 'remote-device',
+            exportedAt: DateTime.utc(2026, 11, 8),
+            summary: SyncQueueSummary(
+              totalChanges: entries.length,
+              upserts: entries.length,
+              deletes: 0,
+            ),
+            notes: [
+              for (final entry in entries)
+                PreparedSyncNote(
+                  action: PendingNoteChangeAction.upsert,
+                  note: entry,
+                ),
+            ],
+            attachments: const [],
+          ),
+          encryptedPrivateNotes: const [],
+          bundleKind: kind,
+        );
+        await transport.uploadBundle(
+          encodedPayload: (await bundles.readEncryptedBundlePayload(
+            stored.reference,
+          ))!,
+          deviceId: 'remote-device',
+          noteCount: entries.length,
+          attachmentCount: 0,
+          bundleKind: kind,
+        );
+      }
+
+      // This device edited the shared note; another device edited it too.
+      await notes.mergeFromSync([
+        PreparedSyncNote(
+          action: PendingNoteChangeAction.upsert,
+          note: note('shared', 'shared-v1'),
+        ),
+      ]);
+      final shared = container
+          .read(notesControllerProvider)
+          .singleWhere((entry) => entry.id == 'shared');
+      await notes.upsert(shared.copyWith(title: 'Local edit'));
+      await publish([
+        note('shared', 'shared-other-v2', revision: 2),
+        note('first-new', 'first-new-v1'),
+      ], kind: SyncBundleKind.full);
+      await publish([
+        note('later-new', 'later-new-v1'),
+      ], kind: SyncBundleKind.delta);
+      await notes.upsert(note('unrelated-local', 'unrelated-local-v1'));
+
+      await container
+          .read(syncTransferControllerProvider.notifier)
+          .syncNow(allowCachedRemoteStatus: false);
+
+      final byId = {
+        for (final entry in container.read(notesControllerProvider))
+          entry.id: entry,
+      };
+      expect(byId.keys, containsAll(['first-new', 'later-new']));
+      expect(byId['shared']?.title, 'Local edit');
+      expect(byId['shared']?.syncState, NoteSyncState.conflict);
+      expect(
+        container.read(syncTransferControllerProvider).message,
+        'sync.error.conflict_review_remote',
+      );
+      // The held note's local version is not published until it is reviewed.
+      final latest = await transport.downloadLatestBundle();
+      final latestJson = await bundles.readRemoteBundlePayloadJson(
+        latest!.encodedPayload,
+      );
+      final uploadedNotes = [
+        for (final raw in latestJson['notes'] as List<dynamic>? ?? const [])
+          (raw as Map)['note'] as Map,
+      ];
+      expect(
+        uploadedNotes.map((note) => note['title']),
+        isNot(contains('Local edit')),
+      );
+      expect(
+        uploadedNotes.map((note) => note['id']),
+        contains('unrelated-local'),
+      );
+    },
+  );
+
+  test(
+    'locked legacy private notes defer only their bundle during replay',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final transport = _UnlockReplayTestTransport();
+      final harness = await _createGoogleDriveSyncHarness(
+        transport,
+        tempPrefix: 'himemo-locked-legacy-replay-',
+      );
+      final container = harness.container;
+      const password = 'locked-legacy-replay-pass';
+      expect(
+        await container
+            .read(privateMemoProfilesControllerProvider.notifier)
+            .addProfile(name: 'Locked profile', password: password),
+        isNull,
+      );
+      final unlock = container.read(
+        privateProfileUnlockControllerProvider.notifier,
+      );
+      final profile = (await unlock.unlockWithPassword(password))!;
+      container.read(profileDataKeyServiceProvider).lockAllPrivateProfiles();
+      container.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
+      final bundles = container.read(secureSyncBundleStoreProvider);
+      NoteEntry note(String id, String vaultId, DateTime createdAt) =>
+          NoteEntry(
+            id: id,
+            vaultId: vaultId,
+            title: id,
+            body: 'Replay body',
+            createdAt: createdAt,
+            revision: 1,
+            contentHash: '$id-hash',
+          );
+      Future<RemoteSyncBundleStatus> publish(
+        List<NoteEntry> notes, {
+        String kind = SyncBundleKind.delta,
+      }) async {
+        final stored = await bundles.writeBundle(
+          PreparedSyncSnapshot(
+            deviceId: 'remote-device',
+            exportedAt: DateTime.utc(2026, 11, 8),
+            summary: SyncQueueSummary(
+              totalChanges: notes.length,
+              upserts: notes.length,
+              deletes: 0,
+            ),
+            notes: [
+              for (final entry in notes)
+                PreparedSyncNote(
+                  action: PendingNoteChangeAction.upsert,
+                  note: entry,
+                ),
+            ],
+            attachments: const [],
+          ),
+          encryptedPrivateNotes: const [],
+          bundleKind: kind,
+        );
+        return transport.uploadBundle(
+          encodedPayload: (await bundles.readEncryptedBundlePayload(
+            stored.reference,
+          ))!,
+          deviceId: 'remote-device',
+          noteCount: notes.length,
+          attachmentCount: 0,
+          bundleKind: kind,
+        );
+      }
+
+      // The oldest record still carries a plain legacy entry for a profile
+      // that is locked on this device.
+      final blocked = await publish([
+        note('legacy-private', profile.vaultId, DateTime.utc(2026, 7)),
+        note('same-bundle-public', 'everyday', DateTime.utc(2026, 7)),
+      ], kind: SyncBundleKind.full);
+      final later = await publish([
+        note('later-public', 'everyday', DateTime.utc(2026, 11)),
+      ]);
+
+      final sync = container.read(syncTransferControllerProvider.notifier);
+      await sync.syncNow(allowCachedRemoteStatus: false);
+
+      final ids = container.read(notesControllerProvider).map((n) => n.id);
+      final syncState = container.read(syncTransferControllerProvider);
+      expect(
+        ids,
+        containsAll(['same-bundle-public', 'later-public']),
+        reason: '${syncState.stage} ${syncState.message}',
+      );
+      expect(ids, isNot(contains('legacy-private')));
+      final applied =
+          (await container.read(syncBundleStateStoreProvider).read())
+              .appliedRemoteFileIds;
+      expect(applied, contains(later.fileId));
+      expect(applied, isNot(contains(blocked.fileId)));
+
+      final latestBlocked = await publish([
+        note('latest-legacy-private', profile.vaultId, DateTime.utc(2026, 11)),
+      ]);
+
+      // The deferred record is retried, and stays deferred, on the next sync,
+      // while this device's own edits still upload.
+      await container
+          .read(notesControllerProvider.notifier)
+          .upsert(
+            NoteEntry(
+              id: 'local-new',
+              vaultId: 'everyday',
+              title: 'Local new note',
+              body: 'Written while a locked profile record is deferred',
+              createdAt: DateTime.utc(2026, 11, 9),
+            ),
+          );
+      final progressValues = <double>[];
+      final progressSubscription = container.listen(
+        syncTransferControllerProvider,
+        (_, next) {
+          if (next.progressValue case final value?) progressValues.add(value);
+        },
+      );
+      addTearDown(progressSubscription.close);
+      await sync.syncNow(allowCachedRemoteStatus: false);
+      progressSubscription.close();
+      expect(progressValues, isNotEmpty);
+      expect(progressValues, orderedEquals([...progressValues]..sort()));
+      final afterUpload = container.read(syncTransferControllerProvider);
+      expect(
+        afterUpload.stage,
+        isNot(SyncTransferStage.error),
+        reason: afterUpload.message,
+      );
+      final appliedAfterUpload =
+          (await container.read(syncBundleStateStoreProvider).read())
+              .appliedRemoteFileIds;
+      expect(appliedAfterUpload, isNot(contains(blocked.fileId)));
+      expect(appliedAfterUpload, isNot(contains(latestBlocked.fileId)));
+      final latest = await transport.downloadLatestBundle();
+      final latestJson = await bundles.readRemoteBundlePayloadJson(
+        latest!.encodedPayload,
+      );
+      expect([
+        for (final raw in latestJson['notes'] as List<dynamic>? ?? const [])
+          ((raw as Map)['note'] as Map)['id'],
+      ], contains('local-new'));
+      await container
+          .read(notesControllerProvider.notifier)
+          .upsert(
+            note(
+              'local-pending-on-unlock',
+              'everyday',
+              DateTime.utc(2026, 11, 9),
+            ),
+          );
+      expect(await unlock.unlockWithPassword(password), isNotNull);
+      expect(
+        container.read(notesControllerProvider).map((note) => note.id),
+        containsAll(['legacy-private', 'latest-legacy-private']),
+      );
+      expect(
+        (await container.read(syncBundleStateStoreProvider).read())
+            .appliedRemoteFileIds,
+        containsAll([blocked.fileId, latestBlocked.fileId]),
+      );
+      expect(
+        (await transport.downloadLatestBundle())?.status.fileId,
+        latest.status.fileId,
+      );
+      expect(
+        container
+            .read(notesControllerProvider)
+            .singleWhere((note) => note.id == 'local-pending-on-unlock')
+            .syncState,
+        NoteSyncState.pendingUpload,
+      );
+
+      container.read(profileDataKeyServiceProvider).lockAllPrivateProfiles();
+      container.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
+      final cached = await publish([
+        note('cached-private', profile.vaultId, DateTime.utc(2026, 11)),
+      ]);
+      await sync.downloadBundle(cached);
+      await sync.applyDownloadedBundle();
+      await sync.downloadBundle(later);
+      await sync.applyDownloadedBundle();
+      transport.failHistory = true;
+
+      expect(await unlock.unlockWithPassword(password), isNotNull);
+      expect(
+        container.read(notesControllerProvider).map((note) => note.id),
+        contains('cached-private'),
+      );
+      expect(
+        (await container.read(syncBundleStateStoreProvider).read())
+            .appliedRemoteFileIds,
+        isNot(contains(cached.fileId)),
+      );
+      transport.failHistory = false;
+
+      await sync.refreshRemoteStatus();
+      await sync.applyDownloadedBundle();
+      expect(
+        (await container.read(syncBundleStateStoreProvider).read())
+            .appliedRemoteFileIds,
+        isNot(contains(cached.fileId)),
+      );
+
+      transport.pauseDownload = Completer<void>();
+      final download = sync.downloadBundle(later);
+      await transport.downloadStarted.future;
+      final historyReads = transport.historyReads;
+      final unlockReplay = sync.applyPendingPrivateDownloadedBundleIfNeeded();
+      await Future<void>.delayed(Duration.zero);
+      expect(transport.historyReads, historyReads);
+      transport.pauseDownload!.complete();
+      await download;
+      await unlockReplay;
+      expect(transport.historyReads, greaterThan(historyReads));
+      expect(
+        (await container.read(syncBundleStateStoreProvider).read())
+            .appliedRemoteFileIds,
+        contains(cached.fileId),
+      );
+    },
+  );
+
   test('sync does not apply a bundle with an unavailable attachment', () async {
     SharedPreferences.setMockInitialValues({});
     final transport = InMemoryGoogleDriveSyncTransport(
@@ -2994,6 +3820,194 @@ void main() {
     );
   });
 
+  test(
+    'private sync continues when only attachment storage and revision differ',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final transport = InMemoryGoogleDriveSyncTransport(
+        uploadDelay: Duration.zero,
+      );
+      final harness = await _createGoogleDriveSyncHarness(
+        transport,
+        tempPrefix: 'himemo-equivalent-private-sync-',
+      );
+      final container = harness.container;
+      const password = 'equivalent-note-pass-123';
+      expect(
+        await container
+            .read(privateMemoProfilesControllerProvider.notifier)
+            .addProfile(name: 'Equivalent note profile', password: password),
+        isNull,
+      );
+      final profile = (await container
+          .read(privateProfileUnlockControllerProvider.notifier)
+          .unlockWithPassword(password))!;
+      final key = (await container
+          .read(profileDataKeyServiceProvider)
+          .keyForVault(profile.vaultId))!;
+      final attachments = container.read(encryptedAttachmentStoreProvider);
+      final attachmentPayload = await attachments.encryptAttachmentBytes(
+        bytes: Uint8List.fromList([1, 2, 3]),
+        type: AttachmentType.photo,
+        vaultId: profile.vaultId,
+      );
+      final path = (await attachments.storeEncryptedPayload(
+        encodedPayload: attachmentPayload,
+        type: AttachmentType.photo,
+        fileNameHint: 'photo.jpg',
+        vaultId: profile.vaultId,
+      ))!;
+      final attachment = NoteAttachment(
+        type: AttachmentType.photo,
+        label: 'photo.jpg',
+        filePath: path,
+      );
+      final note = NoteEntry(
+        id: 'equivalent-private-note',
+        vaultId: profile.vaultId,
+        title: 'Same title',
+        body: 'Same body',
+        createdAt: DateTime.utc(2026, 7, 10),
+        attachments: [attachment],
+        blocks: [NoteBlock(type: NoteBlockType.photo, attachment: attachment)],
+      );
+      await container.read(notesControllerProvider.notifier).upsert(note);
+      final database = container.read(encryptedNoteDatabaseProvider);
+      final before = (await database.loadAll()).single;
+      final pending = (await database.loadPendingChanges()).single;
+      final controller = container.read(
+        syncTransferControllerProvider.notifier,
+      );
+      final bundles = container.read(secureSyncBundleStoreProvider);
+
+      Future<RemoteSyncBundleStatus> applyRemote(String attachmentHash) async {
+        final reference = attachment.copyWith(
+          filePath: syncAttachmentObjectRef(attachmentHash, managed: true),
+          syncAttachmentContentHash: attachmentHash,
+        );
+        final remoteNote = note.copyWith(
+          attachments: [reference],
+          blocks: [NoteBlock(type: NoteBlockType.photo, attachment: reference)],
+        );
+        final encrypted = await container
+            .read(encryptionServiceProvider)
+            .encryptJson(payload: remoteNote.toJson(), secretKey: key);
+        final exportedAt = DateTime.utc(2026, 7, 11);
+        final stored = await bundles.writeBundle(
+          PreparedSyncSnapshot(
+            deviceId: 'remote-device',
+            exportedAt: exportedAt,
+            summary: const SyncQueueSummary(
+              totalChanges: 1,
+              upserts: 1,
+              deletes: 0,
+            ),
+            notes: const [],
+            attachments: const [],
+          ),
+          encryptedPrivateNotes: [
+            PreparedEncryptedPrivateSyncNote(
+              action: PendingNoteChangeAction.upsert,
+              note: before.note.copyWith(
+                encryptedPayload: encrypted,
+                updatedAt: exportedAt,
+                revision: before.note.revision + 1,
+                syncState: NoteSyncState.synced,
+                contentHash: 'different-remote-note-hash',
+              ),
+              attachments: const [],
+            ),
+          ],
+          bundleKind: SyncBundleKind.full,
+        );
+        final remote = await transport.uploadBundle(
+          encodedPayload: (await bundles.readEncryptedBundlePayload(
+            stored.reference,
+          ))!,
+          deviceId: 'remote-device',
+          noteCount: 1,
+          attachmentCount: 1,
+          bundleKind: SyncBundleKind.full,
+        );
+        await controller.downloadBundle(remote);
+        await controller.applyDownloadedBundle();
+        return remote;
+      }
+
+      final hash = sha256.convert(utf8.encode(attachmentPayload)).toString();
+      final equivalent = await applyRemote(hash);
+      expect(
+        container.read(syncTransferControllerProvider).stage,
+        SyncTransferStage.success,
+      );
+      expect(
+        (await database.loadAll()).single.note.encryptedPayload,
+        before.note.encryptedPayload,
+      );
+      expect(
+        (await database.loadPendingChanges()).single.contentHash,
+        pending.contentHash,
+      );
+      final syncState = container.read(syncBundleStateStoreProvider);
+      expect(
+        (await syncState.read()).lastAppliedRemoteFileId,
+        equivalent.fileId,
+      );
+
+      final unavailableAttachment = attachment.copyWith(
+        filePath: 'unavailable-private-attachment.enc',
+        syncAttachmentContentHash: hash,
+      );
+      await container
+          .read(notesControllerProvider.notifier)
+          .upsert(
+            note.copyWith(
+              attachments: [unavailableAttachment],
+              blocks: [
+                NoteBlock(
+                  type: NoteBlockType.photo,
+                  attachment: unavailableAttachment,
+                ),
+              ],
+            ),
+          );
+      await applyRemote(hash);
+      expect(
+        container.read(syncTransferControllerProvider).stage,
+        SyncTransferStage.success,
+      );
+      final repairedAttachment = container
+          .read(notesControllerProvider)
+          .single
+          .attachments
+          .single;
+      expect(
+        syncAttachmentObjectContentHash(repairedAttachment.filePath),
+        hash,
+      );
+      expect(await database.loadPendingChanges(), hasLength(1));
+      final beforeConflict = (await database.loadAll()).single.note;
+
+      // A real difference holds only this note for review; the record
+      // still applies instead of stopping sync.
+      final conflicting = await applyRemote(
+        'different-attachment-content-hash',
+      );
+      expect(
+        container.read(syncTransferControllerProvider).stage,
+        SyncTransferStage.success,
+      );
+      expect(
+        (await syncState.read()).lastAppliedRemoteFileId,
+        conflicting.fileId,
+      );
+      final held = (await database.loadAll()).single.note;
+      expect(held.encryptedPayload, beforeConflict.encryptedPayload);
+      expect(held.syncState, NoteSyncState.conflict);
+      expect(await database.loadPendingChanges(), hasLength(1));
+    },
+  );
+
   test('private sync conflict preserves the local pending change', () async {
     SharedPreferences.setMockInitialValues({});
     final transport = InMemoryGoogleDriveSyncTransport(
@@ -3070,21 +4084,432 @@ void main() {
     await controller.downloadBundle(remote);
     await controller.applyDownloadedBundle();
 
+    // The locked profile cannot be compared now, so only this note is held
+    // for review; the record itself applies.
     final transfer = harness.container.read(syncTransferControllerProvider);
-    expect(transfer.stage, SyncTransferStage.error);
-    expect(transfer.message, 'sync.error.private_note_conflict');
+    expect(transfer.stage, isNot(SyncTransferStage.error));
     final pending = await database.loadPendingChanges();
     expect(pending, hasLength(1));
     expect(pending.single.contentHash, 'local-hash');
-    expect(
-      (await database.loadAll()).single.note.encryptedPayload,
-      'local-encrypted-note',
+    final held = (await database.loadAll()).single.note;
+    expect(held.encryptedPayload, 'local-encrypted-note');
+    expect(held.syncState, NoteSyncState.conflict);
+  });
+
+  group('private pending conflicts during replay', () {
+    const vaultId = 'private_profile:replay';
+    final queuedAt = DateTime.utc(2026, 7, 11, 1);
+
+    EncryptedNoteRecord privateRecord(
+      String id, {
+      required int revision,
+      required String contentHash,
+      String payload = 'local-encrypted-note',
+    }) => EncryptedNoteRecord(
+      id: id,
+      vaultId: vaultId,
+      encryptedPayload: payload,
+      createdAt: DateTime.utc(2026, 7, 10),
+      updatedAt: queuedAt,
+      revision: revision,
+      syncState: NoteSyncState.pendingUpload,
+      contentHash: contentHash,
+      isPinned: false,
     );
-    expect(
-      (await harness.container.read(syncBundleStateStoreProvider).read())
-          .lastAppliedRemoteFileId,
-      isNull,
+
+    Future<
+      ({
+        _GoogleDriveSyncHarness harness,
+        EncryptedNoteDatabase database,
+        Future<SyncTransferState> Function(
+          String deviceId,
+          List<EncryptedNoteRecord> remoteNotes,
+        )
+        apply,
+      })
+    >
+    setUpLocalPending(String prefix) async {
+      SharedPreferences.setMockInitialValues({});
+      final transport = InMemoryGoogleDriveSyncTransport(
+        uploadDelay: Duration.zero,
+      );
+      final harness = await _createGoogleDriveSyncHarness(
+        transport,
+        tempPrefix: prefix,
+      );
+      final database = harness.container.read(encryptedNoteDatabaseProvider);
+      final local = privateRecord(
+        'pending-note',
+        revision: 4,
+        contentHash: 'local-hash',
+      );
+      await database.upsertOne(
+        note: local,
+        attachments: const [],
+        pendingChange: PendingNoteChangeRecord(
+          noteId: local.id,
+          vaultId: vaultId,
+          revision: local.revision,
+          action: PendingNoteChangeAction.upsert,
+          queuedAt: queuedAt,
+          contentHash: local.contentHash,
+        ),
+      );
+      Future<SyncTransferState> apply(
+        String deviceId,
+        List<EncryptedNoteRecord> remoteNotes,
+      ) async {
+        final bundles = harness.container.read(secureSyncBundleStoreProvider);
+        final stored = await bundles.writeBundle(
+          PreparedSyncSnapshot(
+            deviceId: deviceId,
+            exportedAt: DateTime.utc(2026, 7, 11, 2),
+            summary: SyncQueueSummary(
+              totalChanges: remoteNotes.length,
+              upserts: remoteNotes.length,
+              deletes: 0,
+            ),
+            notes: const [],
+            attachments: const [],
+          ),
+          encryptedPrivateNotes: [
+            for (final note in remoteNotes)
+              PreparedEncryptedPrivateSyncNote(
+                action: PendingNoteChangeAction.upsert,
+                note: note.copyWith(syncState: NoteSyncState.synced),
+                attachments: const [],
+              ),
+          ],
+          bundleKind: SyncBundleKind.delta,
+        );
+        final remote = await transport.uploadBundle(
+          encodedPayload: (await bundles.readEncryptedBundlePayload(
+            stored.reference,
+          ))!,
+          deviceId: deviceId,
+          noteCount: remoteNotes.length,
+          attachmentCount: 0,
+          bundleKind: SyncBundleKind.delta,
+        );
+        final controller = harness.container.read(
+          syncTransferControllerProvider.notifier,
+        );
+        await controller.downloadBundle(remote);
+        await controller.applyDownloadedBundle();
+        return harness.container.read(syncTransferControllerProvider);
+      }
+
+      return (harness: harness, database: database, apply: apply);
+    }
+
+    Future<void> expectLocalPendingKept(EncryptedNoteDatabase database) async {
+      final pending = await database.loadPendingChanges();
+      expect(pending.map((change) => change.contentHash), ['local-hash']);
+      final local = (await database.loadAll()).firstWhere(
+        (snapshot) => snapshot.note.id == 'pending-note',
+      );
+      expect(local.note.encryptedPayload, 'local-encrypted-note');
+    }
+
+    // A conflict holds only this note for review; the apply itself completes.
+    Future<void> expectHeldForReview(
+      SyncTransferState result,
+      EncryptedNoteDatabase database,
+    ) async {
+      expect(result.stage, isNot(SyncTransferStage.error));
+      await expectLocalPendingKept(database);
+      final local = (await database.loadAll()).firstWhere(
+        (snapshot) => snapshot.note.id == 'pending-note',
+      );
+      expect(local.note.syncState, NoteSyncState.conflict);
+    }
+
+    test('an older version published by this device is skipped', () async {
+      final setup = await setUpLocalPending('himemo-private-own-older-');
+      final ownDeviceId = await setup.harness.container
+          .read(deviceIdentityStoreProvider)
+          .obtain();
+
+      final result = await setup.apply(ownDeviceId, [
+        privateRecord(
+          'pending-note',
+          revision: 2,
+          contentHash: 'own-older-hash',
+          payload: 'own-older-payload',
+        ),
+      ]);
+
+      expect(result.stage, SyncTransferStage.success);
+      await expectLocalPendingKept(setup.database);
+    });
+
+    test(
+      'a same-revision version from this device skips the locked comparison',
+      () async {
+        final setup = await setUpLocalPending('himemo-private-own-same-');
+        final ownDeviceId = await setup.harness.container
+            .read(deviceIdentityStoreProvider)
+            .obtain();
+
+        final result = await setup.apply(ownDeviceId, [
+          privateRecord(
+            'pending-note',
+            revision: 4,
+            contentHash: 'own-same-revision-hash',
+            payload: 'own-same-revision-payload',
+          ),
+        ]);
+
+        expect(result.stage, SyncTransferStage.success);
+        await expectLocalPendingKept(setup.database);
+      },
     );
+
+    test('a newer version from this device still needs review', () async {
+      final setup = await setUpLocalPending('himemo-private-own-newer-');
+      final ownDeviceId = await setup.harness.container
+          .read(deviceIdentityStoreProvider)
+          .obtain();
+
+      final result = await setup.apply(ownDeviceId, [
+        privateRecord(
+          'pending-note',
+          revision: 5,
+          contentHash: 'own-newer-hash',
+          payload: 'own-newer-payload',
+        ),
+      ]);
+
+      await expectHeldForReview(result, setup.database);
+      await expectLocalPendingKept(setup.database);
+    });
+
+    test(
+      'replay skips an older remote version when the pending one is published',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        final transport = InMemoryGoogleDriveSyncTransport(
+          uploadDelay: Duration.zero,
+        );
+        final harness = await _createGoogleDriveSyncHarness(
+          transport,
+          tempPrefix: 'himemo-private-published-replay-',
+        );
+        final container = harness.container;
+        final database = container.read(encryptedNoteDatabaseProvider);
+        final local = privateRecord(
+          'pending-note',
+          revision: 4,
+          contentHash: 'local-hash',
+        );
+        // A newer local version re-queued earlier, already in the cloud.
+        await database.upsertOne(
+          note: local,
+          attachments: const [],
+          pendingChange: PendingNoteChangeRecord(
+            noteId: local.id,
+            vaultId: vaultId,
+            revision: local.revision,
+            action: PendingNoteChangeAction.upsert,
+            queuedAt: queuedAt,
+            contentHash: local.contentHash,
+          ),
+        );
+        final bundles = container.read(secureSyncBundleStoreProvider);
+        Future<void> publish(
+          EncryptedNoteRecord note, {
+          required String kind,
+        }) async {
+          final stored = await bundles.writeBundle(
+            PreparedSyncSnapshot(
+              deviceId: 'remote-device',
+              exportedAt: DateTime.utc(2026, 11, 8),
+              summary: const SyncQueueSummary(
+                totalChanges: 1,
+                upserts: 1,
+                deletes: 0,
+              ),
+              notes: const [],
+              attachments: const [],
+            ),
+            encryptedPrivateNotes: [
+              PreparedEncryptedPrivateSyncNote(
+                action: PendingNoteChangeAction.upsert,
+                note: note.copyWith(syncState: NoteSyncState.synced),
+                attachments: const [],
+              ),
+            ],
+            bundleKind: kind,
+          );
+          await transport.uploadBundle(
+            encodedPayload: (await bundles.readEncryptedBundlePayload(
+              stored.reference,
+            ))!,
+            deviceId: 'remote-device',
+            noteCount: 1,
+            attachmentCount: 0,
+            bundleKind: kind,
+          );
+        }
+
+        await publish(
+          privateRecord(
+            'pending-note',
+            revision: 2,
+            contentHash: 'older-hash',
+            payload: 'older-payload',
+          ),
+          kind: SyncBundleKind.full,
+        );
+        await publish(local, kind: SyncBundleKind.delta);
+
+        await container
+            .read(syncTransferControllerProvider.notifier)
+            .syncNow(allowCachedRemoteStatus: false);
+
+        final result = container.read(syncTransferControllerProvider);
+        expect(result.message, isNot('sync.error.private_note_conflict'));
+        expect(
+          result.message,
+          isNot('sync.error.private_profile_unlock_required'),
+        );
+        expect(
+          (await database.loadAll()).single.note.encryptedPayload,
+          'local-encrypted-note',
+        );
+      },
+    );
+
+    test('an older version from another device still needs review', () async {
+      final setup = await setUpLocalPending('himemo-private-other-older-');
+
+      final result = await setup.apply('remote-device', [
+        privateRecord(
+          'pending-note',
+          revision: 2,
+          contentHash: 'other-older-hash',
+          payload: 'other-older-payload',
+        ),
+      ]);
+
+      await expectHeldForReview(result, setup.database);
+      await expectLocalPendingKept(setup.database);
+    });
+
+    test(
+      'a local choice skips only the chosen remote version until upload',
+      () async {
+        final setup = await setUpLocalPending('himemo-private-local-choice-');
+        final stateStore = setup.harness.container.read(
+          syncBundleStateStoreProvider,
+        );
+        await stateStore.rememberLocalPrivateConflictChoice(
+          'pending-note',
+          'chosen-remote-hash',
+        );
+        final chosen = privateRecord(
+          'pending-note',
+          revision: 5,
+          contentHash: 'chosen-remote-hash',
+          payload: 'chosen-remote-payload',
+        );
+
+        final first = await setup.apply('remote-device', [
+          chosen,
+          privateRecord(
+            'other-note',
+            revision: 1,
+            contentHash: 'other-note-hash',
+            payload: 'other-note-payload',
+          ),
+        ]);
+        expect(first.stage, SyncTransferStage.success);
+        await expectLocalPendingKept(setup.database);
+        expect(
+          (await setup.database.loadAll()).map((item) => item.note.id),
+          containsAll(['pending-note', 'other-note']),
+        );
+
+        // The same version replayed from a later bundle stays skipped while
+        // the local choice is still waiting for upload.
+        final replay = await setup.apply('remote-device', [chosen]);
+        expect(replay.stage, SyncTransferStage.success);
+        await expectLocalPendingKept(setup.database);
+
+        final different = await setup.apply('remote-device', [
+          privateRecord(
+            'pending-note',
+            revision: 6,
+            contentHash: 'different-remote-hash',
+            payload: 'different-remote-payload',
+          ),
+        ]);
+        await expectHeldForReview(different, setup.database);
+        await expectLocalPendingKept(setup.database);
+
+        await setup.database.deletePendingChangesByIds({'pending-note'});
+        await setup.apply('remote-device', [
+          privateRecord(
+            'other-note',
+            revision: 2,
+            contentHash: 'other-note-hash-2',
+            payload: 'other-note-payload-2',
+          ),
+        ]);
+        expect((await stateStore.read()).localPrivateConflictChoices, isEmpty);
+      },
+    );
+
+    test('a locked profile excluded from sync neither blocks apply nor counts as pending', () async {
+      final setup = await setUpLocalPending('himemo-private-excluded-');
+      final container = setup.harness.container;
+      expect(
+        (await container.read(syncQueueSummaryProvider.future)).totalChanges,
+        1,
+      );
+      await container
+          .read(privateProfileSyncExclusionsProvider.notifier)
+          .setExcluded(vaultId, true);
+
+      final result = await setup.apply('remote-device', [
+        privateRecord(
+          'pending-note',
+          revision: 9,
+          contentHash: 'unreadable-remote-hash',
+          payload: 'unreadable-remote-payload',
+        ),
+      ]);
+
+      expect(result.stage, SyncTransferStage.success);
+      await expectLocalPendingKept(setup.database);
+      expect(
+        (await container.read(syncQueueSummaryProvider.future)).totalChanges,
+        0,
+      );
+
+      await container
+          .read(privateProfileSyncExclusionsProvider.notifier)
+          .setExcluded(vaultId, false);
+      final included = await setup.apply('remote-device', [
+        privateRecord(
+          'pending-note',
+          revision: 9,
+          contentHash: 'unreadable-remote-hash',
+          payload: 'unreadable-remote-payload',
+        ),
+      ]);
+      await expectHeldForReview(included, setup.database);
+    });
+
+    test('malformed local conflict choices do not break sync state', () async {
+      SharedPreferences.setMockInitialValues({
+        'sync.bundle_state.v1': jsonEncode({
+          'localPrivateConflictChoices': {'note': 3},
+        }),
+      });
+      final state = await SyncBundleStateStore().read();
+      expect(state.localPrivateConflictChoices, isEmpty);
+    });
   });
 
   test('large Google Drive downloads warn on mobile data', () async {
@@ -4923,6 +6348,37 @@ void main() {
       findsOneWidget,
     );
 
+    await tester.tap(find.text('PIN').first);
+    await tester.pumpAndSettle();
+    final secretInput = find.byKey(
+      SettingsScreen.privateProfilePasswordInputKey,
+    );
+    final pinField = find.descendant(
+      of: secretInput,
+      matching: find.byType(TextField),
+    );
+    await tester.enterText(pinField, '1a2');
+    expect(tester.widget<TextField>(pinField).controller!.text, '12');
+    await tester.tap(find.byKey(SettingsScreen.privateProfileSubmitKey));
+    await tester.pumpAndSettle();
+    expect(find.text('Use at least 4 digits (0–9).'), findsNWidgets(2));
+    await tester.enterText(pinField, '1234');
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Low strength:'), findsOneWidget);
+
+    await tester.tap(find.text('Password').first);
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextFormField>(secretInput).controller!.text, isEmpty);
+    await tester.enterText(secretInput, 'letters123');
+    expect(
+      tester.widget<TextFormField>(secretInput).controller!.text,
+      'letters123',
+    );
+    expect(
+      tester.widget<TextFormField>(secretInput).validator!('letters123'),
+      isNull,
+    );
+
     await tester.tap(find.text('Cancel').last);
     await tester.pumpAndSettle();
 
@@ -6297,6 +7753,7 @@ Future<_GoogleDriveSyncHarness> _createGoogleDriveSyncHarness(
   GoogleDriveSyncTransport transport, {
   required String tempPrefix,
   int randomSeed = 66,
+  SecureKeyValueStore? devicePinStore,
 }) async {
   final tempDirectory = await Directory.systemTemp.createTemp(tempPrefix);
   final secureStore = MemorySecureKeyValueStore();
@@ -6317,6 +7774,15 @@ Future<_GoogleDriveSyncHarness> _createGoogleDriveSyncHarness(
       secureKeyValueStoreProvider.overrideWithValue(secureStore),
       encryptionServiceProvider.overrideWithValue(encryptionService),
       masterKeyServiceProvider.overrideWithValue(masterKeyService),
+      if (devicePinStore != null)
+        profileDataKeyServiceProvider.overrideWithValue(
+          ProfileDataKeyService(
+            secureStore: secureStore,
+            encryptionService: encryptionService,
+            normalMasterKeyService: masterKeyService,
+            devicePinStore: devicePinStore,
+          ),
+        ),
       encryptedNoteStoreProvider.overrideWith(
         (ref) => EncryptedNoteStore(
           encryptionService: encryptionService,
@@ -6442,6 +7908,35 @@ class _FakeNetworkConnectionService extends NetworkConnectionService {
 
   @override
   Future<NetworkConnectionKind> currentKind() async => kind;
+}
+
+class _BeforeUploadGoogleDriveTransport
+    extends InMemoryGoogleDriveSyncTransport {
+  _BeforeUploadGoogleDriveTransport() : super(uploadDelay: Duration.zero);
+
+  Future<void> Function()? beforeNextUpload;
+
+  @override
+  Future<RemoteSyncBundleStatus> uploadBundle({
+    required String encodedPayload,
+    required String deviceId,
+    required int noteCount,
+    required int attachmentCount,
+    String bundleKind = SyncBundleKind.full,
+    String? replayBaseFileId,
+  }) async {
+    final beforeUpload = beforeNextUpload;
+    beforeNextUpload = null;
+    await beforeUpload?.call();
+    return super.uploadBundle(
+      encodedPayload: encodedPayload,
+      deviceId: deviceId,
+      noteCount: noteCount,
+      attachmentCount: attachmentCount,
+      bundleKind: bundleKind,
+      replayBaseFileId: replayBaseFileId,
+    );
+  }
 }
 
 class _ReorderedHistoryGoogleDriveTransport
@@ -6586,6 +8081,18 @@ class _CountingGoogleDriveSyncTransport
   }
 }
 
+class _AttachmentRepairTestTransport extends InMemoryGoogleDriveSyncTransport {
+  _AttachmentRepairTestTransport() : super(uploadDelay: Duration.zero);
+
+  int latestDownloads = 0;
+
+  @override
+  Future<DownloadedRemoteSyncBundle?> downloadLatestBundle() {
+    latestDownloads++;
+    return super.downloadLatestBundle();
+  }
+}
+
 class _FailingBundleUploadTransport extends InMemoryGoogleDriveSyncTransport {
   _FailingBundleUploadTransport() : super(uploadDelay: Duration.zero);
 
@@ -6632,6 +8139,34 @@ class _FailingHistoryTransport extends InMemoryGoogleDriveSyncTransport {
   @override
   Future<List<RemoteSyncBundleStatus>> listBundleHistory({int limit = 10}) {
     throw StateError('simulated history failure');
+  }
+}
+
+class _UnlockReplayTestTransport extends InMemoryGoogleDriveSyncTransport {
+  _UnlockReplayTestTransport() : super(uploadDelay: Duration.zero);
+
+  bool failHistory = false;
+  int historyReads = 0;
+  Completer<void>? pauseDownload;
+  final downloadStarted = Completer<void>();
+
+  @override
+  Future<List<RemoteSyncBundleStatus>> listBundleHistory({int limit = 10}) {
+    historyReads++;
+    if (failHistory) throw StateError('simulated history failure');
+    return super.listBundleHistory(limit: limit);
+  }
+
+  @override
+  Future<DownloadedRemoteSyncBundle?> downloadBundleByFileId(
+    String fileId,
+  ) async {
+    final pause = pauseDownload;
+    if (pause != null && !pause.isCompleted) {
+      downloadStarted.complete();
+      await pause.future;
+    }
+    return super.downloadBundleByFileId(fileId);
   }
 }
 

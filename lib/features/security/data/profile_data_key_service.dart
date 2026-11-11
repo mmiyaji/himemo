@@ -22,6 +22,7 @@ class ProfileDataKeyService {
     required this._normalMasterKeyService,
     this.storagePrefix = 'security.profile_data_key.v1.',
     this.enableLocalAdminAccess = true,
+    this.devicePinStore,
   });
 
   final SecureKeyValueStore _secureStore;
@@ -29,6 +30,7 @@ class ProfileDataKeyService {
   final MasterKeyService _normalMasterKeyService;
   final String storagePrefix;
   final bool enableLocalAdminAccess;
+  final SecureKeyValueStore? devicePinStore;
   final Map<String, SecretKey> _unlockedProfileKeys = {};
   int _lockGeneration = 0;
 
@@ -42,6 +44,7 @@ class ProfileDataKeyService {
   Future<void> configureProfile({
     required String vaultId,
     required String password,
+    bool queueCredentialSync = false,
   }) async {
     final generation = ++_lockGeneration;
     final dataKeyBytes = _encryptionService.generateKeyBytes();
@@ -58,6 +61,7 @@ class ProfileDataKeyService {
       'kdf': 'pbkdf2-sha256',
       'salt': base64Encode(salt),
       'wrappedDataKey': wrappedDataKey,
+      if (queueCredentialSync) 'credentialPending': true,
     };
     await _secureStore.write('$storagePrefix$vaultId', jsonEncode(payload));
     try {
@@ -82,11 +86,13 @@ class ProfileDataKeyService {
   }) async {
     final generation = _lockGeneration;
     final profilePayload = await _readProfilePayload(vaultId);
-    final dataKeyBytes = await _unwrapProfileKey(
-      vaultId: vaultId,
-      password: password,
-      profilePayload: profilePayload,
-    );
+    final dataKeyBytes =
+        await _unwrapDevicePin(vaultId, password, profilePayload) ??
+        await _unwrapProfileKey(
+          vaultId: vaultId,
+          password: password,
+          profilePayload: profilePayload,
+        );
     if (dataKeyBytes == null) {
       return false;
     }
@@ -126,6 +132,82 @@ class ProfileDataKeyService {
         null;
   }
 
+  String _devicePinStorageKey(String vaultId) =>
+      '${storagePrefix}device_pin.$vaultId';
+
+  Future<bool> setDevicePin({
+    required String vaultId,
+    required String recoveryPassword,
+    required String pin,
+  }) async {
+    final store = devicePinStore;
+    if (store == null ||
+        !isProfileUnlocked(vaultId) ||
+        !RegExp(r'^\d{4,}$').hasMatch(pin) ||
+        recoveryPassword.trim().runes.length < 10 ||
+        RegExp(r'^\d+$').hasMatch(recoveryPassword.trim())) {
+      return false;
+    }
+    final generation = _lockGeneration;
+    final payload = await _readProfilePayload(vaultId);
+    if (payload == null) return false;
+    final bytes = await _unwrapProfileKey(
+      vaultId: vaultId,
+      password: recoveryPassword,
+      profilePayload: payload,
+    );
+    if (bytes == null) return false;
+    final fingerprint = await _profilePayloadFingerprint(payload);
+    final salt = _encryptionService.generateSalt();
+    final deviceSecret = base64Encode(_encryptionService.generateKeyBytes());
+    final key = await _derivePasswordKey('$deviceSecret:$pin', salt);
+    final wrapped = await _encryptionService.encryptBytes(
+      clearBytes: bytes,
+      secretKey: key,
+      additionalData: utf8.encode('profile-device-pin:$vaultId:$fingerprint'),
+    );
+    if (await _profilePayloadChanged(vaultId, payload) ||
+        generation != _lockGeneration) {
+      return false;
+    }
+    await store.write(
+      _devicePinStorageKey(vaultId),
+      jsonEncode({
+        'secret': deviceSecret,
+        'salt': base64Encode(salt),
+        'wrapped': wrapped,
+        'fingerprint': fingerprint,
+      }),
+    );
+    return true;
+  }
+
+  Future<List<int>?> _unwrapDevicePin(
+    String vaultId,
+    String pin,
+    Map<String, dynamic>? payload,
+  ) async {
+    if (payload == null || !RegExp(r'^\d{4,}$').hasMatch(pin)) return null;
+    try {
+      final raw = await devicePinStore?.read(_devicePinStorageKey(vaultId));
+      if (raw == null) return null;
+      final record = jsonDecode(raw) as Map<String, dynamic>;
+      final fingerprint = await _profilePayloadFingerprint(payload);
+      if (record['fingerprint'] != fingerprint) return null;
+      final key = await _derivePasswordKey(
+        '${record['secret']}:$pin',
+        base64Decode(record['salt'] as String),
+      );
+      return await _encryptionService.decryptBytes(
+        encodedPayload: record['wrapped'] as String,
+        secretKey: key,
+        additionalData: utf8.encode('profile-device-pin:$vaultId:$fingerprint'),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<List<int>?> _unwrapProfileKey({
     required String vaultId,
     required String password,
@@ -160,6 +242,7 @@ class ProfileDataKeyService {
     if (dataKey == null) {
       return false;
     }
+    final previous = await _readProfilePayload(vaultId);
     final dataKeyBytes = await dataKey.extractBytes();
     final salt = _encryptionService.generateSalt();
     final passwordKey = await _derivePasswordKey(newPassword, salt);
@@ -173,6 +256,8 @@ class ProfileDataKeyService {
       'kdf': 'pbkdf2-sha256',
       'salt': base64Encode(salt),
       'wrappedDataKey': wrappedDataKey,
+      'credentialRevision': _credentialRevision(previous) + 1,
+      'credentialPending': true,
     };
     await _secureStore.write('$storagePrefix$vaultId', jsonEncode(payload));
     try {
@@ -269,7 +354,15 @@ class ProfileDataKeyService {
       if (!_isValidWrappedKey(decoded)) {
         return null;
       }
-      return <String, dynamic>{'vaultId': vaultId, ...decoded};
+      return <String, dynamic>{
+        'vaultId': vaultId,
+        'version': decoded['version'],
+        'kdf': decoded['kdf'],
+        'salt': decoded['salt'],
+        'wrappedDataKey': decoded['wrappedDataKey'],
+        if (decoded['credentialRevision'] is int)
+          'credentialRevision': decoded['credentialRevision'],
+      };
     } catch (_) {
       return null;
     }
@@ -295,6 +388,7 @@ class ProfileDataKeyService {
   Future<int> importWrappedProfileKeys(
     Iterable<dynamic> entries, {
     bool overwrite = false,
+    bool requireNewerCredential = false,
   }) async {
     var imported = 0;
     for (final raw in entries) {
@@ -306,7 +400,9 @@ class ProfileDataKeyService {
       if (vaultId == null || !isProfileDataKeyPrivateVaultId(vaultId)) {
         continue;
       }
-      final payload = Map<String, dynamic>.from(decoded)..remove('vaultId');
+      final payload = Map<String, dynamic>.from(decoded)
+        ..remove('vaultId')
+        ..remove('credentialPending');
       if (!_isValidWrappedKey(payload)) {
         continue;
       }
@@ -315,10 +411,17 @@ class ProfileDataKeyService {
       if (!overwrite && existing != null && existing.isNotEmpty) {
         continue;
       }
+      final oldPayload = existing == null || existing.isEmpty
+          ? null
+          : await _readProfilePayload(vaultId, stored: existing);
+      if (requireNewerCredential &&
+          oldPayload != null &&
+          _credentialRevision(payload) <= _credentialRevision(oldPayload)) {
+        continue;
+      }
       _lockGeneration++;
       await _secureStore.write(storageKey, jsonEncode(payload));
       if (existing != null && existing.isNotEmpty) {
-        final oldPayload = await _readProfilePayload(vaultId, stored: existing);
         if (oldPayload == null ||
             await _profilePayloadFingerprint(oldPayload) !=
                 await _profilePayloadFingerprint(payload)) {
@@ -331,6 +434,42 @@ class ProfileDataKeyService {
     return imported;
   }
 
+  int _credentialRevision(Map<String, dynamic>? payload) {
+    final revision = payload?['credentialRevision'];
+    return revision is int && revision > 0 ? revision : 0;
+  }
+
+  Future<Map<String, int>> pendingCredentialRevisions(
+    Iterable<String> vaultIds,
+  ) async {
+    final revisions = <String, int>{};
+    for (final vaultId in vaultIds) {
+      final payload = await _readProfilePayload(vaultId);
+      if (payload?['credentialPending'] == true) {
+        revisions[vaultId] = _credentialRevision(payload);
+      }
+    }
+    return revisions;
+  }
+
+  Future<void> acknowledgeCredentialRevisions(
+    Map<String, int> revisions,
+  ) async {
+    for (final entry in revisions.entries) {
+      final payload = await _readProfilePayload(entry.key);
+      if (payload == null ||
+          payload['credentialPending'] != true ||
+          _credentialRevision(payload) != entry.value) {
+        continue;
+      }
+      payload.remove('credentialPending');
+      await _secureStore.write(
+        '$storagePrefix${entry.key}',
+        jsonEncode(payload),
+      );
+    }
+  }
+
   bool isProfileUnlocked(String vaultId) {
     return _unlockedProfileKeys.containsKey(vaultId);
   }
@@ -340,6 +479,7 @@ class ProfileDataKeyService {
     _unlockedProfileKeys.remove(vaultId);
     await _secureStore.delete('$storagePrefix$vaultId');
     await _secureStore.delete(_adminStorageKey(vaultId));
+    await devicePinStore?.delete(_devicePinStorageKey(vaultId));
   }
 
   void lockProfile(String vaultId) {
@@ -347,17 +487,15 @@ class ProfileDataKeyService {
     _unlockedProfileKeys.remove(vaultId);
   }
 
-  void lockAllPrivateProfiles({String? exceptVaultId}) {
+  void lockAllPrivateProfiles({
+    String? exceptVaultId,
+    Iterable<String> additionalVaultIds = const [],
+  }) {
     _lockGeneration++;
-    if (exceptVaultId == null) {
-      _unlockedProfileKeys.clear();
-      return;
-    }
-    final retained = _unlockedProfileKeys[exceptVaultId];
-    _unlockedProfileKeys.clear();
-    if (retained != null) {
-      _unlockedProfileKeys[exceptVaultId] = retained;
-    }
+    _unlockedProfileKeys.removeWhere(
+      (vaultId, _) =>
+          vaultId != exceptVaultId && !additionalVaultIds.contains(vaultId),
+    );
   }
 
   Future<SecretKey> _derivePasswordKey(String password, List<int> salt) async {

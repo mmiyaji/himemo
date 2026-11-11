@@ -535,11 +535,20 @@ class MethodChannelICloudSyncTransport
     required String uploadId,
     required String publishedBundleId,
   }) async {
-    await _invokeMap('managedReleaseAttachment', {
-      'recordId': recordId,
-      'uploadId': uploadId,
-      'publishedBundleId': publishedBundleId,
-    });
+    // The native side acknowledges a release with `true`, not a map.
+    final result = await _withCloudKitRetry(
+      'managedReleaseAttachment',
+      () => _channel.invokeMethod<dynamic>('managedReleaseAttachment', {
+        'recordId': recordId,
+        'uploadId': uploadId,
+        'publishedBundleId': publishedBundleId,
+      }),
+    );
+    if (result != true) {
+      throw FormatException(
+        'CloudKit did not acknowledge the attachment release: $result.',
+      );
+    }
   }
 
   @override

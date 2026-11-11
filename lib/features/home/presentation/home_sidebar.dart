@@ -97,6 +97,7 @@ class _Sidebar extends StatelessWidget {
                     summaries: tagSummaries,
                     activeTags: activeTags,
                     onTagSelected: onTagSelected,
+                    onShowAllNotes: onShowAllNotes,
                   ),
                 _SidebarItem(
                   itemKey: AppShell.calendarNavKey,
@@ -132,17 +133,18 @@ class _Sidebar extends StatelessWidget {
                   selected: section == AppSection.trash,
                   onTap: () => onSectionSelected(AppSection.trash),
                 ),
+                const Divider(height: 20, indent: 16, endIndent: 16),
                 _SidebarItem(
                   itemKey: AppShell.tagsNavKey,
                   icon: Icons.sell_outlined,
                   selectedIcon: Icons.sell_rounded,
                   label: strings.localized(
-                    en: 'Tags',
-                    ja: '\u30bf\u30b0',
-                    zh: '\u6807\u7b7e',
-                    ko: '\ud0dc\uadf8',
-                    es: 'Etiquetas',
-                    de: 'Tags',
+                    en: 'Manage tags',
+                    ja: 'タグ管理',
+                    zh: '管理标签',
+                    ko: '태그 관리',
+                    es: 'Gestionar etiquetas',
+                    de: 'Tags verwalten',
                   ),
                   showLabel: !collapsed,
                   selected: section == AppSection.tags,
@@ -310,23 +312,24 @@ class _SidebarTagSection extends StatefulWidget {
     required this.summaries,
     required this.activeTags,
     required this.onTagSelected,
+    required this.onShowAllNotes,
   });
 
   final List<VisibleTagSummary> summaries;
   final List<String> activeTags;
   final ValueChanged<String> onTagSelected;
+  final VoidCallback onShowAllNotes;
 
   @override
   State<_SidebarTagSection> createState() => _SidebarTagSectionState();
 }
 
 class _SidebarTagSectionState extends State<_SidebarTagSection> {
-  bool _expanded = false;
+  bool _expanded = true;
 
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
-    final theme = Theme.of(context);
     final activeKeys = widget.activeTags.map(canonicalizeNoteTag).toSet();
     final selectedSummaries = activeKeys.isEmpty
         ? const <VisibleTagSummary>[]
@@ -336,9 +339,7 @@ class _SidebarTagSectionState extends State<_SidebarTagSection> {
                     activeKeys.contains(canonicalizeNoteTag(summary.name)),
               )
               .toList(growable: false);
-    final baseSummaries = widget.summaries
-        .take(_expanded ? 14 : 5)
-        .toList(growable: true);
+    final baseSummaries = widget.summaries.take(14).toList(growable: true);
     for (final selected in selectedSummaries) {
       final selectedKey = canonicalizeNoteTag(selected.name);
       if (!baseSummaries.any(
@@ -347,61 +348,62 @@ class _SidebarTagSectionState extends State<_SidebarTagSection> {
         baseSummaries.add(selected);
       }
     }
-    final visibleSummaries = List<VisibleTagSummary>.unmodifiable(
-      baseSummaries,
-    );
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 2, 12, 8),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerLowest.withValues(
-            alpha: 0.66,
-          ),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: theme.dividerColor),
-        ),
-        child: Column(
-          children: [
-            InkWell(
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(8),
+      padding: const EdgeInsetsDirectional.fromSTEB(12, 4, 12, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Semantics(
+            button: true,
+            expanded: _expanded,
+            child: ListTile(
+              dense: true,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(6),
               ),
               onTap: () => setState(() => _expanded = !_expanded),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(10, 8, 8, 6),
-                child: Row(
-                  children: [
-                    const Icon(Icons.sell_outlined, size: 16),
-                    const SizedBox(width: 8),
-                    Expanded(
+              leading: Icon(
+                _expanded
+                    ? Icons.expand_more_rounded
+                    : Icons.chevron_right_rounded,
+              ),
+              title: Text(strings.text('home.filter.by.tag')),
+            ),
+          ),
+          if (_expanded)
+            Padding(
+              padding: const EdgeInsetsDirectional.only(start: 32),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ...baseSummaries.map((summary) {
+                    final selected = activeKeys.contains(
+                      canonicalizeNoteTag(summary.name),
+                    );
+                    return _SidebarTagTile(
+                      summary: summary,
+                      selected: selected,
+                      onTap: () => widget.onTagSelected(summary.name),
+                    );
+                  }),
+                  if (activeKeys.isNotEmpty)
+                    TextButton(
+                      onPressed: widget.onShowAllNotes,
                       child: Text(
-                        strings.text('home.tags'),
-                        style: theme.textTheme.labelLarge,
+                        strings.localized(
+                          en: 'All notes',
+                          ja: 'すべてのノート',
+                          zh: '所有笔记',
+                          ko: '모든 노트',
+                          es: 'Todas las notas',
+                          de: 'Alle Notizen',
+                        ),
                       ),
                     ),
-                    Icon(
-                      _expanded
-                          ? Icons.expand_less_rounded
-                          : Icons.expand_more_rounded,
-                      size: 18,
-                    ),
-                  ],
-                ),
+                ],
               ),
             ),
-            if (_expanded || activeKeys.isNotEmpty)
-              ...visibleSummaries.map((summary) {
-                final selected = activeKeys.contains(
-                  canonicalizeNoteTag(summary.name),
-                );
-                return _SidebarTagTile(
-                  summary: summary,
-                  selected: selected,
-                  onTap: () => widget.onTagSelected(summary.name),
-                );
-              }),
-          ],
-        ),
+        ],
       ),
     );
   }

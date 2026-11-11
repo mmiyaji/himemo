@@ -70,6 +70,42 @@ final syncBundleStateStoreProvider = Provider<SyncBundleStateStore>((ref) {
   return SyncBundleStateStore();
 });
 
+final privateProfileSyncExclusionStoreProvider =
+    Provider<PrivateProfileSyncExclusionStore>((ref) {
+      return PrivateProfileSyncExclusionStore();
+    });
+
+/// Vault IDs left out of sync while locked. Sync code reloads the store at
+/// each entry point instead of relying on this asynchronously restored view.
+final privateProfileSyncExclusionsProvider =
+    NotifierProvider<PrivateProfileSyncExclusionsController, Set<String>>(
+      PrivateProfileSyncExclusionsController.new,
+    );
+
+class PrivateProfileSyncExclusionsController extends Notifier<Set<String>> {
+  @override
+  Set<String> build() {
+    unawaited(load());
+    return const <String>{};
+  }
+
+  Future<Set<String>> load() async {
+    final loaded = await ref
+        .read(privateProfileSyncExclusionStoreProvider)
+        .read();
+    if (ref.mounted) state = loaded;
+    return loaded;
+  }
+
+  Future<void> setExcluded(String vaultId, bool excluded) async {
+    final next = await ref
+        .read(privateProfileSyncExclusionStoreProvider)
+        .setExcluded(vaultId, excluded);
+    if (ref.mounted) state = next;
+    ref.invalidate(syncQueueSummaryProvider);
+  }
+}
+
 final syncBundleStateProvider = FutureProvider<SyncBundleState>((ref) async {
   return ref.watch(syncBundleStateStoreProvider).read();
 });
@@ -86,8 +122,59 @@ final syncConflictWarningProvider = Provider<String?>((ref) {
 });
 
 final syncQueueSummaryProvider = FutureProvider<SyncQueueSummary>((ref) async {
-  return ref.watch(syncEngineProvider).summarizeQueue();
+  final excludedVaultIds = await ref
+      .read(privateProfileSyncExclusionStoreProvider)
+      .read();
+  final profileKeys = ref.read(profileDataKeyServiceProvider);
+  final webPendingDeletions = kIsWeb
+      ? ref
+            .read(notesControllerProvider)
+            .where(
+              (note) =>
+                  note.isPermanentlyDeleted &&
+                  note.syncState == NoteSyncState.pendingDelete &&
+                  (!excludedVaultIds.contains(note.vaultId) ||
+                      profileKeys.isProfileUnlocked(note.vaultId)),
+            )
+            .length
+      : 0;
+  return _summarizeSyncQueue(
+    ref.watch(syncEngineProvider),
+    ref.watch(privateMemoProfileStoreProvider),
+    webPendingDeletions: webPendingDeletions,
+    // Excluded locked profiles never upload, so they must not keep automatic
+    // sync retrying as if work were pending.
+    include: (change) =>
+        !excludedVaultIds.contains(change.vaultId) ||
+        profileKeys.isProfileUnlocked(change.vaultId),
+  );
 });
+
+Future<SyncQueueSummary> _summarizeSyncQueue(
+  SyncEngine engine,
+  PrivateMemoProfileStore profiles, {
+  bool Function(PendingNoteChangeRecord change)? include,
+  int webPendingDeletions = 0,
+}) async {
+  final queue = await engine.summarizeQueue(include: include);
+  final profileList = await profiles.listProfiles();
+  final pendingNames = profileList
+      .where((profile) => profile.nameSync.sendableId != null)
+      .length;
+  final pendingCredentials = (await profiles.pendingCredentialRevisions(
+    profileList,
+  )).length;
+  final profileChanges = pendingNames + pendingCredentials;
+  if (profileChanges == 0 && webPendingDeletions == 0) return queue;
+  return SyncQueueSummary(
+    totalChanges: queue.totalChanges + profileChanges + webPendingDeletions,
+    upserts: queue.upserts + profileChanges,
+    deletes: queue.deletes + webPendingDeletions,
+    lastQueuedAt: queue.lastQueuedAt,
+    profileNameChanges: pendingNames,
+    profileCredentialChanges: pendingCredentials,
+  );
+}
 
 final syncHistoryStoreProvider = Provider<SyncHistoryStore>((ref) {
   return SyncHistoryStore();
