@@ -236,6 +236,7 @@ class _SettingsGroup extends StatelessWidget {
                   compact ? 12 : 16,
                   compact ? 10 : 14,
                 ),
+                expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
                 leading: _SettingsSectionIcon(icon: icon),
                 title: Text(title, style: theme.textTheme.titleMedium),
                 subtitle: Padding(
@@ -253,7 +254,21 @@ class _SettingsGroup extends StatelessWidget {
                 collapsedShape: RoundedRectangleBorder(
                   borderRadius: borderRadius,
                 ),
-                children: children,
+                // Body rows share the header's text column: list/radio titles
+                // start where the group title starts (icon box 36 + gap 12),
+                // and plain labels sit on the left edge instead of centering.
+                children: [
+                  ListTileTheme(
+                    data: ListTileTheme.of(
+                      context,
+                    ).copyWith(minLeadingWidth: 36, horizontalTitleGap: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: children,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -281,6 +296,27 @@ class _SettingsSectionLabel extends StatelessWidget {
             color: _mutedTextColor(context),
             fontWeight: FontWeight.w700,
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Helper text under a settings field, aligned to the field's own left edge
+/// (the built-in InputDecoration helper is inset by the field padding).
+class _SettingsFieldHelper extends StatelessWidget {
+  const _SettingsFieldHelper({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Text(
+        text,
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: _mutedTextColor(context),
         ),
       ),
     );

@@ -296,6 +296,9 @@ class _AppShellState extends ConsumerState<AppShell> {
 
     final shell = Scaffold(
       appBar: AppBar(
+        // With the side rail, line the brand mark up with the rail icons
+        // (rail item padding 12 + tile padding 16).
+        titleSpacing: useRail ? 28 : null,
         title: const _AppBrandTitle(),
         actions: [
           if (showSyncIndicator)

@@ -33,7 +33,7 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
     return CustomScrollView(
       slivers: [
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
+          padding: const EdgeInsets.fromLTRB(16, 18, 16, 10),
           sliver: SliverToBoxAdapter(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 880),
@@ -164,7 +164,7 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
           )
         else
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
             sliver: SliverToBoxAdapter(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 880),

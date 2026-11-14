@@ -102,7 +102,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
 
     return Container(
       decoration: _sectionDecoration(context),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

@@ -164,7 +164,7 @@ class _Sidebar extends StatelessWidget {
           ),
           Divider(height: 1, color: Theme.of(context).dividerColor),
           Padding(
-            padding: EdgeInsets.fromLTRB(10, 12, 10, collapsed ? 8 : 10),
+            padding: EdgeInsets.fromLTRB(12, 12, 12, collapsed ? 8 : 10),
             child: _SidebarCreateNoteButton(
               key: AppShell.addNoteKey,
               collapsed: collapsed,
@@ -172,7 +172,7 @@ class _Sidebar extends StatelessWidget {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(12),
             child: Align(
               alignment: collapsed ? Alignment.center : Alignment.centerRight,
               child: IconButton(
@@ -235,7 +235,7 @@ class _SidebarCreateNoteButton extends StatelessWidget {
         label: Text(strings.addNote),
         style: FilledButton.styleFrom(
           minimumSize: const Size.fromHeight(48),
-          padding: const EdgeInsets.symmetric(horizontal: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
           alignment: Alignment.centerLeft,
           textStyle: Theme.of(context).textTheme.labelLarge
               ?.copyWith(fontWeight: FontWeight.w700),

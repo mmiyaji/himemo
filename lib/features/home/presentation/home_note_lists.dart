@@ -1224,11 +1224,20 @@ class _NoteListTileSelectionSurface extends StatelessWidget {
     if (!selected) {
       return Material(color: Colors.transparent, child: child);
     }
+    // The selection fill is inset 1px from the card border; keep the tile's
+    // content at the same x as unselected rows by overpainting rather than
+    // padding the child.
     return Material(
       color: Theme.of(context).colorScheme.surface,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 1),
-        child: Material(color: _selectedSurfaceColor(context), child: child),
+      child: Stack(
+        children: [
+          Positioned.fill(
+            left: 1,
+            right: 1,
+            child: ColoredBox(color: _selectedSurfaceColor(context)),
+          ),
+          Material(color: Colors.transparent, child: child),
+        ],
       ),
     );
   }

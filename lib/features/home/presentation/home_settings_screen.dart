@@ -3832,6 +3832,9 @@ class SettingsScreen extends ConsumerWidget {
                 runSpacing: 8,
                 children: [
                   OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(208, 40),
+                    ),
                     onPressed: noteCount == 0
                         ? null
                         : () => _exportLocalArchive(
@@ -3852,6 +3855,9 @@ class SettingsScreen extends ConsumerWidget {
                     ),
                   ),
                   OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(208, 40),
+                    ),
                     onPressed: () => _importLocalArchive(context, ref),
                     icon: const Icon(Icons.download_for_offline_outlined),
                     label: Text(
@@ -5185,8 +5191,6 @@ class SettingsScreen extends ConsumerWidget {
           isExpanded: true,
           decoration: InputDecoration(
             border: const OutlineInputBorder(),
-            helperText: strings.languageSystemDesc,
-            helperMaxLines: 2,
             prefixIcon: const Icon(Icons.translate_rounded),
           ),
           items: [
@@ -5233,6 +5237,7 @@ class SettingsScreen extends ConsumerWidget {
             _setLocaleForScope(ref, appearanceScope, value);
           },
         ),
+        _SettingsFieldHelper(text: strings.languageSystemDesc),
         const Divider(height: 24),
         Padding(
           padding: const EdgeInsets.only(bottom: 8),
@@ -5247,8 +5252,6 @@ class SettingsScreen extends ConsumerWidget {
           isExpanded: true,
           decoration: InputDecoration(
             border: const OutlineInputBorder(),
-            helperText: strings.appFontDesc,
-            helperMaxLines: 3,
             prefixIcon: const Icon(Icons.text_fields_rounded),
           ),
           items: _availableFontFamilies
@@ -5266,6 +5269,7 @@ class SettingsScreen extends ConsumerWidget {
             _setFontForScope(ref, appearanceScope, value);
           },
         ),
+        _SettingsFieldHelper(text: strings.appFontDesc),
         const Divider(height: 24),
         _ThemeOptionTile(
           tileKey: lightThemeKey,

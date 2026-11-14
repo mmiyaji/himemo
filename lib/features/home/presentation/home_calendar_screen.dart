@@ -44,7 +44,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
       children: [
         Container(
           decoration: _sectionDecoration(context),
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(16),
           child: _MarkedCalendar(
             visibleMonth: _visibleMonth,
             selectedDay: _selectedDay,
