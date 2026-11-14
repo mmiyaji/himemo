@@ -514,7 +514,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                       },
                       destinations: [
                         FractionalTranslation(
-                          translation: const Offset(-0.1, 0),
+                          translation: const Offset(-0.05, 0),
                           child: NavigationDestination(
                             key: AppShell.notesNavKey,
                             icon: const Icon(Icons.notes_outlined),
@@ -550,7 +550,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                           ),
                         ),
                         FractionalTranslation(
-                          translation: const Offset(0.1, 0),
+                          translation: const Offset(0.05, 0),
                           child: NavigationDestination(
                             key: AppShell.settingsNavKey,
                             icon: const Icon(Icons.settings_outlined),
