@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:cryptography/cryptography.dart';
+import 'package:flutter/services.dart';
+import 'package:himemo/features/security/data/sync_v2_biometric_key_store.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:himemo/features/home/domain/note_entry.dart';
@@ -128,8 +130,36 @@ class _Store extends SecureKeyValueStore {
   Future<void> delete(String key) => backing.delete(key);
 }
 
+class _Biometrics implements SyncV2BiometricKeyStore {
+  final keys = <String, List<int>>{};
+  bool available = true, cancel = false;
+  Completer<void>? entered, release;
+  @override
+  Future<bool> isAvailable() async => available;
+  @override
+  Future<void> save(String generationId, SecretKey key) async {
+    if (cancel) throw PlatformException(code: 'cancelled');
+    keys[generationId] = List.of(await key.extractBytes());
+  }
+
+  @override
+  Future<SecretKey?> read(String generationId) async {
+    if (release != null) {
+      entered!.complete();
+      await release!.future;
+      release = null;
+    }
+    if (cancel) throw PlatformException(code: 'cancelled');
+    return keys[generationId] == null ? null : SecretKey(keys[generationId]!);
+  }
+
+  @override
+  Future<void> delete(String generationId) async => keys.remove(generationId);
+}
+
 class _Device {
-  _Device(this.cloud, {_Store? sharedStore}) : store = sharedStore ?? _Store() {
+  _Device(this.cloud, {_Store? sharedStore, _Biometrics? biometrics})
+    : store = sharedStore ?? _Store() {
     final encryption = EncryptionService();
     final headers = SyncV2HeaderCodec(encryption);
     inbox = SyncV2Inbox(NativeDatabase.memory(), headers);
@@ -155,6 +185,7 @@ class _Device {
         deactivations++;
       },
       supported: true,
+      biometricStore: biometrics ?? _Biometrics(),
       automaticSync: false,
     );
   }
@@ -204,6 +235,81 @@ class _Device {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('biometric setup needs no password and late unlock cannot survive background', () async {
+    final cloud = _Cloud();
+    final biometric = _Biometrics();
+    final device = _Device(cloud, biometrics: biometric);
+    addTearDown(device.workspace.dispose);
+    final c = device.workspace;
+    await c.initialize();
+    expect(c.biometricsAvailable, isTrue);
+    final codes = await c.prepareNewBiometric();
+    expect(c.preparedUsesBiometrics, isTrue);
+    expect(cloud.registryWrites, 0);
+    c.background();
+    await c.resume();
+    expect(await c.prepareNewBiometric(), codes);
+    await c.confirmSetup();
+    expect(c.registered, isTrue);
+    expect(c.biometricEnabled, isTrue);
+    expect(c.adminUnlocked, isTrue);
+    expect(await device.store.read('sync.v2.admin.${c.generationId}'), isNull);
+    c.lockPrivate();
+    biometric.cancel = true;
+    await expectLater(
+      c.unlockAdminBiometric(),
+      throwsA(isA<SyncV2WorkspaceException>()),
+    );
+    expect(c.error, 'authentication_cancelled');
+    expect(c.adminUnlocked, isFalse);
+    biometric.cancel = false;
+    await c.unlockAdminBiometric();
+    expect(c.adminUnlocked, isTrue);
+    c.lockPrivate();
+    biometric.entered = Completer<void>();
+    biometric.release = Completer<void>();
+    final lateUnlock = expectLater(
+      c.unlockAdminBiometric(),
+      throwsA(isA<SyncV2WorkspaceException>()),
+    );
+    await biometric.entered!.future;
+    c.background();
+    biometric.release!.complete();
+    await lateUnlock;
+    expect(c.adminUnlocked, isFalse);
+    expect(c.notes, isEmpty);
+    await c.resume();
+    final second = _Device(cloud);
+    addTearDown(second.workspace.dispose);
+    await second.workspace.initialize();
+    await second.workspace.recover(codes.syncCode);
+    expect(second.workspace.adminUnlocked, isFalse);
+    await second.workspace.recoverAdminBiometric(codes.adminCode);
+    expect(second.workspace.adminUnlocked, isTrue);
+    expect(second.workspace.biometricEnabled, isTrue);
+  });
+
+  test(
+    'six character admin password is accepted and biometrics can be enabled',
+    () async {
+      final device = _Device(_Cloud());
+      addTearDown(device.workspace.dispose);
+      final c = device.workspace;
+      await c.initialize();
+      await expectLater(
+        c.prepareNew('12345'),
+        throwsA(isA<SyncV2WorkspaceException>()),
+      );
+      await c.prepareNew('123456');
+      await c.confirmSetup();
+      await c.enableAdminBiometrics();
+      c.lockPrivate();
+      await c.unlockAdminBiometric();
+      expect(c.adminUnlocked, isTrue);
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
+
   test('resume completes an existing registration interrupted during initial restore', () async {
     final cloud = _Cloud();
     final original = _Device(cloud);

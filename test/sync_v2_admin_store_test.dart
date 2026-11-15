@@ -15,12 +15,12 @@ void main() {
       generationId: 'generation',
     );
     final key = SecretKey(List.filled(32, 53));
-    await store.configure(adminKey: key, password: 'correct long password');
+    await store.configure(adminKey: key, password: '123456');
     final persisted = (await storage.read(store.storageKey))!;
     expect(persisted, isNot(contains(base64Encode(List.filled(32, 53)))));
-    expect(persisted, isNot(contains('correct long password')));
+    expect(persisted, isNot(contains('123456')));
     expect(await store.unlock('incorrect long password'), isNull);
-    final unlocked = (await store.unlock('correct long password'))!;
+    final unlocked = (await store.unlock('123456'))!;
     expect(await unlocked.extractBytes(), await key.extractBytes());
     unlocked.destroy();
     final code = await store.encodeRecoveryCode(key);

@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../home/domain/note_entry.dart';
+import '../../security/data/sync_v2_admin_store.dart';
 import 'sync_v2_workspace.dart';
 import 'sync_v2_privacy.dart';
 
@@ -32,6 +35,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
   List<SyncV2AttachmentReference> _editingAttachments = [];
   bool _editorOpen = false;
   bool _foreground = true;
+  Completer<void>? _foregroundChanged;
   bool _privacyAcquired = false;
   late final SyncV2PrivacyRoute _privacy;
   bool _pickingAttachments = false;
@@ -61,10 +65,17 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.inactive &&
+        _controller.biometricAuthenticating) {
+      if (mounted) setState(() => _foreground = false);
+      return;
+    }
     if (state == AppLifecycleState.resumed) {
       if (mounted) {
         setState(() => _foreground = true);
-        _run(ref.read(syncV2WorkspaceProvider).resume);
+        _foregroundChanged?.complete();
+        _foregroundChanged = null;
+        if (!_controller.biometricAuthenticating) _run(_controller.resume);
       }
       return;
     }
@@ -75,6 +86,8 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
     }
     if (_pickingAttachments) _attachmentPickerInterrupted = true;
     _backgroundVersion++;
+    _foregroundChanged?.complete();
+    _foregroundChanged = null;
     for (final field in _secrets) {
       field.clear();
     }
@@ -101,6 +114,8 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _foregroundChanged?.complete();
+    _foregroundChanged = null;
     _clearEditor();
     for (final secret in _secrets) {
       secret.clear();
@@ -114,6 +129,50 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
     _body.dispose();
     super.dispose();
   }
+
+  String _errorMessage(String code) => switch (code) {
+    'icloud_account' => t(
+      'iCloudにサインインしているか確認してください。登録情報は保持しています。',
+      'Check that you are signed in to iCloud. Your setup is preserved.',
+    ),
+    'icloud_network' => t(
+      'iCloudに接続できません。通信を確認して登録を再開してください。',
+      'Cannot reach iCloud. Check your connection and resume setup.',
+    ),
+    'icloud_permission' => t(
+      'iCloudの権限またはクラウド設定に問題があります。登録情報は保持しています。',
+      'iCloud permission or cloud configuration failed. Your setup is preserved.',
+    ),
+    'icloud_quota' => t(
+      'iCloudの空き容量を確認してください。',
+      'Check your iCloud storage space.',
+    ),
+    'registration_conflict' => t(
+      '既存のv2登録があります。その登録のSYNCコードで参加してください。',
+      'A v2 workspace already exists. Join it with its SYNC code.',
+    ),
+    'biometric_unavailable' => t(
+      '生体認証を利用できません。管理パスワードまたはADMINコードを使ってください。',
+      'Biometrics unavailable. Use your admin password or ADMIN code.',
+    ),
+    'authentication_cancelled' => t(
+      '生体認証をキャンセルしました。もう一度試せます。',
+      'Biometric authentication cancelled. You can retry.',
+    ),
+    'wrong_password' => t('パスワードが一致しません。', 'Password does not match.'),
+    'throttled' => t(
+      '試行回数が多いため、時間をおいて再試行してください。',
+      'Too many attempts. Wait before retrying.',
+    ),
+    'locked' => t(
+      '画面が非表示になったため中断しました。もう一度操作してください。',
+      'Interrupted when the app became hidden. Please retry.',
+    ),
+    _ => t(
+      '操作を完了できませんでした。登録情報は保持しています。再試行してください。',
+      'Could not complete the action. Your setup is preserved. Please retry.',
+    ),
+  };
 
   Future<T?> _dialog<T>(WidgetBuilder builder) async {
     _dialogs++;
@@ -230,17 +289,37 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
         ),
       ) ??
       false;
-  Future<void> _register() async {
+  Future<void> _register({bool passwordFallback = false}) async {
     final c = ref.read(syncV2WorkspaceProvider);
-    final password = await _input(
-      t('管理パスワード', 'Admin password'),
-      confirm: !c.hasPreparedSetup,
-      minimum: 12,
-    );
-    if (password == null || !mounted || !_foreground) return;
+    final useBiometrics = c.hasPreparedSetup
+        ? c.preparedUsesBiometrics
+        : c.biometricsAvailable && !passwordFallback;
+    String? password;
+    if (!useBiometrics) {
+      password = await _input(
+        t('管理パスワード', 'Admin password'),
+        confirm: !c.hasPreparedSetup,
+        minimum: SyncV2AdminStore.minimumPasswordLength,
+      );
+      if (password == null || !mounted || !_foreground) return;
+    }
+    final authenticationVersion = _backgroundVersion;
     await _run(() async {
-      final codes = await c.prepareNew(password);
-      if (!mounted || !_foreground) return;
+      final codes = useBiometrics
+          ? await c.prepareNewBiometric()
+          : await c.prepareNew(password!);
+      if (useBiometrics &&
+          mounted &&
+          !_foreground &&
+          authenticationVersion == _backgroundVersion) {
+        _foregroundChanged ??= Completer<void>();
+        await _foregroundChanged!.future;
+      }
+      if (!mounted ||
+          !_foreground ||
+          authenticationVersion != _backgroundVersion) {
+        return;
+      }
       final backgroundVersion = _backgroundVersion;
       bool syncSaved = false, adminSaved = false;
       final approved = await _dialog<bool>(
@@ -571,7 +650,18 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
 
   Future<void> _adminAction(String action) async {
     final c = ref.read(syncV2WorkspaceProvider);
-    if (action == 'unlock') {
+    if (action == 'biometric-unlock') {
+      await _run(c.unlockAdminBiometric);
+    } else if (action == 'biometric-enable') {
+      await _run(c.enableAdminBiometrics);
+    } else if (action == 'biometric-recover') {
+      final code = await _input(
+        t('管理復元コード（ADMIN）', 'Admin recovery code (ADMIN)'),
+      );
+      if (code != null && mounted && _foreground) {
+        await _run(() => c.recoverAdminBiometric(code));
+      }
+    } else if (action == 'unlock') {
       final password = await _input(t('管理パスワード', 'Admin password'));
       if (password != null && mounted && _foreground) {
         await _run(() => c.unlockAdmin(password));
@@ -584,7 +674,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
       final password = await _input(
         t('新しい管理パスワード', 'New admin password'),
         confirm: true,
-        minimum: 12,
+        minimum: SyncV2AdminStore.minimumPasswordLength,
       );
       if (password != null && mounted && _foreground) {
         await _run(() => c.recoverAdmin(code, password));
@@ -706,10 +796,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
                   if (c.error != null)
                     MaterialBanner(
                       content: Text(
-                        t(
-                          '操作を完了できませんでした。接続と復元コードを確認してください。',
-                          'Could not complete the action. Check your connection and recovery code.',
-                        ),
+                        '${_errorMessage(c.error!)}${c.diagnosticCode == null ? '' : '\n${t('診断コード', 'Diagnostic code')}: ${c.diagnosticCode}'}',
                       ),
                       actions: [
                         TextButton(
@@ -738,13 +825,35 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
                                     ),
                                     const SizedBox(height: 16),
                                     FilledButton(
-                                      onPressed: c.busy ? null : _register,
+                                      onPressed: c.busy
+                                          ? null
+                                          : () => _register(),
                                       child: Text(
                                         c.hasPreparedSetup
                                             ? t('登録を続ける', 'Continue setup')
+                                            : c.biometricsAvailable
+                                            ? t(
+                                                'Face ID／Touch IDで登録',
+                                                'Create with Face ID / Touch ID',
+                                              )
                                             : t('新規登録', 'Create workspace'),
                                       ),
                                     ),
+                                    if (c.biometricsAvailable &&
+                                        !c.hasPreparedSetup)
+                                      TextButton(
+                                        onPressed: c.busy
+                                            ? null
+                                            : () => _register(
+                                                passwordFallback: true,
+                                              ),
+                                        child: Text(
+                                          t(
+                                            'パスワードで登録（6文字以上）',
+                                            'Create with password (6+ characters)',
+                                          ),
+                                        ),
+                                      ),
                                     TextButton(
                                       onPressed: c.busy ? null : _recover,
                                       child: Text(
@@ -875,6 +984,38 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
                                           enabled: !c.busy,
                                           onSelected: _adminAction,
                                           itemBuilder: (_) => [
+                                            if (c.biometricEnabled)
+                                              PopupMenuItem(
+                                                value: 'biometric-unlock',
+                                                child: Text(
+                                                  t(
+                                                    'Face ID／Touch IDで管理者認証',
+                                                    'Admin with Face ID / Touch ID',
+                                                  ),
+                                                ),
+                                              ),
+                                            if (c.biometricsAvailable &&
+                                                !c.biometricEnabled &&
+                                                c.adminUnlocked)
+                                              PopupMenuItem(
+                                                value: 'biometric-enable',
+                                                child: Text(
+                                                  t(
+                                                    '管理者の生体認証を有効にする',
+                                                    'Enable admin biometrics',
+                                                  ),
+                                                ),
+                                              ),
+                                            if (c.biometricsAvailable)
+                                              PopupMenuItem(
+                                                value: 'biometric-recover',
+                                                child: Text(
+                                                  t(
+                                                    'ADMINコードで生体認証を設定',
+                                                    'Set up biometrics with ADMIN code',
+                                                  ),
+                                                ),
+                                              ),
                                             PopupMenuItem(
                                               value: 'unlock',
                                               child: Text(

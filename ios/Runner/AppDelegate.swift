@@ -70,6 +70,7 @@ import FoundationModels
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     let messenger = engineBridge.applicationRegistrar.messenger()
+    SyncV2BiometricKeyStore.register(with: messenger)
     widgetChannel = FlutterMethodChannel(
       name: widgetChannelName,
       binaryMessenger: messenger
@@ -1281,6 +1282,18 @@ import FoundationModels
         result(response)
       } catch let error as CloudKitV2Error {
         result(FlutterError(code: "cloudkit_v2_\(error.rawValue)", message: nil, details: nil))
+      } catch let error as CKError where error.code == .partialFailure {
+        if let partialErrors = error.partialErrorsByItemID,
+           partialErrors.count == 1,
+           let itemError = partialErrors.values.first as? CKError {
+          if itemError.code == .changeTokenExpired {
+            result(FlutterError(code: "cloudkit_v2_cursor_expired", message: nil, details: nil))
+          } else {
+            result(self.flutterError(from: itemError))
+          }
+        } else {
+          result(self.flutterError(from: error))
+        }
       } catch let error as CKError where error.code == .changeTokenExpired {
         result(FlutterError(code: "cloudkit_v2_cursor_expired", message: nil, details: nil))
       } catch {

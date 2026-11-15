@@ -30,6 +30,15 @@
       "notes": [
         "Stores encrypted attachment objects by content hash. Required for iCloud split attachment sync."
       ]
+    },
+    "HiMemoSyncV2Change": {
+      "fields": {
+        "encryptedHeader": "String",
+        "encryptedPayload": "Asset"
+      },
+      "notes": [
+        "Stores encrypted v2 changes and the active-generation registration proof in each generation zone. Production must include this type before TestFlight v2 registration."
+      ]
     }
   }
 }

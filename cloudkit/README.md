@@ -37,6 +37,13 @@ Sync records are stored in the custom zone `HiMemoSyncZone`; the app creates thi
 - `attachmentSize`: Int(64)
 - `exportedAt`: Date/Time
 
+`HiMemoSyncV2Change`
+
+- `encryptedHeader`: String — encrypted change header or the v2 active-generation registration proof.
+- `encryptedPayload`: Asset — optional encrypted change payload.
+
+The registration record is stored in the private custom zone `HiMemoSyncV2-metadata-v1` using the same v2 record type. Deploy this schema to Production before testing v2 registration through TestFlight.
+
 ## Codemagic
 
 Use the `cloudkit-schema-export` workflow to export the current Development and Production schemas as artifacts:

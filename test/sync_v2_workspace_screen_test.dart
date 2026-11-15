@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:himemo/features/home/domain/note_entry.dart';
 import 'package:himemo/features/sync/data/sync_v2_history.dart';
 import 'package:flutter/material.dart';
@@ -44,6 +46,21 @@ class _Controller extends SyncV2WorkspaceController {
         supported: true,
         automaticSync: false,
       );
+  bool biometricSetup = false;
+  Future<void> Function()? biometricDelay;
+  @override
+  bool get preparedUsesBiometrics => biometricSetup;
+  @override
+  Future<({String syncCode, String adminCode})> prepareNewBiometric() async {
+    biometricAuthenticating = true;
+    await biometricDelay?.call();
+    biometricAuthenticating = false;
+    biometricSetup = true;
+    prepared = true;
+    notifyListeners();
+    return (syncCode: 'SYNC-secret-code', adminCode: 'ADMIN-secret-code');
+  }
+
   int confirmations = 0;
   int cancellations = 0;
   bool prepared = false;
@@ -147,6 +164,89 @@ void main() {
     );
     await tester.pumpAndSettle();
   }
+
+  testWidgets('biometric first registration does not ask for a password', (
+    tester,
+  ) async {
+    final controller = _Controller()..biometricsAvailable = true;
+    addTearDown(controller.dispose);
+    await mount(tester, controller);
+    await tester.tap(find.text('Create with Face ID / Touch ID'));
+    await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsNothing);
+    expect(find.text('SYNC-secret-code'), findsOneWidget);
+    expect(controller.passwords, isEmpty);
+    expect(controller.confirmations, 0);
+  });
+
+  testWidgets(
+    'system biometric inactive does not cancel setup but background still locks',
+    (tester) async {
+      final controller = _Controller()..biometricAuthenticating = true;
+      addTearDown(controller.dispose);
+      await mount(tester, controller);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump();
+      expect(controller.backgroundCalled, isFalse);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pump();
+      expect(controller.backgroundCalled, isTrue);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets(
+    'biometric success before resumed waits then shows recovery codes',
+    (tester) async {
+      final release = Completer<void>();
+      final controller = _Controller()..biometricsAvailable = true;
+      addTearDown(controller.dispose);
+      controller.biometricDelay = () {
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.inactive,
+        );
+        return release.future;
+      };
+      await mount(tester, controller);
+      await tester.tap(find.text('Create with Face ID / Touch ID'));
+      await tester.pump();
+      expect(controller.backgroundCalled, isFalse);
+      release.complete();
+      await tester.pumpAndSettle();
+      expect(find.text('SYNC-secret-code'), findsNothing);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(find.text('SYNC-secret-code'), findsOneWidget);
+      expect(controller.confirmations, 0);
+      expect(controller.cancellations, 0);
+    },
+  );
+
+  testWidgets('real background after biometric success discards code display', (
+    tester,
+  ) async {
+    final release = Completer<void>();
+    final controller = _Controller()..biometricsAvailable = true;
+    addTearDown(controller.dispose);
+    controller.biometricDelay = () {
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      return release.future;
+    };
+    await mount(tester, controller);
+    await tester.tap(find.text('Create with Face ID / Touch ID'));
+    await tester.pump();
+    release.complete();
+    await tester.pumpAndSettle();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(controller.backgroundCalled, isTrue);
+    expect(find.text('SYNC-secret-code'), findsNothing);
+    expect(controller.confirmations, 0);
+    expect(controller.cancellations, 0);
+  });
 
   testWidgets('cloud registration requires both recovery acknowledgments', (
     tester,

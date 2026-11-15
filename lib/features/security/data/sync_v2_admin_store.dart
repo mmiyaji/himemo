@@ -10,6 +10,7 @@ import 'sync_v2_profile_keys.dart';
 /// Local passphrase protection. The caller verifies imported recovery keys
 /// against the cloud registration before configuring this store.
 class SyncV2AdminStore {
+  static const minimumPasswordLength = 6;
   SyncV2AdminStore(
     this._store,
     EncryptionService encryption, {
@@ -25,8 +26,8 @@ class SyncV2AdminStore {
     required SecretKey adminKey,
     required String password,
   }) async {
-    if (password.length < 12) {
-      throw ArgumentError('Use at least 12 characters.');
+    if (password.length < minimumPasswordLength) {
+      throw ArgumentError('Use at least $minimumPasswordLength characters.');
     }
     final wrapped = await _keys.wrap(
       generationId: generationId,

@@ -153,7 +153,7 @@ playwright/tests/          Web E2E tests
 
 ## iCloud Sync v2 Workspace
 
-The current development tree adds a separate iOS/iCloud v2 workspace under Settings → **iCloud sync v2**. It supports registration/recovery, normal and private notes, attachments, conflict repair, legacy ZIP import/export, and normal-profile widget/share capture. Selecting it pauses legacy sync; returning restores the previous sync selection. Legacy data is retained. Administrator access uses a passphrase and a separate recovery code.
+The current development tree adds a separate iOS/iCloud v2 workspace under Settings → **iCloud sync v2**. It supports registration/recovery, normal and private notes, attachments, conflict repair, legacy ZIP import/export, and normal-profile widget/share capture. Selecting it pauses legacy sync; returning restores the previous sync selection. Legacy data is retained. Administrator access defaults to Face ID/Touch ID with a device-bound Keychain key. An optional local password (6+ characters) and a separate ADMIN recovery code are supported.
 
 The implementation is covered by unit/widget and two-store integration tests. Live iOS/CloudKit and two physical devices still require the [acceptance checks](internal-docs/sync-v2-acceptance.md). This does not announce a store release. [Design and current scope](docs/egm-sync-v2-design.md).
 

@@ -34,7 +34,9 @@ def main() -> int:
     if not isinstance(record_types, dict) or not record_types:
         failures.append("expected-schema.json must define recordTypes")
 
-    swift_string_literals = set(re.findall(r'"([^"]+)"', app_delegate))
+    # Skip escaped quotes so literals following a quoted string with an escape
+    # are still discovered correctly.
+    swift_string_literals = set(re.findall(r'"((?:\\.|[^"\\])*)"', app_delegate))
     for record_type, record_spec in record_types.items():
         if record_type not in swift_string_literals:
             failures.append(f"Missing record type constant in AppDelegate.swift: {record_type}")

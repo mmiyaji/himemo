@@ -15,13 +15,18 @@ class _Cloud implements SyncV2GenerationRegistrationTransport {
   bool failPublish = false;
   bool corruptReadback = false;
   bool changeAccountAfterPublish = false;
+  Object? publishError;
+  Object? registrationReadError;
   final prepared = <String>[];
   final published = <String>[];
   @override
   Future<String> readCurrentAccountId() async => account;
   @override
-  Future<String?> readRegistration() async =>
-      corruptReadback && proof != null ? 'corrupt' : proof;
+  Future<String?> readRegistration() async {
+    if (registrationReadError case final error?) throw error;
+    return corruptReadback && proof != null ? 'corrupt' : proof;
+  }
+
   @override
   Future<void> prepareGeneration(String generationId) async {
     prepared.add(generationId);
@@ -29,6 +34,7 @@ class _Cloud implements SyncV2GenerationRegistrationTransport {
 
   @override
   Future<void> publishRegistration(String encryptedProof) async {
+    if (publishError case final error?) throw error;
     if (failPublish) throw StateError('publish failed');
     if (proof != null && proof != encryptedProof) {
       throw StateError('immutable collision');
@@ -44,12 +50,16 @@ class _FaultStore extends SecureKeyValueStore {
   bool dropPending = false;
   bool failFinal = false;
   bool failProof = false;
+  bool failPending = false;
   @override
   Future<String?> read(String key) => backing.read(key);
   @override
   Future<void> delete(String key) => backing.delete(key);
   @override
   Future<void> write(String key, String value) async {
+    if (failPending && key.contains('pending_registration')) {
+      throw StateError('pending secret write failure');
+    }
     if (failProof && key.contains('verified_proof')) {
       throw StateError('proof storage failure');
     }
@@ -120,7 +130,7 @@ void main() {
       addTearDown(prepared.destroy);
       await expectLater(
         registration.publishPrepared(prepared),
-        throwsStateError,
+        throwsA(isA<SyncV2RegistrationFailure>()),
       );
       final pending = await store.readPendingRegistration();
       expect(pending, isNotNull);
@@ -205,7 +215,10 @@ void main() {
       expect(cloud.published, [first.encryptedProof, first.encryptedProof]);
       expect(cloud.proof, first.encryptedProof);
       final writes = cloud.prepared.length;
-      await expectLater(service.publishPrepared(second), throwsStateError);
+      await expectLater(
+        service.publishPrepared(second),
+        throwsA(isA<SyncV2RegistrationFailure>()),
+      );
       expect(cloud.prepared.length, writes);
     },
   );
@@ -217,16 +230,102 @@ void main() {
       cloud.failPublish = failure == 'publish';
       cloud.corruptReadback = failure == 'readback';
       cloud.changeAccountAfterPublish = failure == 'account';
-      await expectLater(service.publishPrepared(prepared), throwsStateError);
+      await expectLater(
+        service.publishPrepared(prepared),
+        throwsA(isA<SyncV2RegistrationFailure>()),
+      );
       await absent();
     });
   }
+
+  test('safe registration failure keeps pending proof retryable', () async {
+    final prepared = await prepare();
+    addTearDown(prepared.destroy);
+    cloud.publishError = PlatformException(
+      code: '11',
+      message:
+          'private diagnostic ${prepared.recoveryCode} ${prepared.encryptedProof}',
+    );
+
+    SyncV2RegistrationFailure? failure;
+    try {
+      await service.publishPrepared(prepared);
+      fail('Expected registration to fail');
+    } on SyncV2RegistrationFailure catch (error) {
+      failure = error;
+    }
+    expect(failure.stage, SyncV2RegistrationStage.publishRegistration);
+    expect(failure.safeCode, '11');
+    expect(failure.toString(), isNot(contains(prepared.recoveryCode)));
+    expect(failure.toString(), isNot(contains(prepared.encryptedProof)));
+    expect(failure.toString(), isNot(contains('private diagnostic')));
+
+    final pending = await local.readPendingRegistration();
+    expect(pending, isNotNull);
+    expect(pending!.encryptedProof, prepared.encryptedProof);
+    pending.syncKey.destroy();
+
+    cloud.publishError = null;
+    (await service.resumePending()).destroy();
+    expect(await local.readPendingRegistration(), isNull);
+  });
+
+  test(
+    'unknown platform code and pending storage failure use safe codes',
+    () async {
+      final prepared = await prepare();
+      addTearDown(prepared.destroy);
+      cloud.registrationReadError = PlatformException(
+        code: 'account-id-secret',
+        message: prepared.recoveryCode,
+      );
+      await expectLater(
+        service.publishPrepared(prepared),
+        throwsA(
+          isA<SyncV2RegistrationFailure>()
+              .having(
+                (error) => error.stage,
+                'stage',
+                SyncV2RegistrationStage.readRegistration,
+              )
+              .having((error) => error.safeCode, 'safeCode', 'platform_error'),
+        ),
+      );
+
+      final storage = _FaultStore()..failPending = true;
+      final store = SyncV2EnrollmentStore(storage);
+      final registration = SyncV2GenerationRegistration(cloud, store);
+      cloud.registrationReadError = null;
+      await expectLater(
+        registration.publishPrepared(prepared),
+        throwsA(
+          isA<SyncV2RegistrationFailure>()
+              .having(
+                (error) => error.stage,
+                'stage',
+                SyncV2RegistrationStage.persistPending,
+              )
+              .having((error) => error.safeCode, 'safeCode', 'state_error')
+              .having(
+                (error) => error.toString(),
+                'safe message',
+                isNot(contains('pending secret write failure')),
+              ),
+        ),
+      );
+      expect(cloud.prepared, isEmpty);
+      expect(cloud.published, isEmpty);
+    },
+  );
 
   test('wrong account is rejected before cloud writes', () async {
     final prepared = await prepare();
     addTearDown(prepared.destroy);
     cloud.account = 'other';
-    await expectLater(service.publishPrepared(prepared), throwsStateError);
+    await expectLater(
+      service.publishPrepared(prepared),
+      throwsA(isA<SyncV2RegistrationFailure>()),
+    );
     expect(cloud.prepared, isEmpty);
     expect(cloud.published, isEmpty);
     await absent();
@@ -484,7 +583,7 @@ void main() {
       addTearDown(prepared.destroy);
       await expectLater(
         registration.publishPrepared(prepared),
-        throwsStateError,
+        throwsA(isA<SyncV2RegistrationFailure>()),
       );
       expect(cloud.prepared, isEmpty);
       expect(cloud.published, isEmpty);
@@ -506,7 +605,7 @@ void main() {
       final generation = prepared.generationId;
       await expectLater(
         registration.publishPrepared(prepared),
-        throwsStateError,
+        throwsA(isA<SyncV2RegistrationFailure>()),
       );
       prepared.destroy();
       expect(cloud.proof, proof);
@@ -534,11 +633,14 @@ void main() {
       final prepared = await prepare();
       addTearDown(prepared.destroy);
       cloud.corruptReadback = true;
-      await expectLater(service.publishPrepared(prepared), throwsStateError);
+      await expectLater(
+        service.publishPrepared(prepared),
+        throwsA(isA<SyncV2RegistrationFailure>()),
+      );
       cloud.account = 'other';
       await expectLater(
         SyncV2GenerationRegistration(cloud, local).resumePending(),
-        throwsStateError,
+        throwsA(isA<SyncV2RegistrationFailure>()),
       );
       final pending = await local.readPendingRegistration();
       expect(pending!.encryptedProof, prepared.encryptedProof);

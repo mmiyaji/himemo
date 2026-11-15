@@ -22,6 +22,29 @@ class SyncV2RegistrationConflict implements Exception {
       'An iCloud generation is already registered; recover the existing generation.';
 }
 
+enum SyncV2RegistrationStage {
+  account,
+  localCheck,
+  persistPending,
+  readRegistration,
+  prepareGeneration,
+  publishRegistration,
+  readback,
+  verifyEnrollment,
+}
+
+/// Safe registration diagnostics. This deliberately retains no original
+/// exception, message, account/generation identifier, or registration proof.
+class SyncV2RegistrationFailure implements Exception {
+  const SyncV2RegistrationFailure._(this.stage, this.safeCode);
+
+  final SyncV2RegistrationStage stage;
+  final String safeCode;
+
+  @override
+  String toString() => 'SyncV2RegistrationFailure(${stage.name}, $safeCode)';
+}
+
 abstract interface class SyncV2GenerationRegistrationTransport {
   Future<String> readCurrentAccountId();
   Future<String?> readRegistration();
@@ -253,11 +276,17 @@ class SyncV2GenerationRegistration {
   Future<SyncV2RegisteredNormalProfile> publishPrepared(
     SyncV2PreparedRegistration prepared,
   ) async {
-    await _checkAccount(prepared.accountId);
-    await _checkLocal(
-      prepared.accountId,
-      prepared.generationId,
-      prepared._syncKey,
+    await _registrationStep(
+      SyncV2RegistrationStage.account,
+      () => _checkAccount(prepared.accountId),
+    );
+    await _registrationStep(
+      SyncV2RegistrationStage.localCheck,
+      () => _checkLocal(
+        prepared.accountId,
+        prepared.generationId,
+        prepared._syncKey,
+      ),
     );
     final pending = (
       accountId: prepared.accountId,
@@ -265,13 +294,24 @@ class SyncV2GenerationRegistration {
       syncKey: prepared._syncKey,
       encryptedProof: prepared.encryptedProof,
     );
-    await enrollments.savePendingRegistration(pending);
+    await _registrationStep(
+      SyncV2RegistrationStage.persistPending,
+      () => enrollments.savePendingRegistration(pending),
+    );
     return _publishPending(pending);
   }
 
   Future<SyncV2RegisteredNormalProfile> resumePending() async {
-    final pending = await enrollments.readPendingRegistration();
-    if (pending == null) throw StateError('No pending registration');
+    final pending = await _registrationStep(
+      SyncV2RegistrationStage.persistPending,
+      enrollments.readPendingRegistration,
+    );
+    if (pending == null) {
+      throw const SyncV2RegistrationFailure._(
+        SyncV2RegistrationStage.persistPending,
+        'state_error',
+      );
+    }
     try {
       return await _publishPending(pending);
     } finally {
@@ -282,39 +322,120 @@ class SyncV2GenerationRegistration {
   Future<SyncV2RegisteredNormalProfile> _publishPending(
     SyncV2PendingRegistration pending,
   ) async {
-    await _checkAccount(pending.accountId);
-    await _checkLocal(pending.accountId, pending.generationId, pending.syncKey);
-    final existing = await transport.readRegistration();
+    await _registrationStep(
+      SyncV2RegistrationStage.account,
+      () => _checkAccount(pending.accountId),
+    );
+    await _registrationStep(
+      SyncV2RegistrationStage.localCheck,
+      () =>
+          _checkLocal(pending.accountId, pending.generationId, pending.syncKey),
+    );
+    final existing = await _registrationStep(
+      SyncV2RegistrationStage.readRegistration,
+      transport.readRegistration,
+    );
     if (existing != null && existing != pending.encryptedProof) {
       throw const SyncV2RegistrationConflict();
     }
-    await transport.prepareGeneration(pending.generationId);
-    try {
-      await transport.publishRegistration(pending.encryptedProof);
-    } catch (_) {
-      final competing = await transport.readRegistration();
-      if (competing != null && competing != pending.encryptedProof) {
-        throw const SyncV2RegistrationConflict();
-      }
-      rethrow;
-    }
-    final proof = await transport.readRegistration();
-    if (proof != pending.encryptedProof) {
-      throw StateError('Registration readback failed');
-    }
-    final result = await _verifyAndSave(
-      pending.accountId,
-      pending.generationId,
-      pending.syncKey,
-      proof!,
+    await _registrationStep(
+      SyncV2RegistrationStage.prepareGeneration,
+      () => transport.prepareGeneration(pending.generationId),
+    );
+    await _registrationStep(
+      SyncV2RegistrationStage.publishRegistration,
+      () async {
+        try {
+          await transport.publishRegistration(pending.encryptedProof);
+        } catch (error) {
+          if (error is SyncV2CloudDataDeleted ||
+              error is SyncV2RegistrationConflict ||
+              error is SyncV2RegistrationFailure) {
+            rethrow;
+          }
+          final competing = await _registrationStep(
+            SyncV2RegistrationStage.readRegistration,
+            transport.readRegistration,
+          );
+          if (competing != null && competing != pending.encryptedProof) {
+            throw const SyncV2RegistrationConflict();
+          }
+          rethrow;
+        }
+      },
+    );
+    final proof = await _registrationStep(
+      SyncV2RegistrationStage.readback,
+      () async {
+        final proof = await transport.readRegistration();
+        if (proof != pending.encryptedProof) {
+          throw StateError('Registration readback failed');
+        }
+        return proof!;
+      },
+    );
+    final result = await _registrationStep(
+      SyncV2RegistrationStage.verifyEnrollment,
+      () => _verifyAndSave(
+        pending.accountId,
+        pending.generationId,
+        pending.syncKey,
+        proof,
+      ),
     );
     try {
-      await enrollments.clearPendingRegistration(pending);
+      await _registrationStep(
+        SyncV2RegistrationStage.verifyEnrollment,
+        () => enrollments.clearPendingRegistration(pending),
+      );
       return result;
     } catch (_) {
       result.destroy();
       rethrow;
     }
+  }
+
+  Future<T> _registrationStep<T>(
+    SyncV2RegistrationStage stage,
+    Future<T> Function() action,
+  ) async {
+    try {
+      return await action();
+    } on SyncV2CloudDataDeleted {
+      rethrow;
+    } on SyncV2RegistrationConflict {
+      rethrow;
+    } on SyncV2RegistrationFailure {
+      rethrow;
+    } catch (error) {
+      throw SyncV2RegistrationFailure._(stage, _safeRegistrationCode(error));
+    }
+  }
+
+  String _safeRegistrationCode(Object error) {
+    if (error is PlatformException) {
+      final code = error.code;
+      final numeric = int.tryParse(code);
+      if (numeric != null &&
+          numeric >= 0 &&
+          numeric <= 40 &&
+          RegExp(r'^(0|[1-9][0-9]?)$').hasMatch(code)) {
+        return code;
+      }
+      const knownPlatformCodes = {
+        'cloudkit_v2_invalidRequest',
+        'cloudkit_v2_invalidRecord',
+        'cloudkit_v2_accountChanged',
+        'cloudkit_v2_recordCollision',
+        'cloudkit_v2_cursor_expired',
+        'cloudkit_v2_unsupported',
+      };
+      return knownPlatformCodes.contains(code) ? code : 'platform_error';
+    }
+    if (error is StateError) return 'state_error';
+    if (error is FormatException) return 'format_error';
+    if (error is HimemoDecryptionException) return 'decryption_error';
+    return error is Exception ? 'operation_error' : 'unknown_error';
   }
 
   Future<SyncV2RegisteredNormalProfile> recover(String code) async {

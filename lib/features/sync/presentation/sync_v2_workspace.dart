@@ -5,6 +5,7 @@ import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/services.dart';
 
 import '../../home/domain/note_entry.dart';
 import '../../home/presentation/home_providers.dart';
@@ -12,6 +13,7 @@ import '../../security/data/authentication_throttle.dart';
 import '../../security/data/encryption_service.dart';
 import '../../security/data/secure_key_value_store.dart';
 import '../../security/data/sync_v2_admin_store.dart';
+import '../../security/data/sync_v2_biometric_key_store.dart';
 import '../../security/data/sync_v2_profile_keys.dart';
 import '../data/sync_v2_archive_service.dart';
 import '../data/sync_v2_capture_service.dart';
@@ -161,8 +163,9 @@ class SyncV2WorkspaceController extends ChangeNotifier {
     required this.activate,
     required this.deactivate,
     required this.supported,
+    SyncV2BiometricKeyStore? biometricStore,
     bool automaticSync = true,
-  }) {
+  }) : biometrics = biometricStore ?? MethodChannelSyncV2BiometricKeyStore() {
     if (automaticSync) {
       _timer = Timer.periodic(const Duration(seconds: 60), (_) {
         if (registered && !_paused && !busy) {
@@ -171,6 +174,23 @@ class SyncV2WorkspaceController extends ChangeNotifier {
       });
     }
   }
+  final SyncV2BiometricKeyStore biometrics;
+  bool biometricsAvailable = false, biometricEnabled = false;
+  bool biometricAuthenticating = false;
+  bool _preparedBiometric = false;
+  bool get preparedUsesBiometrics => _preparedBiometric;
+
+  Future<T> _authenticateBiometric<T>(Future<T> Function() action) async {
+    biometricAuthenticating = true;
+    _notify();
+    try {
+      return await action();
+    } finally {
+      biometricAuthenticating = false;
+      _notify();
+    }
+  }
+
   final SyncV2Inbox inbox;
   final SyncV2NoteRepository repository;
   final SecureKeyValueStore store;
@@ -187,7 +207,7 @@ class SyncV2WorkspaceController extends ChangeNotifier {
   bool _disposed = false, _paused = false;
   int _epoch = 0;
   bool loading = true, busy = false, registered = false, hasPending = false;
-  String? error, accountId, generationId, selectedProfileId;
+  String? error, diagnosticCode, accountId, generationId, selectedProfileId;
   SyncV2UnlockedProfileKey? _normal;
   SecretKey? _syncKey, _admin;
   SyncV2PreparedRegistration? _prepared;
@@ -248,16 +268,27 @@ class SyncV2WorkspaceController extends ChangeNotifier {
       }
       busy = true;
       error = null;
+      diagnosticCode = null;
       _notify();
       try {
         result.complete(await operation());
       } catch (failure) {
+        if (failure is SyncV2RegistrationFailure) {
+          diagnosticCode = '${failure.stage.name}/${failure.safeCode}';
+        } else if (failure is PlatformException &&
+            RegExp(r'^[0-9]{1,2}$').hasMatch(failure.code)) {
+          diagnosticCode = 'cloudkit/${failure.code}';
+        }
         error = switch (failure) {
           AuthenticationThrottledException() => 'throttled',
           SyncV2StaleNote() => 'conflict',
           SyncV2CloudDataDeleted() => 'cloud_deleted',
           SyncV2RegistrationConflict() => 'registration_conflict',
           SyncV2WorkspaceException(:final code) => code,
+          PlatformException(:final code) => _platformError(code),
+          SyncV2RegistrationFailure(:final safeCode) => _platformError(
+            safeCode,
+          ),
           _ => 'operation_failed',
         };
         result.completeError(SyncV2WorkspaceException(error!));
@@ -270,10 +301,26 @@ class SyncV2WorkspaceController extends ChangeNotifier {
     return result.future;
   }
 
+  String _platformError(String code) => switch (code) {
+    'cancelled' => 'authentication_cancelled',
+    'unavailable' || 'invalidated' => 'biometric_unavailable',
+    '9' || 'not_authenticated' => 'icloud_account',
+    '3' || '4' || '6' || '7' || '23' => 'icloud_network',
+    '5' || '8' || '10' || '12' || '15' => 'icloud_permission',
+    '25' => 'icloud_quota',
+    'cloudkit_v2_accountChanged' => 'account_changed',
+    _ => 'operation_failed',
+  };
+
   Future<void> initialize() => _run(_initialize, allowPaused: true);
   Future<void> _initialize() async {
     if (!supported) return;
     _paused = false;
+    try {
+      biometricsAvailable = await biometrics.isAvailable();
+    } catch (_) {
+      biometricsAvailable = false;
+    }
     String account;
     try {
       account = await registrationTransport.readCurrentAccountId();
@@ -329,6 +376,8 @@ class SyncV2WorkspaceController extends ChangeNotifier {
     accountId = account;
     _syncKey = enrollment.syncKey;
     generationId = enrollment.generationId;
+    biometricEnabled =
+        await store.read('sync.v2.biometric.$generationId') == 'enabled';
     selectedProfileId = normal.profileId;
     registered = false;
     hasPending = false;
@@ -348,8 +397,21 @@ class SyncV2WorkspaceController extends ChangeNotifier {
 
   Future<({String syncCode, String adminCode})> prepareNew(
     String adminPassword,
-  ) => _run(() async {
-    if (!supported || registered || adminPassword.length < 12) {
+  ) => _prepareNew(adminPassword: adminPassword);
+
+  Future<({String syncCode, String adminCode})> prepareNewBiometric() =>
+      _prepareNew(useBiometrics: true);
+
+  Future<({String syncCode, String adminCode})> _prepareNew({
+    String? adminPassword,
+    bool useBiometrics = false,
+  }) => _run(() async {
+    if (!supported ||
+        registered ||
+        (!useBiometrics &&
+            (adminPassword == null ||
+                adminPassword.length <
+                    SyncV2AdminStore.minimumPasswordLength))) {
       throw const SyncV2WorkspaceException('invalid_input');
     }
     final epoch = _epoch;
@@ -369,7 +431,14 @@ class SyncV2WorkspaceController extends ChangeNotifier {
         _encryption,
         generationId: existing.generationId,
       );
-      final admin = await adminStore.unlock(adminPassword);
+      if (useBiometrics != _preparedBiometric) {
+        throw const SyncV2WorkspaceException('invalid_input');
+      }
+      final admin = useBiometrics
+          ? await _authenticateBiometric(
+              () => biometrics.read(existing.generationId),
+            )
+          : await adminStore.unlock(adminPassword!);
       if (admin == null) throw const SyncV2WorkspaceException('wrong_password');
       if (epoch != _epoch || _paused) {
         admin.destroy();
@@ -392,12 +461,23 @@ class SyncV2WorkspaceController extends ChangeNotifier {
         _encryption,
         generationId: prepared.generationId,
       );
-      await adminStore.configure(adminKey: admin, password: adminPassword);
+      if (useBiometrics) {
+        await _authenticateBiometric(
+          () => biometrics.save(prepared!.generationId, admin),
+        );
+        await store.write(
+          'sync.v2.biometric.${prepared.generationId}',
+          'enabled',
+        );
+      } else {
+        await adminStore.configure(adminKey: admin, password: adminPassword!);
+      }
       final adminCode = await adminStore.encodeRecoveryCode(admin);
       if (epoch != _epoch) throw const SyncV2WorkspaceException('locked');
       _prepared?.destroy();
       _setupAdmin?.destroy();
       _prepared = prepared;
+      _preparedBiometric = useBiometrics;
       accountId = account;
       _setupAdmin = admin;
       return (syncCode: prepared.recoveryCode, adminCode: adminCode);
@@ -411,8 +491,15 @@ class SyncV2WorkspaceController extends ChangeNotifier {
   Future<void> confirmSetup() => _run(() async {
     final prepared = _prepared;
     if (prepared == null) throw const SyncV2WorkspaceException('invalid_input');
-    final normal = await registrationFactory(prepared.accountId)
-        .publishPrepared(prepared);
+    late SyncV2RegisteredNormalProfile normal;
+    try {
+      normal = await registrationFactory(prepared.accountId)
+          .publishPrepared(prepared);
+    } finally {
+      final pending = await enrollments.readPendingRegistration();
+      hasPending = pending != null;
+      pending?.syncKey.destroy();
+    }
     await _attach(normal, account: prepared.accountId);
     _admin = _setupAdmin;
     _setupAdmin = null;
@@ -545,6 +632,72 @@ class SyncV2WorkspaceController extends ChangeNotifier {
       rethrow;
     }
   });
+  Future<void> unlockAdminBiometric() => _run(() async {
+    if (!biometricEnabled) {
+      throw const SyncV2WorkspaceException('biometric_unavailable');
+    }
+    final epoch = _epoch;
+    final admin = await _authenticateBiometric(
+      () => biometrics.read(generationId!),
+    );
+    if (admin == null) {
+      throw const SyncV2WorkspaceException('biometric_unavailable');
+    }
+    try {
+      await _registration.verifyAdminKey(
+        accountId: accountId!,
+        adminKey: admin,
+      );
+      await _refreshAdminProfiles(admin, epoch);
+      _admin?.destroy();
+      _admin = admin;
+      await _reloadNotes();
+    } catch (_) {
+      admin.destroy();
+      rethrow;
+    }
+  });
+
+  Future<void> enableAdminBiometrics() => _run(() async {
+    if (_admin == null) throw const SyncV2WorkspaceException('admin_required');
+    final epoch = _epoch;
+    final key = SecretKey(await _admin!.extractBytes());
+    try {
+      await _authenticateBiometric(() => biometrics.save(generationId!, key));
+      if (_paused || _disposed || epoch != _epoch) {
+        throw const SyncV2WorkspaceException('locked');
+      }
+      await store.write('sync.v2.biometric.$generationId', 'enabled');
+      biometricEnabled = true;
+    } finally {
+      key.destroy();
+    }
+  });
+
+  Future<void> recoverAdminBiometric(String code) => _run(() async {
+    final epoch = _epoch;
+    final admin = _adminStore.decodeRecoveryCode(code);
+    try {
+      await _registration.verifyAdminKey(
+        accountId: accountId!,
+        adminKey: admin,
+      );
+      await _authenticateBiometric(() => biometrics.save(generationId!, admin));
+      if (_paused || _disposed || epoch != _epoch) {
+        throw const SyncV2WorkspaceException('locked');
+      }
+      await store.write('sync.v2.biometric.$generationId', 'enabled');
+      biometricEnabled = true;
+      await _refreshAdminProfiles(admin, epoch);
+      _admin?.destroy();
+      _admin = admin;
+      await _reloadNotes();
+    } catch (_) {
+      admin.destroy();
+      rethrow;
+    }
+  });
+
   Future<void> recoverAdmin(String code, String newPassword) => _run(() async {
     final epoch = _epoch;
     final admin = _adminStore.decodeRecoveryCode(code);
