@@ -1,8 +1,11 @@
 import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../features/home/presentation/home_page.dart';
 import '../features/home/presentation/widget_quick_capture_screen.dart';
+import '../features/sync/presentation/sync_v2_workspace_screen.dart';
 
 part 'app_router.g.dart';
 
@@ -10,8 +13,30 @@ part 'app_router.g.dart';
 GoRouter appRouter(Ref ref) {
   return GoRouter(
     initialLocation: '/notes',
+    redirect: (context, state) async {
+      if (!kIsWeb &&
+          defaultTargetPlatform == TargetPlatform.iOS &&
+          const [
+            '/notes',
+            '/calendar',
+            '/insights',
+            '/trash',
+            '/tags',
+          ].contains(state.uri.path) &&
+          (await SharedPreferences.getInstance()).getBool(
+                'settings.sync_v2.enabled',
+              ) ==
+              true) {
+        return '/sync-v2';
+      }
+      return null;
+    },
     routes: [
       GoRoute(path: '/', redirect: (_, _) => '/notes'),
+      GoRoute(
+        path: '/sync-v2',
+        builder: (context, state) => const SyncV2WorkspaceScreen(),
+      ),
       GoRoute(
         path: '/widget-capture',
         pageBuilder: (context, state) => NoTransitionPage(

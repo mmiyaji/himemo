@@ -456,6 +456,8 @@ void main() {
           .read(privateProfileUnlockControllerProvider.notifier)
           .unlockWithPassword('download-pass');
       expect(unlocked, isNotNull);
+      await sync.refreshUnlockedPrivateProfiles();
+      await sync.restoreUnlockedPrivateAttachments(vaultId);
       final restoredNote = h.container.read(notesControllerProvider).single;
       final downloaded = restoredNote.attachments.single;
       expect(isSyncAttachmentObjectRef(downloaded.filePath), isFalse);
@@ -658,6 +660,13 @@ void main() {
         .singleWhere((n) => n.id == 'deferred-target');
     final downloading = sync.downloadDeferredAttachments();
     await transport.started.future;
+    var statusFinished = false;
+    final statusRefresh = sync.refreshRemoteStatus().then((_) {
+      statusFinished = true;
+    });
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(statusFinished, isFalse);
+    expect(h.container.read(syncTransferControllerProvider).isBusy, isTrue);
     await notes.upsert(
       targetBefore.copyWith(
         title: 'Edited during download',
@@ -679,6 +688,8 @@ void main() {
     await notes.delete('deferred-delete');
     transport.release.complete();
     await downloading;
+    await statusRefresh;
+    expect(statusFinished, isTrue);
 
     final current = h.container.read(notesControllerProvider);
     final edited = current.singleWhere((n) => n.id == 'deferred-target');

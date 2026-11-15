@@ -259,9 +259,8 @@ class _SettingsGroup extends StatelessWidget {
                 // and plain labels sit on the left edge instead of centering.
                 children: [
                   ListTileTheme(
-                    data: ListTileTheme.of(
-                      context,
-                    ).copyWith(minLeadingWidth: 36, horizontalTitleGap: 12),
+                    data: ListTileTheme.of(context)
+                        .copyWith(minLeadingWidth: 36, horizontalTitleGap: 12),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
@@ -315,9 +314,8 @@ class _SettingsFieldHelper extends StatelessWidget {
       padding: const EdgeInsets.only(top: 6),
       child: Text(
         text,
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-          color: _mutedTextColor(context),
-        ),
+        style: Theme.of(context).textTheme.bodySmall
+            ?.copyWith(color: _mutedTextColor(context)),
       ),
     );
   }

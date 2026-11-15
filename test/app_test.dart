@@ -3517,6 +3517,166 @@ void main() {
     },
   );
 
+  test('manual sync operations wait and keep their selected bundle', () async {
+    SharedPreferences.setMockInitialValues({});
+    final transport = _UnlockReplayTestTransport();
+    final harness = await _createGoogleDriveSyncHarness(
+      transport,
+      tempPrefix: 'himemo-queued-sync-actions-',
+    );
+    final container = harness.container;
+    final store = container.read(secureSyncBundleStoreProvider);
+    final statuses = <RemoteSyncBundleStatus>[];
+    for (final id in ['first', 'second']) {
+      final stored = await store.writeBundle(
+        PreparedSyncSnapshot(
+          deviceId: 'remote',
+          exportedAt: DateTime.utc(2026, 11, 11),
+          summary: const SyncQueueSummary(
+            totalChanges: 1,
+            upserts: 1,
+            deletes: 0,
+          ),
+          notes: [
+            PreparedSyncNote(
+              action: PendingNoteChangeAction.upsert,
+              note: NoteEntry(
+                id: id,
+                vaultId: 'everyday',
+                title: id,
+                body: '',
+                createdAt: DateTime.utc(2026),
+                revision: 1,
+                contentHash: id,
+              ),
+            ),
+          ],
+          attachments: const [],
+        ),
+        encryptedPrivateNotes: const [],
+      );
+      statuses.add(
+        await transport.uploadBundle(
+          encodedPayload: (await store.readEncryptedBundlePayload(
+            stored.reference,
+          ))!,
+          deviceId: 'remote',
+          noteCount: 1,
+          attachmentCount: 0,
+        ),
+      );
+    }
+    final sync = container.read(syncTransferControllerProvider.notifier);
+    expect(
+      await container
+          .read(privateMemoProfilesControllerProvider.notifier)
+          .addProfile(name: 'Private', password: 'queued-unlock-passphrase'),
+      isNull,
+    );
+    container.read(profileDataKeyServiceProvider).lockAllPrivateProfiles();
+    await sync.downloadBundle(statuses.first);
+    transport.pauseDownload = Completer<void>();
+    final active = sync.downloadBundle(statuses.last);
+    await transport.downloadStarted.future;
+    final apply = sync.applyDownloadedBundle();
+    var previewCompleted = false;
+    final preview = sync.downloadBundlePreview(statuses.last).then((value) {
+      previewCompleted = true;
+      return value;
+    });
+    final conflict = sync.downloadLatestRemoteNoteForConflict('second');
+    final syncing = sync.syncNow();
+    // Unlock must return without waiting for the active network download.
+    expect(
+      await container
+          .read(privateProfileUnlockControllerProvider.notifier)
+          .unlockWithPassword('queued-unlock-passphrase')
+          .timeout(const Duration(seconds: 10)),
+      isNotNull,
+    );
+    await sync.applyPendingPrivateDownloadedBundleIfNeeded().timeout(
+      const Duration(seconds: 1),
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(previewCompleted, isFalse);
+    transport.pauseDownload!.complete();
+    await active;
+    await apply;
+    expect(
+      container.read(notesControllerProvider).map((note) => note.id),
+      contains('first'),
+    );
+    expect((await preview).sampleTitles, ['second']);
+    expect((await conflict)?.note.id, 'second');
+    expect((await syncing).stage, SyncTransferStage.success);
+    await Future<void>.delayed(Duration.zero);
+    await sync.syncNow();
+    expect(
+      await store.readStoredEncryptedBundle(
+        fileNameOverride: 'replayed_sync_bundle.enc',
+      ),
+      isNull,
+    );
+  });
+
+  test('cached exclusion references defer to cloud replay without repeated apply errors', () async {
+    SharedPreferences.setMockInitialValues({
+      'sync.pending_private_bundle_apply.v1': true,
+    });
+    final transport = _UnlockReplayTestTransport();
+    final harness = await _createGoogleDriveSyncHarness(
+      transport,
+      tempPrefix: 'himemo-cached-retention-replay-',
+    );
+    final container = harness.container;
+    final store = container.read(secureSyncBundleStoreProvider);
+    final original = await store.writeBundle(
+      PreparedSyncSnapshot(
+        deviceId: 'remote',
+        exportedAt: DateTime.utc(2026),
+        summary: const SyncQueueSummary(
+          totalChanges: 0,
+          upserts: 0,
+          deletes: 0,
+        ),
+        notes: const [],
+        attachments: const [],
+      ),
+      exclusionRetention: const SyncExclusionRetention(
+        excludedNoteIds: {'excluded'},
+        retainedBundleIds: {'source-bundle'},
+        noteBundleIds: {'excluded': 'source-bundle'},
+      ),
+    );
+    await store.writeEncryptedBundlePayload(
+      (await store.readEncryptedBundlePayload(original.reference))!,
+      noteCount: 0,
+      attachmentCount: 0,
+      fileNameOverride: 'pending_private_sync_bundle.enc',
+    );
+    final sync = container.read(syncTransferControllerProvider.notifier);
+    await sync.applyPendingPrivateDownloadedBundleIfNeeded();
+    final prefs = await SharedPreferences.getInstance();
+    expect(
+      prefs.getBool('sync.private_cached_replay_requires_remote.v1'),
+      isTrue,
+    );
+    expect(prefs.getBool('sync.pending_private_bundle_apply.v1'), isTrue);
+    final failedState = container.read(syncTransferControllerProvider);
+    await sync.applyPendingPrivateDownloadedBundleIfNeeded();
+    expect(
+      identical(container.read(syncTransferControllerProvider), failedState),
+      isTrue,
+    );
+    expect(transport.historyReads, 0);
+    expect(
+      await store.readStoredEncryptedBundle(
+        fileNameOverride: 'pending_private_sync_bundle.enc',
+      ),
+      isNotNull,
+    );
+  });
+
   test(
     'locked legacy private notes defer only their bundle during replay',
     () async {
@@ -3672,6 +3832,7 @@ void main() {
             ),
           );
       expect(await unlock.unlockWithPassword(password), isNotNull);
+      await sync.refreshUnlockedPrivateProfiles();
       expect(
         container.read(notesControllerProvider).map((note) => note.id),
         containsAll(['legacy-private', 'latest-legacy-private']),
@@ -3705,6 +3866,7 @@ void main() {
       transport.failHistory = true;
 
       expect(await unlock.unlockWithPassword(password), isNotNull);
+      await sync.refreshUnlockedPrivateProfiles();
       expect(
         container.read(notesControllerProvider).map((note) => note.id),
         contains('cached-private'),
@@ -3728,7 +3890,10 @@ void main() {
       final download = sync.downloadBundle(later);
       await transport.downloadStarted.future;
       final historyReads = transport.historyReads;
-      final unlockReplay = sync.applyPendingPrivateDownloadedBundleIfNeeded();
+      await sync.applyPendingPrivateDownloadedBundleIfNeeded().timeout(
+        const Duration(seconds: 1),
+      );
+      final unlockReplay = sync.refreshUnlockedPrivateProfiles();
       await Future<void>.delayed(Duration.zero);
       expect(transport.historyReads, historyReads);
       transport.pauseDownload!.complete();
@@ -3739,6 +3904,12 @@ void main() {
         (await container.read(syncBundleStateStoreProvider).read())
             .appliedRemoteFileIds,
         contains(cached.fileId),
+      );
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool('sync.pending_private_bundle_apply.v1'), isFalse);
+      expect(
+        prefs.getBool('sync.private_cached_replay_requires_remote.v1'),
+        isNull,
       );
     },
   );
@@ -5519,6 +5690,8 @@ void main() {
           .read(privateProfileUnlockControllerProvider.notifier)
           .unlockWithPassword('attach-pass-123');
       expect(targetProfile?.vaultId, sourceProfile.vaultId);
+      await targetSync.refreshUnlockedPrivateProfiles();
+      await targetSync.restoreUnlockedPrivateAttachments(sourceProfile.vaultId);
 
       final targetNote = target.container
           .read(notesControllerProvider)

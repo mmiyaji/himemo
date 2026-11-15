@@ -15,6 +15,7 @@ import '../features/home/domain/note_entry.dart';
 import '../features/home/presentation/home_providers.dart';
 import '../features/security/presentation/app_pin_input.dart';
 import '../features/sync/data/sync_engine.dart';
+import '../features/sync/presentation/sync_v2_privacy.dart';
 import '../l10n/app_localizations.dart';
 import '../l10n/app_strings.dart';
 import 'diagnostic_log.dart';
@@ -394,7 +395,8 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   }
 
   void _activateAppLockPrivacyCoverIfEnabled() {
-    if (ref.read(appLockSettingsControllerProvider)) {
+    if (ref.read(appLockSettingsControllerProvider) ||
+        ref.read(syncV2PrivacyActiveProvider)) {
       _setLifecyclePrivacyProtection(enabled: true, showCover: true);
     }
     unawaited(
@@ -638,10 +640,12 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   Future<void> _refreshNativePrivacyScreen({bool? privatePrivacyActive}) {
     final privacyScreenActive =
         privatePrivacyActive ?? (ref.read(privacyScreenActiveProvider) == true);
+    final v2PrivacyActive = ref.read(syncV2PrivacyActiveProvider);
     final shouldEnableNativePrivacy =
-        defaultTargetPlatform == TargetPlatform.android
-        ? (privacyScreenActive || _lifecyclePrivacyProtectionEnabled)
-        : (privacyScreenActive || _lifecyclePrivacyProtectionEnabled);
+        v2PrivacyActive ||
+        (defaultTargetPlatform == TargetPlatform.android
+            ? (privacyScreenActive || _lifecyclePrivacyProtectionEnabled)
+            : (privacyScreenActive || _lifecyclePrivacyProtectionEnabled));
     return _setPrivacyScreenEnabled(
       shouldEnableNativePrivacy,
       showCover: privacyScreenActive || _lifecyclePrivacyCoverVisible,
@@ -794,13 +798,12 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
         hasPendingChanges: hasPendingChanges,
       );
       ranSyncAttempt = true;
-      await ref
+      final result = await ref
           .read(syncTransferControllerProvider.notifier)
           .syncNow(
             silentLargeMobileSkip: true,
             allowCachedRemoteStatus: !hasPendingChanges,
           );
-      final result = ref.read(syncTransferControllerProvider);
       if (result.stage == SyncTransferStage.success) {
         if (result.message ==
             'sync.info.private_profile_notes_pending_unlock') {
@@ -1058,6 +1061,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     final settingsReady = ref.watch(appLockSettingsReadyProvider);
     final unlocked = ref.watch(appSessionUnlockControllerProvider);
     final privacyScreenActive = ref.watch(privacyScreenActiveProvider);
+    ref.watch(syncV2PrivacyActiveProvider);
     final authState = ref.watch(deviceAuthControllerProvider);
     final pinState = ref.watch(appPinLockControllerProvider);
     final canUseDeviceAuth = !kIsWeb && authState.isAvailable;
@@ -1083,6 +1087,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
 
     ref.listen<bool>(privacyScreenActiveProvider, (previous, next) {
       unawaited(_refreshNativePrivacyScreen(privatePrivacyActive: next));
+    });
+    ref.listen<bool>(syncV2PrivacyActiveProvider, (previous, next) {
+      unawaited(_refreshNativePrivacyScreen());
     });
     ref.listen<SyncProvider>(syncProviderControllerProvider, (previous, next) {
       if (next != SyncProvider.off && next != previous) {

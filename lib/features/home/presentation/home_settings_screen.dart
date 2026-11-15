@@ -830,7 +830,7 @@ class SettingsScreen extends ConsumerWidget {
       if (!confirmed || !context.mounted) {
         return;
       }
-      await ref
+      final result = await ref
           .read(syncTransferControllerProvider.notifier)
           .syncNow(allowLargeMobileTransfer: true);
       if (!context.mounted) {
@@ -838,7 +838,7 @@ class SettingsScreen extends ConsumerWidget {
       }
       final message = _cloudSyncSnackBarMessage(
         strings,
-        ref.read(syncTransferControllerProvider),
+        result,
         _CloudSyncSnackBarAction.syncNow,
         ref.read(syncProviderControllerProvider),
       );
@@ -1295,6 +1295,22 @@ class SettingsScreen extends ConsumerWidget {
         vertical: compactSettingsLayout ? 8 : 16,
       ),
       children: [
+        if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS)
+          ListTile(
+            key: const Key('open-sync-v2-workspace'),
+            leading: const Icon(Icons.cloud_sync_outlined),
+            title: Text(
+              strings.localized(ja: 'iCloud 同期 v2', en: 'iCloud sync v2'),
+            ),
+            subtitle: Text(
+              strings.localized(
+                ja: '暗号化メモの作成・同期・復旧と旧ZIPの移行',
+                en: 'Create, sync and recover encrypted notes, or import an older ZIP',
+              ),
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.go('/sync-v2'),
+          ),
         _SettingsOverviewCard(
           key: overviewKey,
           title: strings.localized(

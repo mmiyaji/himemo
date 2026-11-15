@@ -109,7 +109,9 @@ class SecureSyncBundleStore {
     if (kIsWeb) {
       final prefs = await _sharedPreferencesProvider();
       final reference = _webBundleReference(fileNameOverride);
-      await prefs.setString(reference, encodedPayload);
+      if (!await prefs.setString(reference, encodedPayload)) {
+        throw StateError('Could not store encrypted sync bundle');
+      }
       return StoredSyncBundle(
         reference: reference,
         noteCount: noteCount,
@@ -167,6 +169,26 @@ class SecureSyncBundleStore {
 
   String _webBundleReference(String? fileNameOverride) =>
       '$webStorageKey.${fileNameOverride ?? fileName}';
+
+  Future<void> deleteStoredEncryptedBundle({
+    required String fileNameOverride,
+  }) async {
+    if (kIsWeb) {
+      final prefs = await _sharedPreferencesProvider();
+      if (!await prefs.remove(_webBundleReference(fileNameOverride))) {
+        throw StateError('Could not remove temporary sync bundle');
+      }
+      return;
+    }
+    final file = File(
+      path.join(
+        (await _directoryProvider()).path,
+        'sync_exports',
+        fileNameOverride,
+      ),
+    );
+    if (await file.exists()) await file.delete();
+  }
 
   Future<String> writeAttachmentObjectPayload(
     PreparedSyncAttachment attachment,

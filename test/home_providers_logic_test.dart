@@ -8,6 +8,66 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  group('sync exclusion restoration', () {
+    test(
+      'immediate removal waits for persisted tags and survives reopening',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          'settings.sync_exclusion_tags.v1': ['saved-exclusion'],
+        });
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
+        await container
+            .read(syncExclusionTagsControllerProvider.notifier)
+            .removeTag('saved-exclusion');
+        expect(container.read(syncExclusionTagsControllerProvider), [
+          systemSyncExcludedTag,
+        ]);
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getStringList('settings.sync_exclusion_tags.v1'), [
+          systemSyncExcludedTag,
+        ]);
+        final reopened = ProviderContainer();
+        addTearDown(reopened.dispose);
+        // A no-op mutation waits for the reopened controller's restoration.
+        await reopened
+            .read(syncExclusionTagsControllerProvider.notifier)
+            .removeTag('saved-exclusion');
+        expect(reopened.read(syncExclusionTagsControllerProvider), [
+          systemSyncExcludedTag,
+        ]);
+      },
+    );
+
+    test('immediate addition retains persisted exclusions', () async {
+      SharedPreferences.setMockInitialValues({
+        'settings.sync_exclusion_tags.v1': ['saved-exclusion'],
+      });
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      await container
+          .read(syncExclusionTagsControllerProvider.notifier)
+          .addTag('new-exclusion');
+      expect(
+        container.read(syncExclusionTagsControllerProvider),
+        containsAll([
+          systemSyncExcludedTag,
+          'saved-exclusion',
+          'new-exclusion',
+        ]),
+      );
+      final prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getStringList('settings.sync_exclusion_tags.v1'),
+        containsAll([
+          systemSyncExcludedTag,
+          'saved-exclusion',
+          'new-exclusion',
+        ]),
+      );
+    });
+  });
+
   group('releaseNoteFromJson', () {
     test('rejects incomplete releases and normalizes localized fields', () {
       expect(releaseNoteFromJson(const {}), isNull);

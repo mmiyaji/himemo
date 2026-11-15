@@ -1085,6 +1085,13 @@ import FoundationModels
 
   private func handleCloudKitMethod(call: FlutterMethodCall, result: @escaping FlutterResult) {
     switch call.method {
+    case "cloudKitV2AccountId", "cloudKitV2Prepare", "cloudKitV2FetchHeaders", "cloudKitV2FetchHeader",
+         "cloudKitV2FetchPayload", "cloudKitV2Publish":
+      guard #available(iOS 15.0, *) else {
+        result(FlutterError(code: "cloudkit_v2_unsupported", message: "Sync v2 requires iOS 15.", details: nil))
+        return
+      }
+      handleCloudKitV2Method(call: call, result: result)
     case "cloudKitAccountStatus":
       checkCloudKitAccountStatus(result: result)
     case "cloudKitFetchLatestBundleStatus":
@@ -1204,6 +1211,190 @@ import FoundationModels
       )
     default:
       result(FlutterMethodNotImplemented)
+    }
+  }
+
+  @available(iOS 15.0, *)
+  private func handleCloudKitV2Method(call: FlutterMethodCall, result: @escaping FlutterResult) {
+    guard let container = makeCloudKitContainer() else {
+      result(cloudKitConfigurationError())
+      return
+    }
+    Task { @MainActor in
+      do {
+        let account = try await container.userRecordID().recordName
+        if call.method == "cloudKitV2AccountId" {
+          result(account)
+          return
+        }
+        guard let args = call.arguments as? [String: Any],
+              let enrolled = args["accountId"] as? String,
+              let generation = args["generationId"] as? String,
+              self.isCloudKitV2Identifier(generation) else {
+          throw CloudKitV2Error.invalidRequest
+        }
+        guard enrolled == account else { throw CloudKitV2Error.accountChanged }
+        let database = container.privateCloudDatabase
+        let zone = CKRecordZone.ID(
+          zoneName: "HiMemoSyncV2-\(generation)",
+          ownerName: CKCurrentUserDefaultName
+        )
+        let response: Any?
+        switch call.method {
+        case "cloudKitV2Prepare":
+          _ = try await database.save(CKRecordZone(zoneID: zone))
+          response = nil
+        case "cloudKitV2FetchHeaders":
+          response = try await self.fetchCloudKitV2Headers(database, zone: zone, args: args)
+        case "cloudKitV2FetchHeader", "cloudKitV2FetchPayload", "cloudKitV2Publish":
+          guard let name = args["id"] as? String, self.isCloudKitV2Identifier(name) else {
+            throw CloudKitV2Error.invalidRequest
+          }
+          let id = CKRecord.ID(recordName: name, zoneID: zone)
+          if call.method == "cloudKitV2FetchHeader" {
+            let records = try await database.records(
+              for: [id], desiredKeys: [Self.syncV2HeaderField]
+            )
+            guard let fetched = records[id] else { throw CloudKitV2Error.invalidRecord }
+            let record = try fetched.get()
+            guard record.recordType == Self.syncV2RecordType,
+                  let header = record[Self.syncV2HeaderField] as? String,
+                  !header.isEmpty else { throw CloudKitV2Error.invalidRecord }
+            response = header
+          } else if call.method == "cloudKitV2FetchPayload" {
+            let record = try await database.record(for: id)
+            guard let payload = try self.cloudKitV2Payload(record) else {
+              throw CloudKitV2Error.invalidRecord
+            }
+            response = FlutterStandardTypedData(bytes: payload)
+          } else {
+            try await self.publishCloudKitV2(database, id: id, args: args)
+            response = nil
+          }
+        default:
+          result(FlutterMethodNotImplemented)
+          return
+        }
+        guard try await container.userRecordID().recordName == enrolled else {
+          throw CloudKitV2Error.accountChanged
+        }
+        result(response)
+      } catch let error as CloudKitV2Error {
+        result(FlutterError(code: "cloudkit_v2_\(error.rawValue)", message: nil, details: nil))
+      } catch let error as CKError where error.code == .changeTokenExpired {
+        result(FlutterError(code: "cloudkit_v2_cursor_expired", message: nil, details: nil))
+      } catch {
+        result(self.flutterError(from: error))
+      }
+    }
+  }
+
+  private enum CloudKitV2Error: String, Error {
+    case invalidRequest, invalidRecord, accountChanged, recordCollision
+  }
+
+  private static let syncV2RecordType = "HiMemoSyncV2Change"
+  private static let syncV2HeaderField = "encryptedHeader"
+  private static let syncV2PayloadField = "encryptedPayload"
+  private static let syncV2PayloadLimit = 16 * 1024 * 1024
+
+  private func isCloudKitV2Identifier(_ value: String) -> Bool {
+    !value.isEmpty && value.utf8.count <= 80 &&
+      value.utf8.allSatisfy { (48...57).contains($0) || (65...90).contains($0) ||
+        (97...122).contains($0) || $0 == 45 || $0 == 95 }
+  }
+
+  @available(iOS 15.0, *)
+  private func fetchCloudKitV2Headers(
+    _ database: CKDatabase, zone: CKRecordZone.ID, args: [String: Any]
+  ) async throws -> [String: Any] {
+    guard let limit = args["limit"] as? Int, (1...200).contains(limit) else {
+      throw CloudKitV2Error.invalidRequest
+    }
+    var token: CKServerChangeToken?
+    if let cursor = args["cursor"] {
+      guard let encoded = cursor as? String, let data = Data(base64Encoded: encoded),
+            let decoded = try NSKeyedUnarchiver.unarchivedObject(ofClass: CKServerChangeToken.self, from: data) else {
+        throw CloudKitV2Error.invalidRequest
+      }
+      token = decoded
+    }
+    let page = try await database.recordZoneChanges(
+      inZoneWith: zone,
+      since: token,
+      desiredKeys: [Self.syncV2HeaderField],
+      resultsLimit: limit
+    )
+    var headers: [[String: String]] = []
+    var issues = page.deletions.map { deletion in
+      ["id": deletion.recordID.recordName, "reason": "remote_deleted"]
+    }
+    for (id, modification) in page.modificationResultsByID {
+      let record: CKRecord
+      do {
+        record = try modification.get().record
+      } catch {
+        issues.append(["id": id.recordName, "reason": "record_unavailable"])
+        continue
+      }
+      guard record.recordType == Self.syncV2RecordType,
+            let header = record[Self.syncV2HeaderField] as? String,
+            !header.isEmpty else {
+        issues.append(["id": id.recordName, "reason": "invalid_record"])
+        continue
+      }
+      headers.append(["id": id.recordName, "header": header])
+    }
+    let cursor = try NSKeyedArchiver.archivedData(
+      withRootObject: page.changeToken, requiringSecureCoding: true
+    ).base64EncodedString()
+    return ["cursor": cursor, "hasMore": page.moreComing, "headers": headers, "issues": issues]
+  }
+
+  private func cloudKitV2Payload(_ record: CKRecord) throws -> Data? {
+    guard record.recordType == Self.syncV2RecordType else { throw CloudKitV2Error.invalidRecord }
+    guard let field = record[Self.syncV2PayloadField] else { return nil }
+    guard let asset = field as? CKAsset, let url = asset.fileURL,
+          let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+          (1...Self.syncV2PayloadLimit).contains(size) else {
+      throw CloudKitV2Error.invalidRecord
+    }
+    return try Data(contentsOf: url)
+  }
+
+  @available(iOS 15.0, *)
+  private func publishCloudKitV2(
+    _ database: CKDatabase, id: CKRecord.ID, args: [String: Any]
+  ) async throws {
+    guard let header = args["header"] as? String, (1...65536).contains(header.utf8.count) else {
+      throw CloudKitV2Error.invalidRequest
+    }
+    let payload = (args["payload"] as? FlutterStandardTypedData)?.data
+    if args["payload"] != nil &&
+        (payload.map { (1...Self.syncV2PayloadLimit).contains($0.count) } != true) {
+      throw CloudKitV2Error.invalidRequest
+    }
+    let record = CKRecord(recordType: Self.syncV2RecordType, recordID: id)
+    record[Self.syncV2HeaderField] = header as CKRecordValue
+    var temporaryURL: URL?
+    defer {
+      if let temporaryURL { try? FileManager.default.removeItem(at: temporaryURL) }
+    }
+    if let payload {
+      let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+      temporaryURL = url
+      try payload.write(to: url, options: [.atomic])
+      record[Self.syncV2PayloadField] = CKAsset(fileURL: url)
+    }
+    do {
+      let outcome = try await database.modifyRecords(saving: [record], deleting: [])
+      guard let saved = outcome.saveResults[id] else { throw CloudKitV2Error.invalidRecord }
+      _ = try saved.get()
+    } catch {
+      guard let existing = try? await database.record(for: id) else { throw error }
+      let storedPayload = try cloudKitV2Payload(existing)
+      guard existing[Self.syncV2HeaderField] as? String == header,
+            storedPayload == payload else { throw CloudKitV2Error.recordCollision }
     }
   }
 

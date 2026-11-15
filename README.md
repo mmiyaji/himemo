@@ -151,6 +151,12 @@ integration_test/          Flutter integration tests
 playwright/tests/          Web E2E tests
 ```
 
+## iCloud Sync v2 Workspace
+
+The current development tree adds a separate iOS/iCloud v2 workspace under Settings → **iCloud sync v2**. It supports registration/recovery, normal and private notes, attachments, conflict repair, legacy ZIP import/export, and normal-profile widget/share capture. Selecting it pauses legacy sync; returning restores the previous sync selection. Legacy data is retained. Administrator access uses a passphrase and a separate recovery code.
+
+The implementation is covered by unit/widget and two-store integration tests. Live iOS/CloudKit and two physical devices still require the [acceptance checks](internal-docs/sync-v2-acceptance.md). This does not announce a store release. [Design and current scope](docs/egm-sync-v2-design.md).
+
 ## Release Notes
 
 The public 1.0.0 release is documented in `assets/release_notes/release_notes.json`. Keep it aligned with store listing copy and help pages whenever user-facing features change.

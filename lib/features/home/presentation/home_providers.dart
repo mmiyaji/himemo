@@ -5389,17 +5389,20 @@ final syncExclusionTagsControllerProvider =
 class SyncExclusionTagsController extends Notifier<List<String>> {
   static const _storageKey = 'settings.sync_exclusion_tags.v1';
   bool _restored = false;
+  Future<void>? _restoreFuture;
 
   @override
   List<String> build() {
     if (!_restored) {
       _restored = true;
-      unawaited(_restore());
+      _restoreFuture = _restore();
+      unawaited(_restoreFuture);
     }
     return const <String>[systemSyncExcludedTag];
   }
 
   Future<void> addTag(String rawTag) async {
+    await _restoreFuture;
     final next = _normalizeSyncExclusionTags([...state, rawTag]);
     if (_sameTagList(state, next)) {
       return;
@@ -5409,6 +5412,7 @@ class SyncExclusionTagsController extends Notifier<List<String>> {
   }
 
   Future<void> removeTag(String rawTag) async {
+    await _restoreFuture;
     final key = canonicalizeNoteTag(rawTag);
     if (key.isEmpty || key == canonicalizeNoteTag(systemSyncExcludedTag)) {
       return;
@@ -8502,10 +8506,17 @@ class AdminModeSessionController extends Notifier<bool> {
         .read(syncTransferControllerProvider.notifier)
         .applyPendingPrivateDownloadedBundleIfNeeded();
     await ref.read(notesControllerProvider.notifier).reloadFromStorage();
-    if (vaultId != null) {
-      await ref
+    unawaited(
+      ref
           .read(syncTransferControllerProvider.notifier)
-          .restoreUnlockedPrivateAttachments(vaultId);
+          .refreshUnlockedPrivateProfiles(),
+    );
+    if (vaultId != null) {
+      unawaited(
+        ref
+            .read(syncTransferControllerProvider.notifier)
+            .restoreUnlockedPrivateAttachments(vaultId),
+      );
     }
     if (!state) {
       ref
@@ -8588,13 +8599,17 @@ class PrivateProfileUnlockController extends Notifier<AsyncValue<void>> {
             );
         await _applyPendingDownloadedBundle();
         await ref.read(notesControllerProvider.notifier).reloadFromStorage();
-        await ref
-            .read(syncTransferControllerProvider.notifier)
-            .restoreUnlockedPrivateAttachments(custom.vaultId);
-        for (final vaultId in custom.additionalVaultIds) {
-          await ref
+        unawaited(
+          ref
               .read(syncTransferControllerProvider.notifier)
-              .restoreUnlockedPrivateAttachments(vaultId);
+              .refreshUnlockedPrivateProfiles(),
+        );
+        for (final vaultId in [custom.vaultId, ...custom.additionalVaultIds]) {
+          unawaited(
+            ref
+                .read(syncTransferControllerProvider.notifier)
+                .restoreUnlockedPrivateAttachments(vaultId),
+          );
         }
         state = const AsyncData(null);
         return custom;
@@ -8622,9 +8637,16 @@ class PrivateProfileUnlockController extends Notifier<AsyncValue<void>> {
             .unlock(result.vaultId);
         await _applyPendingDownloadedBundle();
         await ref.read(notesControllerProvider.notifier).reloadFromStorage();
-        await ref
-            .read(syncTransferControllerProvider.notifier)
-            .restoreUnlockedPrivateAttachments(result.vaultId);
+        unawaited(
+          ref
+              .read(syncTransferControllerProvider.notifier)
+              .refreshUnlockedPrivateProfiles(),
+        );
+        unawaited(
+          ref
+              .read(syncTransferControllerProvider.notifier)
+              .restoreUnlockedPrivateAttachments(result.vaultId),
+        );
         state = const AsyncData(null);
         return result;
       }

@@ -7,3 +7,7 @@ import 'encrypted_note_database_executor_io.dart'
 QueryExecutor createEncryptedNoteDatabaseExecutor() {
   return executor_impl.createEncryptedNoteDatabaseExecutor();
 }
+
+QueryExecutor createSyncV2DatabaseExecutor() {
+  return executor_impl.createSyncV2DatabaseExecutor();
+}

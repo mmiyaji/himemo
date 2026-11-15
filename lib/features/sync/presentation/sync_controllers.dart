@@ -29,6 +29,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       'pending_private_sync_bundle.enc';
   static const _pendingPrivateBundleApplyKey =
       'sync.pending_private_bundle_apply.v1';
+  static const _pendingPrivateRemoteReplayKey =
+      'sync.private_cached_replay_requires_remote.v1';
 
   // Exact IDs returned by this process's pins avoid a global post-upload scan.
   // Server metadata remains authoritative if the process stops before release.
@@ -478,7 +480,14 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
   }
 
-  Future<void> refreshRemoteStatus({
+  Future<void> refreshRemoteStatus({bool allowCachedRemoteStatus = false}) =>
+      _runSyncOperation(
+        () => _refreshRemoteStatus(
+          allowCachedRemoteStatus: allowCachedRemoteStatus,
+        ),
+      );
+
+  Future<void> _refreshRemoteStatus({
     bool allowCachedRemoteStatus = false,
   }) async {
     final provider = ref.read(syncProviderControllerProvider);
@@ -555,7 +564,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     ICloudMaintenanceResult? result;
     await _runSyncOperation(() async {
       result = await _compactICloudStorage(keepLatest: keepLatest);
-    }, waitForActive: true);
+    });
     return result ??
         (throw StateError('sync.error.local_bundle_prepare_failed'));
   }
@@ -607,7 +616,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         'referencedAttachmentHashes': referencedHashes.length,
       },
     );
-    await refreshRemoteStatus();
+    await _refreshRemoteStatus();
     return result;
   }
 
@@ -635,24 +644,27 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   bool _unlockReplay = false;
   ({StoredSyncBundle bundle, RemoteSyncBundleStatus status})? _stagedDownload;
 
-  Future<void> _runSyncOperation(
-    Future<void> Function() run, {
-    bool waitForActive = false,
-  }) async {
+  Future<T> _runSyncOperation<T>(Future<T> Function() run) async {
     while (_syncOperation != null) {
-      if (!waitForActive) return;
       await _syncOperation!.future;
-      if (!ref.mounted) return;
+      if (!ref.mounted) throw StateError('Sync controller disposed');
     }
     final operation = Completer<void>();
     _syncOperation = operation;
     try {
-      await run();
+      return await run();
     } finally {
       _syncOperation = null;
       operation.complete();
     }
   }
+
+  /// Wait for legacy transfers before selecting the independent v2 workspace.
+  Future<void> suspendLegacyForV2() => _runSyncOperation(() async {
+    await ref
+        .read(syncProviderControllerProvider.notifier)
+        .setProvider(SyncProvider.off);
+  });
 
   Future<void> uploadCurrentBundle({
     bool force = false,
@@ -674,7 +686,6 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       silentLargeMobileSkip: silentLargeMobileSkip,
       pruneAfterUpload: pruneAfterUpload,
     ),
-    waitForActive: true,
   );
 
   Future<void> _uploadCurrentBundle({
@@ -1921,20 +1932,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       if (remoteBundle == null) {
         return false;
       }
-      final localBundle = await ref
-          .read(secureSyncBundleStoreProvider)
-          .writeEncryptedBundlePayload(
-            remoteBundle.encodedPayload,
-            noteCount: remoteBundle.status.noteCount ?? 0,
-            attachmentCount: remoteBundle.status.attachmentCount ?? 0,
-            fileNameOverride: 'missing_attachment_repair_bundle.enc',
-          );
       final decoded = await ref
           .read(secureSyncBundleStoreProvider)
-          .readBundleJson(localBundle.reference);
-      if (decoded == null) {
-        return false;
-      }
+          .readRemoteBundlePayloadJson(remoteBundle.encodedPayload);
       final remoteAttachment = await _remoteAttachmentForMissingError(
         decodedBundle: decoded,
         error: error,
@@ -1961,6 +1961,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         },
       );
       return false;
+    } finally {
+      await _removeTemporaryBundle('missing_attachment_repair_bundle.enc');
     }
   }
 
@@ -2167,7 +2169,6 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       allowLargeMobileTransfer: allowLargeMobileTransfer,
       silentLargeMobileSkip: silentLargeMobileSkip,
     ),
-    waitForActive: true,
   );
 
   Future<void> _reuploadAllCurrentNotes({
@@ -2182,7 +2183,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       return;
     }
-    if (state.isBusy) {
+    if (state.isCoolingDown) {
       return;
     }
     if (await _shouldBlockLargeMobileTransfer(
@@ -2685,18 +2686,23 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             'payloadLength': remote.encodedPayload.length,
           },
         );
-        final localBundle = await _storeDownloadedBundle(
-          remote,
-          emptyMessage: 'sync.info.no_bundle_to_sync',
-          forReplay: true,
-        );
-        _setProgress(SyncTransferProgress.applyingBundle);
-        await _yieldToUi();
-        final result = await _applyDownloadedBundle(
-          historyValidated: true,
-          localBundle: localBundle,
-          sourceStatus: remote.status,
-        );
+        final _BundleApplyResult result;
+        try {
+          final localBundle = await _storeDownloadedBundle(
+            remote,
+            emptyMessage: 'sync.info.no_bundle_to_sync',
+            forReplay: true,
+          );
+          _setProgress(SyncTransferProgress.applyingBundle);
+          await _yieldToUi();
+          result = await _applyDownloadedBundle(
+            historyValidated: true,
+            localBundle: localBundle,
+            sourceStatus: remote.status,
+          );
+        } finally {
+          await _removeTemporaryBundle('replayed_sync_bundle.enc');
+        }
         switch (result) {
           case _BundleApplyResult.failed:
             return (
@@ -2725,7 +2731,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     );
   }
 
-  Future<void> syncNow({
+  Future<SyncTransferState> syncNow({
     bool forceUpload = false,
     bool allowLargeMobileTransfer = false,
     bool silentLargeMobileSkip = false,
@@ -2737,6 +2743,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       silentLargeMobileSkip: silentLargeMobileSkip,
       allowCachedRemoteStatus: allowCachedRemoteStatus,
     );
+    return state;
   });
 
   Future<void> _syncNow({
@@ -2761,10 +2768,14 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         'sync now skipped unsupported provider',
         data: {'provider': provider.name},
       );
+      state = const SyncTransferState(
+        stage: SyncTransferStage.idle,
+        message: 'sync.info.select_target_for_remote_status',
+      );
       return;
     }
-    if (state.isBusy) {
-      _diagnostic('sync now skipped busy');
+    if (state.isCoolingDown) {
+      _diagnostic('sync now deferred by cloud cooldown');
       return;
     }
     _startBusy(SyncTransferProgress.checkingRemote);
@@ -2926,6 +2937,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         if (!replay.completed) return;
         appliedRemoteDuringSync = replay.appliedRemote;
         privateProfilesPendingUnlock = replay.pendingUnlock;
+        if (!replay.pendingUnlock && await _hasPendingPrivateBundleApply()) {
+          await _setPendingPrivateBundleApply(false);
+        }
       }
       final heldConflicts = (await _heldConflictNoteIds()).length;
       if (heldConflicts > 0) {
@@ -3276,15 +3290,18 @@ class SyncTransferController extends Notifier<SyncTransferState> {
 
   Future<SyncBundlePreview> downloadBundlePreview(
     RemoteSyncBundleStatus remoteStatus,
-  ) async {
-    await downloadBundle(remoteStatus);
+  ) => _runSyncOperation(() async {
+    await _downloadBundle(remoteStatus);
     if (state.stage == SyncTransferStage.error) {
       throw StateError(
         state.message ?? 'sync.error.remote_bundle_download_failed',
       );
     }
-    return previewDownloadedBundle();
-  }
+    if (_stagedDownload?.status.fileId != remoteStatus.fileId) {
+      throw StateError('sync.error.selected_bundle_download_failed');
+    }
+    return _previewDownloadedBundle();
+  });
 
   Future<bool> _matchesPendingPrivateNoteContent(
     EncryptedNoteSnapshot local,
@@ -3536,16 +3553,28 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     return null;
   }
 
-  Future<void> applyDownloadedBundle() => _runSyncOperation(() async {
-    final localBundle = state.localBundle;
-    final staged = _stagedDownload;
-    await _applyDownloadedBundle(
-      localBundle: localBundle,
-      sourceStatus: identical(localBundle, staged?.bundle)
-          ? staged?.status
-          : null,
-    );
-  });
+  Future<void> applyDownloadedBundle() {
+    final requested = state.localBundle;
+    final selected = identical(requested, _stagedDownload?.bundle)
+        ? _stagedDownload?.status
+        : null;
+    return _runSyncOperation(() async {
+      if (!identical(requested, state.localBundle)) {
+        if (selected == null) {
+          throw StateError('sync.error.download_before_apply');
+        }
+        await _downloadBundle(selected);
+        if (state.stage == SyncTransferStage.error ||
+            _stagedDownload?.status.fileId != selected.fileId) {
+          throw StateError('sync.error.selected_bundle_download_failed');
+        }
+      }
+      await _applyDownloadedBundle(
+        localBundle: state.localBundle,
+        sourceStatus: selected,
+      );
+    });
+  }
 
   Future<_BundleApplyResult> _applyDownloadedBundle({
     required StoredSyncBundle? localBundle,
@@ -4092,6 +4121,15 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       return _BundleApplyResult.failed;
     } catch (error) {
+      if (retryingCachedBundle &&
+          error is SyncSafetyException &&
+          error.code == 'sync.error.remote_history_incomplete') {
+        // Keep the pending signal, but require verified cloud replay next time.
+        final prefs = await SharedPreferences.getInstance();
+        if (!await prefs.setBool(_pendingPrivateRemoteReplayKey, true)) {
+          throw StateError('Could not persist pending remote replay');
+        }
+      }
       _diagnostic(
         'bundle apply failed',
         data: {
@@ -4286,7 +4324,10 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     return imported;
   }
 
-  Future<int> downloadDeferredAttachments({String? vaultId}) async {
+  Future<int> downloadDeferredAttachments({String? vaultId}) =>
+      _runSyncOperation(() => _downloadDeferredAttachments(vaultId: vaultId));
+
+  Future<int> _downloadDeferredAttachments({String? vaultId}) async {
     if (!_supportsRemoteTransport(ref.read(syncProviderControllerProvider))) {
       return 0;
     }
@@ -4409,8 +4450,20 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
   }
 
-  Future<void> restoreUnlockedPrivateAttachments(String vaultId) =>
-      _runUnlockOperation(() => _restoreUnlockedPrivateAttachments(vaultId));
+  Future<void> restoreUnlockedPrivateAttachments(String vaultId) async {
+    try {
+      await _runUnlockOperation(
+        () => _restoreUnlockedPrivateAttachments(vaultId),
+      );
+    } catch (error) {
+      if (ref.mounted) {
+        _diagnostic(
+          'private attachment restore deferred',
+          data: {'vaultId': vaultId, 'error': error},
+        );
+      }
+    }
+  }
 
   Future<void> _restoreUnlockedPrivateAttachments(String vaultId) async {
     final hasRemoteAttachment = ref
@@ -4433,7 +4486,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       return;
     }
     try {
-      await downloadDeferredAttachments(vaultId: vaultId);
+      await _downloadDeferredAttachments(vaultId: vaultId);
     } catch (error) {
       // Unlocking the profile must still succeed when an attachment is
       // temporarily unavailable. Its remote reference remains on the note.
@@ -4444,7 +4497,10 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
   }
 
-  Future<SyncBundlePreview> previewDownloadedBundle() async {
+  Future<SyncBundlePreview> previewDownloadedBundle() =>
+      _runSyncOperation(_previewDownloadedBundle);
+
+  Future<SyncBundlePreview> _previewDownloadedBundle() async {
     final localBundle = state.localBundle;
     if (localBundle == null) {
       throw StateError('sync.error.download_before_review');
@@ -5211,8 +5267,19 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     return localBundle;
   }
 
-  Future<void> applyPendingPrivateDownloadedBundleIfNeeded() =>
-      _runUnlockOperation(() async {
+  Future<void> applyPendingPrivateDownloadedBundleIfNeeded() async {
+    // A busy sync owns the staged files. Defer local replay too, so unlocking
+    // remains responsive without reading a file that is being replaced.
+    if (_syncOperation == null) {
+      await _runUnlockOperation(_applyPendingCachedBundle);
+    }
+  }
+
+  /// The unlock UI starts this after reloading local notes, without awaiting it.
+  /// A busy sync keeps ownership of its files until this operation's turn.
+  Future<void> refreshUnlockedPrivateProfiles() async {
+    try {
+      await _runUnlockOperation(() async {
         await _applyPendingCachedBundle();
         if (_supportsRemoteTransport(
               ref.read(syncProviderControllerProvider),
@@ -5222,6 +5289,28 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           await _syncNow(downloadOnly: true, silentLargeMobileSkip: true);
         }
       });
+    } catch (error) {
+      if (ref.mounted) {
+        _diagnostic(
+          'private unlock background replay failed',
+          data: {'error': error},
+        );
+      }
+    }
+  }
+
+  Future<void> _removeTemporaryBundle(String fileName) async {
+    try {
+      await ref
+          .read(secureSyncBundleStoreProvider)
+          .deleteStoredEncryptedBundle(fileNameOverride: fileName);
+    } catch (error) {
+      _diagnostic(
+        'temporary sync bundle cleanup failed',
+        data: {'error': error},
+      );
+    }
+  }
 
   Future<void> _runUnlockOperation(Future<void> Function() run) =>
       _runSyncOperation(() async {
@@ -5231,10 +5320,14 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         } finally {
           _unlockReplay = false;
         }
-      }, waitForActive: true);
+      });
 
   Future<void> _applyPendingCachedBundle() async {
     if (!await _hasPendingPrivateBundleApply()) return;
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool(_pendingPrivateRemoteReplayKey) == true) {
+      return;
+    }
     try {
       final store = ref.read(secureSyncBundleStoreProvider);
       final restored =
@@ -5294,7 +5387,12 @@ class SyncTransferController extends Notifier<SyncTransferState> {
 
   Future<void> _setPendingPrivateBundleApply(bool pending) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_pendingPrivateBundleApplyKey, pending);
+    if (!await prefs.setBool(_pendingPrivateBundleApplyKey, pending)) {
+      throw StateError('Could not persist pending private replay');
+    }
+    if (!pending) {
+      await prefs.remove(_pendingPrivateRemoteReplayKey);
+    }
   }
 
   Future<bool> _hasPendingPrivateBundleApply() async {
@@ -6574,6 +6672,13 @@ class SyncProviderController extends Notifier<SyncProvider> {
   }
 
   Future<void> setProvider(SyncProvider provider) async {
+    if (provider != SyncProvider.off &&
+        (await SharedPreferences.getInstance()).getBool(
+              'settings.sync_v2.enabled',
+            ) ==
+            true) {
+      return;
+    }
     if (provider == SyncProvider.iCloud && !isICloudSyncSupported) {
       provider = SyncProvider.off;
     }
@@ -6790,7 +6895,9 @@ class SyncProviderController extends Notifier<SyncProvider> {
         (provider) => provider.name == stored,
         orElse: () => SyncProvider.off,
       );
-      state = restored == SyncProvider.iCloud && !isICloudSyncSupported
+      state =
+          prefs.getBool('settings.sync_v2.enabled') == true ||
+              (restored == SyncProvider.iCloud && !isICloudSyncSupported)
           ? SyncProvider.off
           : restored;
       _preparedGoogleDriveAccountId = null;

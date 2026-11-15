@@ -293,7 +293,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     if (!confirmed || !context.mounted) {
       return;
     }
-    await ref
+    final result = await ref
         .read(syncTransferControllerProvider.notifier)
         .syncNow(allowLargeMobileTransfer: true);
     if (!context.mounted) {
@@ -305,7 +305,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     }
     final message = _cloudSyncSnackBarMessage(
       strings,
-      ref.read(syncTransferControllerProvider),
+      result,
       _CloudSyncSnackBarAction.syncNow,
       syncProvider,
     );

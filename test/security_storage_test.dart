@@ -3582,6 +3582,25 @@ void main() {
       expect(stored?.noteCount, 2);
       expect(stored?.attachmentCount, 1);
       expect(path.basename(stored!.reference), 'legacy.enc');
+      await bundleStore.deleteStoredEncryptedBundle(
+        fileNameOverride: 'empty.enc',
+      );
+      expect(
+        await bundleStore.readEncryptedBundlePayload(
+          path.join(tempDirectory.path, 'sync_exports', 'empty.enc'),
+        ),
+        isNull,
+      );
+      // Cleanup is idempotent and does not touch other saved bundles.
+      await bundleStore.deleteStoredEncryptedBundle(
+        fileNameOverride: 'empty.enc',
+      );
+      expect(
+        await bundleStore.readStoredEncryptedBundle(
+          fileNameOverride: 'legacy.enc',
+        ),
+        isNotNull,
+      );
 
       if (await tempDirectory.exists()) {
         await tempDirectory.delete(recursive: true);
