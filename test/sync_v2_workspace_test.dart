@@ -19,6 +19,7 @@ import 'package:himemo/features/sync/data/sync_v2_note_repository.dart';
 import 'package:himemo/features/sync/data/sync_v2_payload_codec.dart';
 import 'package:himemo/features/sync/data/sync_v2_publisher.dart';
 import 'package:himemo/features/sync/data/sync_v2_receiver.dart';
+import 'package:himemo/features/sync/data/sync_v2_pairing_code.dart';
 import 'package:himemo/features/sync/presentation/sync_v2_workspace.dart';
 
 class _Cloud
@@ -262,6 +263,86 @@ class _Device {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test(
+    'generated recovery codes pair devices through role-specific QR codes',
+    () async {
+      final cloud = _Cloud();
+      final first = _Device(cloud);
+      addTearDown(first.workspace.dispose);
+      await first.workspace.initialize();
+      final codes = await first.workspace.prepareNewBiometric();
+      await first.workspace.confirmSetup();
+
+      final privateNote = NoteEntry(
+        id: 'qr-paired-private-note',
+        vaultId: 'private',
+        title: 'QR paired private note',
+        body: 'available only after administrator recovery',
+        createdAt: DateTime.utc(2020),
+      );
+      final archive = Archive()
+        ..addFile(
+          ArchiveFile.string(
+            'manifest.json',
+            jsonEncode({
+              'format': 'org.ruhenheim.himemo.notes.zip',
+              'version': 1,
+              'noteCount': 1,
+              'attachmentCount': 0,
+            }),
+          ),
+        )
+        ..addFile(
+          ArchiveFile.string(
+            'notes.json',
+            jsonEncode({
+              'notes': [privateNote.toJson()],
+            }),
+          ),
+        );
+      await first.workspace.adminImportArchive(
+        bytes: Uint8List.fromList(ZipEncoder().encode(archive)),
+      );
+      await first.workspace.syncNow();
+
+      final second = _Device(cloud);
+      addTearDown(second.workspace.dispose);
+      await second.workspace.initialize();
+      final syncQr = SyncV2PairingCode.encodeQr(
+        codes.syncCode,
+        administrator: false,
+      );
+      await second.workspace.recover(
+        SyncV2PairingCode.decodeQr(syncQr, administrator: false),
+      );
+      expect(second.workspace.registered, isTrue);
+      expect(second.workspace.adminUnlocked, isFalse);
+      expect(second.workspace.profiles, hasLength(1));
+
+      final adminQr = SyncV2PairingCode.encodeQr(
+        codes.adminCode,
+        administrator: true,
+      );
+      await second.workspace.recoverAdminBiometric(
+        SyncV2PairingCode.decodeQr(adminQr, administrator: true),
+      );
+      expect(second.workspace.adminUnlocked, isTrue);
+      final importedProfile = second.workspace.profiles.singleWhere(
+        (profile) => !profile.isNormal,
+      );
+      await second.workspace.selectProfile(importedProfile.id);
+      expect(
+        second.workspace.notes.single.note.title,
+        'QR paired private note',
+      );
+      expect(
+        second.workspace.notes.single.note.body,
+        'available only after administrator recovery',
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
+
   test('biometric setup needs no password and late unlock cannot survive background', () async {
     final cloud = _Cloud();
     final biometric = _Biometrics();

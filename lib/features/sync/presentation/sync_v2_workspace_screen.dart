@@ -9,6 +9,14 @@ import '../../home/domain/note_entry.dart';
 import '../../security/data/sync_v2_admin_store.dart';
 import 'sync_v2_workspace.dart';
 import 'sync_v2_privacy.dart';
+import 'sync_v2_pairing_dialogs.dart';
+
+/// The default uses the camera. Tests can supply a deterministic scanner.
+final syncV2PairingScannerBuilderProvider = Provider<Widget Function(bool)>(
+  (ref) =>
+      (administrator) =>
+          SyncV2PairingScannerDialog(administrator: administrator),
+);
 
 String syncV2AttachmentFileName(String label) {
   final name = label.replaceAll(r'\', '/').split('/').last;
@@ -51,6 +59,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
   late final SyncV2SystemPicker _systemPicker;
   bool _pickingAttachments = false;
   bool _pickingArchive = false;
+  bool _scanningPairing = false;
   bool _attachmentPickerInterrupted = false;
   final _added = <SyncV2PendingAttachment>[];
   final _removed = <String>[];
@@ -79,7 +88,9 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.inactive &&
-        (_controller.biometricAuthenticating || _pickingArchive)) {
+        (_controller.biometricAuthenticating ||
+            _pickingArchive ||
+            _scanningPairing)) {
       if (mounted) setState(() => _foreground = false);
       return;
     }
@@ -434,6 +445,71 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
     });
   }
 
+  Future<void> _scanPairing({bool administrator = false}) async {
+    if (_scanningPairing || !_foreground) return;
+    final c = ref.read(syncV2WorkspaceProvider);
+    if (!c.supported || c.busy || (administrator && !c.registered)) return;
+    final version = _backgroundVersion;
+    final builder = ref.read(syncV2PairingScannerBuilderProvider);
+    _scanningPairing = true;
+    _systemPicker.begin();
+    String? code;
+    try {
+      code = await _dialog<String>((_) => builder(administrator));
+      if (mounted && !_foreground && version == _backgroundVersion) {
+        _foregroundChanged ??= Completer<void>();
+        await _foregroundChanged!.future;
+      }
+    } finally {
+      _scanningPairing = false;
+      _systemPicker.end();
+    }
+    if (code == null ||
+        !mounted ||
+        !_foreground ||
+        version != _backgroundVersion) {
+      return;
+    }
+    final confirmed = await _confirm(
+      administrator
+          ? t('管理者としてこの端末を登録', 'Register this device as administrator')
+          : t('既存のワークスペースに参加', 'Join the existing workspace'),
+      administrator
+          ? t(
+              'この端末の生体認証で私用メモを管理できるようにします。',
+              'Allow this device to manage private notes with biometric authentication.',
+            )
+          : t(
+              '同じiCloudアカウントのメモを同期します。私用メモの管理者登録は別に行います。',
+              'Sync notes using the same iCloud account. Administrator access to private notes is registered separately.',
+            ),
+    );
+    if (!confirmed ||
+        !mounted ||
+        !_foreground ||
+        version != _backgroundVersion) {
+      return;
+    }
+    await _run(
+      () => administrator ? c.recoverAdminBiometric(code!) : c.recover(code!),
+    );
+  }
+
+  Future<void> _showPairingQr({bool administrator = false}) async {
+    final c = ref.read(syncV2WorkspaceProvider);
+    if (c.busy || !c.registered) return;
+    final version = _backgroundVersion;
+    await _run(() async {
+      final codes = await c.showRecoveryCodes();
+      if (!mounted || !_foreground || version != _backgroundVersion) return;
+      final code = administrator ? codes.adminCode : codes.syncCode;
+      if (code == null) throw const SyncV2WorkspaceException('admin_required');
+      await _dialog<void>(
+        (_) => SyncV2PairingQrDialog(code: code, administrator: administrator),
+      );
+    });
+  }
+
   Future<void> _recover() async {
     final code = await _input(t('同期復元コード（SYNC）', 'Sync recovery code (SYNC)'));
     if (code != null && mounted && _foreground) {
@@ -718,7 +794,13 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
 
   Future<void> _adminAction(String action) async {
     final c = ref.read(syncV2WorkspaceProvider);
-    if (action == 'biometric-unlock') {
+    if (action == 'sync-qr') {
+      await _showPairingQr();
+    } else if (action == 'admin-qr') {
+      await _showPairingQr(administrator: true);
+    } else if (action == 'admin-scan') {
+      await _scanPairing(administrator: true);
+    } else if (action == 'biometric-unlock') {
       await _run(c.unlockAdminBiometric);
     } else if (action == 'biometric-enable') {
       await _run(c.enableAdminBiometrics);
@@ -883,15 +965,26 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Text(
-                                      t(
-                                        '新しい暗号化ワークスペース',
-                                        'A new encrypted workspace',
-                                      ),
+                                      t('暗号化同期を始める', 'Set up encrypted sync'),
                                       style: Theme.of(context)
                                           .textTheme
                                           .headlineSmall,
                                     ),
                                     const SizedBox(height: 16),
+                                    FilledButton.icon(
+                                      key: const ValueKey('sync-v2-scan-join'),
+                                      onPressed: c.busy || !c.supported
+                                          ? null
+                                          : () => _scanPairing(),
+                                      icon: const Icon(Icons.qr_code_scanner),
+                                      label: Text(
+                                        t('QRを読み取って参加', 'Join by scanning QR'),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      t('初めて利用する場合', 'For your first device'),
+                                    ),
                                     FilledButton(
                                       onPressed: c.busy
                                           ? null
@@ -1052,6 +1145,44 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
                                           enabled: !c.busy,
                                           onSelected: _adminAction,
                                           itemBuilder: (_) => [
+                                            PopupMenuItem(
+                                              value: 'sync-qr',
+                                              child: Text(
+                                                t(
+                                                  '他の端末をQRで追加',
+                                                  'Add another device with QR',
+                                                ),
+                                              ),
+                                            ),
+                                            PopupMenuItem(
+                                              value: 'codes',
+                                              child: Text(
+                                                t(
+                                                  '復元コードを表示',
+                                                  'Show recovery codes',
+                                                ),
+                                              ),
+                                            ),
+                                            if (c.canManageAdminCredentials)
+                                              PopupMenuItem(
+                                                value: 'admin-qr',
+                                                child: Text(
+                                                  t(
+                                                    '管理者登録用QRを表示',
+                                                    'Show administrator QR',
+                                                  ),
+                                                ),
+                                              ),
+                                            if (c.biometricsAvailable)
+                                              PopupMenuItem(
+                                                value: 'admin-scan',
+                                                child: Text(
+                                                  t(
+                                                    '管理者登録用QRを読み取る',
+                                                    'Scan administrator QR',
+                                                  ),
+                                                ),
+                                              ),
                                             if (c.biometricEnabled)
                                               PopupMenuItem(
                                                 value: 'biometric-unlock',
@@ -1135,15 +1266,6 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
                                                     '${t('競合を修復', 'Repair conflict')}: ${conflict.name}',
                                                   ),
                                                 ),
-                                              PopupMenuItem(
-                                                value: 'codes',
-                                                child: Text(
-                                                  t(
-                                                    '復元コードを表示',
-                                                    'Show recovery codes',
-                                                  ),
-                                                ),
-                                              ),
                                             ],
                                           ],
                                         ),

@@ -20,7 +20,8 @@ class SyncV2PrivacyRoute extends Notifier<int> {
   }
 }
 
-/// Only the transient inactive state of an app-owned system picker is exempt
+/// Only transient inactive states of an app-owned picker or camera permission
+/// prompt are exempt
 /// from relocking. Hidden/paused still revoke every protected session.
 final syncV2SystemPickerProvider = NotifierProvider<SyncV2SystemPicker, bool>(
   SyncV2SystemPicker.new,

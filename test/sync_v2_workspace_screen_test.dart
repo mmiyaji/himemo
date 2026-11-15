@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -14,8 +15,62 @@ import 'package:himemo/features/sync/data/sync_v2_generation_registration.dart';
 import 'package:himemo/features/sync/data/sync_v2_inbox.dart';
 import 'package:himemo/features/sync/data/sync_v2_note_repository.dart';
 import 'package:himemo/features/sync/presentation/sync_v2_workspace.dart';
+import 'package:himemo/features/sync/presentation/sync_v2_pairing_dialogs.dart';
 import 'package:himemo/features/sync/presentation/sync_v2_workspace_screen.dart';
 import 'package:himemo/features/sync/presentation/sync_v2_privacy.dart';
+
+String _syncPairingCode() => base64Url.encode(
+  utf8.encode(
+    jsonEncode({
+      'format': 'himemo.sync.v2.recovery',
+      'version': 1,
+      'account': 'test-account',
+      'generation': 'a' * 32,
+      'key': base64Url.encode(List.filled(32, 7)),
+    }),
+  ),
+);
+
+String _adminPairingCode() =>
+    'himemo-admin-v2:${base64.encode(utf8.encode(jsonEncode({'generation': 'a' * 32, 'key': base64.encode(List.filled(32, 9))})))}';
+
+Widget _scannerDialog(String? result) => Builder(
+  builder: (context) => AlertDialog(
+    title: const Text('Fake scanner'),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(result),
+        child: const Text('Return scanned code'),
+      ),
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('Cancel scan'),
+      ),
+    ],
+  ),
+);
+
+class _PendingScanner extends StatefulWidget {
+  const _PendingScanner(this.result);
+  final Completer<String?> result;
+
+  @override
+  State<_PendingScanner> createState() => _PendingScannerState();
+}
+
+class _PendingScannerState extends State<_PendingScanner> {
+  @override
+  void initState() {
+    super.initState();
+    widget.result.future.then((code) {
+      if (mounted && code != null) Navigator.of(context).pop(code);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      const AlertDialog(title: Text('Pending fake scanner'));
+}
 
 final class _PickedArchive extends PlatformFile {
   @override
@@ -146,6 +201,32 @@ class _Controller extends SyncV2WorkspaceController {
   bool? importedAcceptUnlinked;
   bool failAdminUnlock = false;
   final adminPasswords = <String>[];
+  final recoveryCodes = <String>[];
+  final adminRecoveryCodes = <String>[];
+  final pairingEvents = <String>[];
+  int recoveryCodeDisplayCalls = 0;
+  @override
+  Future<void> recover(String code) async {
+    recoveryCodes.add(code);
+    pairingEvents.add('sync:$code');
+    registered = true;
+    notifyListeners();
+  }
+
+  @override
+  Future<void> recoverAdminBiometric(String code) async {
+    adminRecoveryCodes.add(code);
+    pairingEvents.add('admin:$code');
+    isAdmin = true;
+    notifyListeners();
+  }
+
+  @override
+  Future<({String syncCode, String? adminCode})> showRecoveryCodes() async {
+    recoveryCodeDisplayCalls++;
+    return (syncCode: _syncPairingCode(), adminCode: _adminPairingCode());
+  }
+
   @override
   Future<SyncV2ArchiveInspection> inspectArchive(
     Uint8List bytes, {
@@ -288,10 +369,20 @@ void main() {
       expect(controller.backgroundCalled, isTrue);
     },
   );
-  Future<void> mount(WidgetTester tester, _Controller controller) async {
+  Future<void> mount(
+    WidgetTester tester,
+    _Controller controller, {
+    Widget Function(bool administrator)? scannerBuilder,
+  }) async {
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [syncV2WorkspaceProvider.overrideWithValue(controller)],
+        overrides: [
+          syncV2WorkspaceProvider.overrideWithValue(controller),
+          if (scannerBuilder != null)
+            syncV2PairingScannerBuilderProvider.overrideWithValue(
+              scannerBuilder,
+            ),
+        ],
         child: const MaterialApp(home: SyncV2WorkspaceScreen()),
       ),
     );
@@ -371,6 +462,8 @@ void main() {
     await tester.pump();
     release.complete();
     await tester.pumpAndSettle();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
     await tester.pump();
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
@@ -424,6 +517,183 @@ void main() {
     await tester.tap(find.text('Review ZIP'));
     await tester.pumpAndSettle();
   }
+
+  testWidgets('unregistered QR join confirms and calls only sync recovery', (
+    tester,
+  ) async {
+    final c = _Controller();
+    addTearDown(c.dispose);
+    await mount(
+      tester,
+      c,
+      scannerBuilder: (_) => _scannerDialog(_syncPairingCode()),
+    );
+    await tester.tap(find.byKey(const ValueKey('sync-v2-scan-join')));
+    await tester.pumpAndSettle();
+    expect(find.text('Fake scanner'), findsOneWidget);
+    await tester.tap(find.text('Return scanned code'));
+    await tester.pumpAndSettle();
+    expect(find.text('Join the existing workspace'), findsOneWidget);
+    await tester.tap(find.text('Confirm and continue'));
+    await tester.pumpAndSettle();
+    expect(c.recoveryCodes, [_syncPairingCode()]);
+    expect(c.pairingEvents, ['sync:${_syncPairingCode()}']);
+    expect(c.adminRecoveryCodes, isEmpty);
+    expect(c.prepared, isFalse);
+    expect(c.passwords, isEmpty);
+  });
+
+  testWidgets('cancelled pairing scan or confirmation never recovers', (
+    tester,
+  ) async {
+    final cancelledScan = _Controller();
+    addTearDown(cancelledScan.dispose);
+    await mount(
+      tester,
+      cancelledScan,
+      scannerBuilder: (_) => _scannerDialog(_syncPairingCode()),
+    );
+    await tester.tap(find.byKey(const ValueKey('sync-v2-scan-join')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cancel scan'));
+    await tester.pumpAndSettle();
+    expect(cancelledScan.recoveryCodes, isEmpty);
+    expect(cancelledScan.prepared, isFalse);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+
+    final cancelledConfirmation = _Controller();
+    addTearDown(cancelledConfirmation.dispose);
+    await mount(
+      tester,
+      cancelledConfirmation,
+      scannerBuilder: (_) => _scannerDialog(_syncPairingCode()),
+    );
+    await tester.tap(find.byKey(const ValueKey('sync-v2-scan-join')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Return scanned code'));
+    await tester.pumpAndSettle();
+    expect(find.text('Join the existing workspace'), findsOneWidget);
+    await tester.tap(find.text('Cancel').last);
+    await tester.pumpAndSettle();
+    expect(cancelledConfirmation.recoveryCodes, isEmpty);
+    expect(cancelledConfirmation.prepared, isFalse);
+  });
+
+  testWidgets('pairing scan waits through inactive and closes on background', (
+    tester,
+  ) async {
+    final waiting = _Controller();
+    addTearDown(waiting.dispose);
+    await mount(
+      tester,
+      waiting,
+      scannerBuilder: (_) => _scannerDialog(_syncPairingCode()),
+    );
+    await tester.tap(find.byKey(const ValueKey('sync-v2-scan-join')));
+    await tester.pumpAndSettle();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    expect(waiting.backgroundCalled, isFalse);
+    await tester.tap(find.text('Return scanned code'));
+    await tester.pump();
+    expect(find.text('Join the existing workspace'), findsNothing);
+    expect(waiting.recoveryCodes, isEmpty);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(find.text('Join the existing workspace'), findsOneWidget);
+    await tester.tap(find.text('Confirm and continue'));
+    await tester.pumpAndSettle();
+    expect(waiting.recoveryCodes, [_syncPairingCode()]);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+
+    final backgrounded = _Controller();
+    addTearDown(backgrounded.dispose);
+    final lateCode = Completer<String?>();
+    await mount(
+      tester,
+      backgrounded,
+      scannerBuilder: (_) => _PendingScanner(lateCode),
+    );
+    await tester.tap(find.byKey(const ValueKey('sync-v2-scan-join')));
+    await tester.pumpAndSettle();
+    expect(find.text('Pending fake scanner'), findsOneWidget);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    expect(backgrounded.backgroundCalled, isTrue);
+    lateCode.complete(_syncPairingCode());
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(find.text('Pending fake scanner'), findsNothing);
+    expect(find.text('Join the existing workspace'), findsNothing);
+    expect(backgrounded.recoveryCodes, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('registered non-admin can show sync QR without admin code', (
+    tester,
+  ) async {
+    final c = _Controller()..registered = true;
+    addTearDown(c.dispose);
+    await mount(tester, c);
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    expect(find.text('Add another device with QR'), findsOneWidget);
+    expect(find.text('Show administrator QR'), findsNothing);
+    await tester.tap(find.text('Add another device with QR'));
+    await tester.pumpAndSettle();
+    expect(c.recoveryCodeDisplayCalls, 1);
+    final syncQr = tester.widget<SyncV2PairingQrDialog>(
+      find.byType(SyncV2PairingQrDialog),
+    );
+    expect(syncQr.code, _syncPairingCode());
+    expect(syncQr.administrator, isFalse);
+    expect(
+      find.byKey(const ValueKey('sync-v2-pairing-qr-image')),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
+    c.isAdmin = true;
+    c.notifyListeners();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    expect(find.text('Show administrator QR'), findsOneWidget);
+  });
+
+  testWidgets('administrator QR scan uses biometric admin recovery', (
+    tester,
+  ) async {
+    final c = _Controller()
+      ..registered = true
+      ..biometricsAvailable = true;
+    addTearDown(c.dispose);
+    await mount(
+      tester,
+      c,
+      scannerBuilder: (administrator) {
+        expect(administrator, isTrue);
+        return _scannerDialog(_adminPairingCode());
+      },
+    );
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    expect(find.text('Scan administrator QR'), findsOneWidget);
+    await tester.ensureVisible(find.text('Scan administrator QR'));
+    await tester.tap(find.text('Scan administrator QR'));
+    await tester.pumpAndSettle();
+    expect(find.text('Fake scanner'), findsOneWidget);
+    await tester.tap(find.text('Return scanned code'));
+    await tester.pumpAndSettle();
+    expect(find.text('Register this device as administrator'), findsOneWidget);
+    await tester.tap(find.text('Confirm and continue'));
+    await tester.pumpAndSettle();
+    expect(c.adminRecoveryCodes, [_adminPairingCode()]);
+    expect(c.recoveryCodes, isEmpty);
+    expect(c.pairingEvents, ['admin:${_adminPairingCode()}']);
+  });
 
   OutlinedButton importButton(WidgetTester tester) =>
       tester.widget<OutlinedButton>(

@@ -125,7 +125,7 @@
 		<key>NSFaceIDUsageDescription</key>
 		<string>Use Face ID to unlock HiMemo and confirm private access.</string>
 		<key>NSCameraUsageDescription</key>
-		<string>Use the camera to attach photos and videos to secure notes.</string>
+		<string>Use the camera to scan device pairing QR codes and attach photos or videos to secure notes.</string>
 		<key>NSPhotoLibraryUsageDescription</key>
 		<string>Allow access to the photo library to attach media to notes.</string>
 		<key>NSMicrophoneUsageDescription</key>
