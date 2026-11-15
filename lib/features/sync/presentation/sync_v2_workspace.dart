@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../../home/domain/note_entry.dart';
 import '../../home/presentation/home_providers.dart';
@@ -13,6 +14,7 @@ import '../../security/data/authentication_throttle.dart';
 import '../../security/data/encryption_service.dart';
 import '../../security/data/secure_key_value_store.dart';
 import '../../security/data/sync_v2_admin_store.dart';
+import '../../security/data/sync_v2_device_admin_store.dart';
 import '../../security/data/sync_v2_biometric_key_store.dart';
 import '../../security/data/sync_v2_profile_keys.dart';
 import '../data/sync_v2_archive_service.dart';
@@ -106,11 +108,43 @@ final syncV2WorkspaceProvider = Provider<SyncV2WorkspaceController>((ref) {
         }
       }
     },
+    settingsAdminAuthenticated: () =>
+        ref.read(adminModeSessionControllerProvider),
+    deviceAdminStore: SyncV2DeviceAdminStore(
+      FlutterSecureKeyValueStore(
+        iOptions: const IOSOptions(
+          accountName: 'org.ruhenheim.himemo.sync_v2_device_admin',
+          accessibility: KeychainAccessibility.unlocked_this_device,
+        ),
+      ),
+      installationId: _syncV2AdminInstallationId,
+    ),
     supported: !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS,
   );
+  ref.listen<bool>(adminModeSessionControllerProvider, (previous, current) {
+    if (!current) workspace.lockSettingsAdmin();
+  });
   ref.onDispose(workspace.dispose);
   return workspace;
 });
+
+Future<String?> _syncV2AdminInstallationId(bool create) async {
+  final preferences = await SharedPreferences.getInstance();
+  const key = 'security.sync_v2.admin_installation.v1';
+  final existing = preferences.getString(key);
+  if (existing != null && RegExp(r'^[0-9a-f]{64}$').hasMatch(existing)) {
+    return existing;
+  }
+  if (!create) return null;
+  final generated = EncryptionService()
+      .generateKeyBytes()
+      .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+      .join();
+  if (!await preferences.setString(key, generated)) {
+    throw StateError('Could not persist administrator installation identity');
+  }
+  return generated;
+}
 
 class SyncV2WorkspaceProfile {
   const SyncV2WorkspaceProfile(this.id, this.name, {this.isNormal = false});
@@ -164,8 +198,13 @@ class SyncV2WorkspaceController extends ChangeNotifier {
     required this.deactivate,
     required this.supported,
     SyncV2BiometricKeyStore? biometricStore,
+    SyncV2DeviceAdminStore? deviceAdminStore,
+    bool Function()? settingsAdminAuthenticated,
     bool automaticSync = true,
-  }) : biometrics = biometricStore ?? MethodChannelSyncV2BiometricKeyStore() {
+  }) : biometrics = biometricStore ?? MethodChannelSyncV2BiometricKeyStore(),
+       deviceAdminStore = deviceAdminStore ?? SyncV2DeviceAdminStore(store),
+       _settingsAdminAuthenticated =
+           settingsAdminAuthenticated ?? (() => false) {
     if (automaticSync) {
       _timer = Timer.periodic(const Duration(seconds: 60), (_) {
         if (registered && !_paused && !busy) {
@@ -175,6 +214,104 @@ class SyncV2WorkspaceController extends ChangeNotifier {
     }
   }
   final SyncV2BiometricKeyStore biometrics;
+  final SyncV2DeviceAdminStore deviceAdminStore;
+  final bool Function() _settingsAdminAuthenticated;
+  bool _adminFromSettings = false;
+  int _settingsAdminRevision = 0;
+  bool get settingsAdminActive => _settingsAdminAuthenticated();
+  bool get canManageAdminCredentials => adminUnlocked && !_adminFromSettings;
+
+  void lockSettingsAdmin() {
+    _settingsAdminRevision++;
+    if (_adminFromSettings) lockPrivate();
+  }
+
+  Future<void> _rememberDeviceAdmin(SecretKey key, int epoch) =>
+      _saveDeviceAdmin(key, epoch, accountId!, generationId!);
+
+  Future<void> _saveDeviceAdmin(
+    SecretKey key,
+    int epoch,
+    String account,
+    String generation,
+  ) async {
+    if (_paused || _disposed || epoch != _epoch) {
+      throw const SyncV2WorkspaceException('locked');
+    }
+    try {
+      await deviceAdminStore.save(
+        accountId: account,
+        generationId: generation,
+        adminKey: key,
+      );
+    } catch (_) {
+      // This optional shortcut must not prevent the original v2 credential
+      // from opening the workspace when Keychain persistence is unavailable.
+    }
+    if (_paused || _disposed || epoch != _epoch) {
+      throw const SyncV2WorkspaceException('locked');
+    }
+  }
+
+  /// A device-authenticated settings session may use this device's v2 key.
+  /// SYNC-only enrollment never creates this grant. Older installs return false
+  /// until a v2 password, biometric or ADMIN unlock has established the grant.
+  Future<bool> unlockAdminFromSettings() => _run(() async {
+    if (!settingsAdminActive || !registered) {
+      throw const SyncV2WorkspaceException('admin_required');
+    }
+    final epoch = _epoch;
+    final revision = _settingsAdminRevision;
+    SecretKey? admin;
+    var profilesInstalled = false;
+    try {
+      admin = await deviceAdminStore.read(
+        accountId: accountId!,
+        generationId: generationId!,
+      );
+      if (admin == null) return false;
+      await _registration.verifyAdminKey(
+        accountId: accountId!,
+        adminKey: admin,
+      );
+      void checkSession() {
+        if (!settingsAdminActive ||
+            revision != _settingsAdminRevision ||
+            _paused ||
+            _disposed ||
+            epoch != _epoch) {
+          throw const SyncV2WorkspaceException('locked');
+        }
+      }
+
+      checkSession();
+      await _refreshAdminProfiles(admin, epoch);
+      profilesInstalled = true;
+      checkSession();
+      _admin?.destroy();
+      _admin = admin;
+      _adminFromSettings = true;
+      await _reloadNotes();
+      return true;
+    } catch (failure) {
+      if (profilesInstalled && epoch == _epoch) lockPrivate();
+      admin?.destroy();
+      if (failure is SyncV2WorkspaceException && failure.code == 'locked') {
+        rethrow;
+      }
+      if (failure is FormatException || failure is HimemoDecryptionException) {
+        try {
+          await deviceAdminStore.delete(
+            accountId: accountId!,
+            generationId: generationId!,
+          );
+        } catch (_) {
+          // A failed shortcut still falls back to the original credential.
+        }
+      }
+      return false;
+    }
+  });
   bool biometricsAvailable = false, biometricEnabled = false;
   bool biometricAuthenticating = false;
   bool _preparedBiometric = false;
@@ -472,6 +609,7 @@ class SyncV2WorkspaceController extends ChangeNotifier {
       } else {
         await adminStore.configure(adminKey: admin, password: adminPassword!);
       }
+      await _saveDeviceAdmin(admin, epoch, account, prepared.generationId);
       final adminCode = await adminStore.encodeRecoveryCode(admin);
       if (epoch != _epoch) throw const SyncV2WorkspaceException('locked');
       _prepared?.destroy();
@@ -501,7 +639,9 @@ class SyncV2WorkspaceController extends ChangeNotifier {
       pending?.syncKey.destroy();
     }
     await _attach(normal, account: prepared.accountId);
+    if (_setupAdmin != null) await _rememberDeviceAdmin(_setupAdmin!, _epoch);
     _admin = _setupAdmin;
+    _adminFromSettings = false;
     _setupAdmin = null;
     prepared.destroy();
     _prepared = null;
@@ -579,6 +719,7 @@ class SyncV2WorkspaceController extends ChangeNotifier {
     profileConflicts = [];
     _admin?.destroy();
     _admin = null;
+    _adminFromSettings = false;
     selectedProfileId = _normal?.profileId;
     notes = [];
     _notify();
@@ -623,9 +764,11 @@ class SyncV2WorkspaceController extends ChangeNotifier {
         accountId: accountId!,
         adminKey: admin,
       );
+      await _rememberDeviceAdmin(admin, epoch);
       await _refreshAdminProfiles(admin, epoch);
       _admin?.destroy();
       _admin = admin;
+      _adminFromSettings = false;
       await _reloadNotes();
     } catch (_) {
       admin.destroy();
@@ -648,9 +791,11 @@ class SyncV2WorkspaceController extends ChangeNotifier {
         accountId: accountId!,
         adminKey: admin,
       );
+      await _rememberDeviceAdmin(admin, epoch);
       await _refreshAdminProfiles(admin, epoch);
       _admin?.destroy();
       _admin = admin;
+      _adminFromSettings = false;
       await _reloadNotes();
     } catch (_) {
       admin.destroy();
@@ -659,7 +804,9 @@ class SyncV2WorkspaceController extends ChangeNotifier {
   });
 
   Future<void> enableAdminBiometrics() => _run(() async {
-    if (_admin == null) throw const SyncV2WorkspaceException('admin_required');
+    if (_admin == null || _adminFromSettings) {
+      throw const SyncV2WorkspaceException('admin_required');
+    }
     final epoch = _epoch;
     final key = SecretKey(await _admin!.extractBytes());
     try {
@@ -688,9 +835,11 @@ class SyncV2WorkspaceController extends ChangeNotifier {
       }
       await store.write('sync.v2.biometric.$generationId', 'enabled');
       biometricEnabled = true;
+      await _rememberDeviceAdmin(admin, epoch);
       await _refreshAdminProfiles(admin, epoch);
       _admin?.destroy();
       _admin = admin;
+      _adminFromSettings = false;
       await _reloadNotes();
     } catch (_) {
       admin.destroy();
@@ -707,9 +856,11 @@ class SyncV2WorkspaceController extends ChangeNotifier {
         adminKey: admin,
       );
       await _adminStore.configure(adminKey: admin, password: newPassword);
+      await _rememberDeviceAdmin(admin, epoch);
       await _refreshAdminProfiles(admin, epoch);
       _admin?.destroy();
       _admin = admin;
+      _adminFromSettings = false;
       await _reloadNotes();
     } catch (_) {
       admin.destroy();
@@ -730,7 +881,9 @@ class SyncV2WorkspaceController extends ChangeNotifier {
   });
   Future<void> changeProfilePassword(String profileId, String password) =>
       _run(() async {
-        if (_admin == null || !_private.containsKey(profileId)) {
+        if (_admin == null ||
+            _adminFromSettings ||
+            !_private.containsKey(profileId)) {
           throw const SyncV2WorkspaceException('admin_required');
         }
         await _catalog.changePassword(
@@ -757,20 +910,21 @@ class SyncV2WorkspaceController extends ChangeNotifier {
     }
   }
 
-  Future<void> repairProfilePassword(String profileId, String password) => _run(
-    () async {
-      final admin = _admin;
-      if (admin == null) throw const SyncV2WorkspaceException('admin_required');
-      final epoch = _epoch;
-      await _catalog.resolvePasswordConflict(
-        profileId: profileId,
-        password: password,
-        adminKey: admin,
-      );
-      await _refreshAdminProfiles(admin, epoch);
-      await _reloadNotes();
-    },
-  );
+  Future<void> repairProfilePassword(String profileId, String password) =>
+      _run(() async {
+        final admin = _admin;
+        if (admin == null || _adminFromSettings) {
+          throw const SyncV2WorkspaceException('admin_required');
+        }
+        final epoch = _epoch;
+        await _catalog.resolvePasswordConflict(
+          profileId: profileId,
+          password: password,
+          adminKey: admin,
+        );
+        await _refreshAdminProfiles(admin, epoch);
+        await _reloadNotes();
+      });
 
   Future<void> _reloadNotes() async {
     if (!registered || _paused || _disposed) return;
@@ -1028,7 +1182,10 @@ class SyncV2WorkspaceController extends ChangeNotifier {
     final opened = <SyncV2UnlockedProfile>[];
     var installed = false;
     void checkActive() {
-      if (_disposed || _paused || epoch != _epoch) {
+      if (_disposed ||
+          _paused ||
+          epoch != _epoch ||
+          (_adminFromSettings && !settingsAdminActive)) {
         throw const SyncV2WorkspaceException('locked');
       }
     }
@@ -1162,7 +1319,7 @@ class SyncV2WorkspaceController extends ChangeNotifier {
         final sync = await _registration.exportRecoveryCode(
           accountId: accountId!,
         );
-        final admin = _admin == null
+        final admin = _admin == null || _adminFromSettings
             ? null
             : await _adminStore.encodeRecoveryCode(_admin!);
         if (epoch != _epoch) throw const SyncV2WorkspaceException('locked');

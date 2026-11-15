@@ -106,6 +106,9 @@ class _Store extends SecureKeyValueStore {
   final backing = MemorySecureKeyValueStore();
   Completer<void>? unlockEntered, unlockRelease;
   Completer<void>? restoreEntered, restoreRelease;
+  Completer<void>? deviceAdminReadEntered, deviceAdminReadRelease;
+  Completer<void>? enrollmentReadEntered, enrollmentReadRelease;
+  bool failDeviceAdminWrites = false;
   @override
   Future<String?> read(String key) async {
     if (key == 'security.icloud_sync_v2.verified_proof.v1' &&
@@ -113,6 +116,18 @@ class _Store extends SecureKeyValueStore {
       restoreEntered!.complete();
       await restoreRelease!.future;
       restoreRelease = null;
+    }
+    if (key.startsWith('security.sync_v2.device_admin.') &&
+        deviceAdminReadRelease != null) {
+      deviceAdminReadEntered!.complete();
+      await deviceAdminReadRelease!.future;
+      deviceAdminReadRelease = null;
+    }
+    if (key == 'security.icloud_sync_v2.enrollment.v1' &&
+        enrollmentReadRelease != null) {
+      enrollmentReadEntered!.complete();
+      await enrollmentReadRelease!.future;
+      enrollmentReadRelease = null;
     }
     if (key.startsWith('sync.v2.profiles.') &&
         key.endsWith('.attempts') &&
@@ -125,7 +140,14 @@ class _Store extends SecureKeyValueStore {
   }
 
   @override
-  Future<void> write(String key, String value) => backing.write(key, value);
+  Future<void> write(String key, String value) {
+    if (failDeviceAdminWrites &&
+        key.startsWith('security.sync_v2.device_admin.')) {
+      throw StateError('device admin store unavailable');
+    }
+    return backing.write(key, value);
+  }
+
   @override
   Future<void> delete(String key) => backing.delete(key);
 }
@@ -158,8 +180,12 @@ class _Biometrics implements SyncV2BiometricKeyStore {
 }
 
 class _Device {
-  _Device(this.cloud, {_Store? sharedStore, _Biometrics? biometrics})
-    : store = sharedStore ?? _Store() {
+  _Device(
+    this.cloud, {
+    _Store? sharedStore,
+    _Biometrics? biometrics,
+    bool Function()? settingsAdminAuthenticated,
+  }) : store = sharedStore ?? _Store() {
     final encryption = EncryptionService();
     final headers = SyncV2HeaderCodec(encryption);
     inbox = SyncV2Inbox(NativeDatabase.memory(), headers);
@@ -186,6 +212,7 @@ class _Device {
       },
       supported: true,
       biometricStore: biometrics ?? _Biometrics(),
+      settingsAdminAuthenticated: settingsAdminAuthenticated,
       automaticSync: false,
     );
   }
@@ -255,6 +282,10 @@ void main() {
     expect(c.adminUnlocked, isTrue);
     expect(await device.store.read('sync.v2.admin.${c.generationId}'), isNull);
     c.lockPrivate();
+    await c.deviceAdminStore.delete(
+      accountId: c.accountId!,
+      generationId: c.generationId!,
+    );
     biometric.cancel = true;
     await expectLater(
       c.unlockAdminBiometric(),
@@ -265,6 +296,12 @@ void main() {
     biometric.cancel = false;
     await c.unlockAdminBiometric();
     expect(c.adminUnlocked, isTrue);
+    final migratedGrant = await c.deviceAdminStore.read(
+      accountId: c.accountId!,
+      generationId: c.generationId!,
+    );
+    expect(migratedGrant, isNotNull);
+    migratedGrant!.destroy();
     c.lockPrivate();
     biometric.entered = Completer<void>();
     biometric.release = Completer<void>();
@@ -288,6 +325,251 @@ void main() {
     expect(second.workspace.adminUnlocked, isTrue);
     expect(second.workspace.biometricEnabled, isTrue);
   });
+
+  test('settings admin session unlocks ZIP restore and setup stores a device grant', () async {
+    final cloud = _Cloud();
+    var settingsAuthenticated = false;
+    final device = _Device(
+      cloud,
+      settingsAdminAuthenticated: () => settingsAuthenticated,
+    );
+    addTearDown(device.workspace.dispose);
+    final c = device.workspace;
+    await c.initialize();
+    await c.prepareNewBiometric();
+    await c.confirmSetup();
+    final stored = await c.deviceAdminStore.read(
+      accountId: c.accountId!,
+      generationId: c.generationId!,
+    );
+    expect(stored, isNotNull);
+    stored!.destroy();
+
+    c.lockPrivate();
+    await expectLater(
+      c.unlockAdminFromSettings(),
+      throwsA(isA<SyncV2WorkspaceException>()),
+    );
+    expect(c.error, 'admin_required');
+    settingsAuthenticated = true;
+    expect(await c.unlockAdminFromSettings(), isTrue);
+    expect(c.adminUnlocked, isTrue);
+    expect((await c.showRecoveryCodes()).adminCode, isNull);
+    await expectLater(
+      c.enableAdminBiometrics(),
+      throwsA(isA<SyncV2WorkspaceException>()),
+    );
+    expect(c.error, 'admin_required');
+
+    final note = NoteEntry(
+      id: 'settings-admin-private-note',
+      vaultId: 'private',
+      title: 'Restored through settings',
+      body: 'private archive body',
+      createdAt: DateTime.utc(2020),
+    );
+    final archive = Archive()
+      ..addFile(
+        ArchiveFile.string(
+          'manifest.json',
+          jsonEncode({
+            'format': 'org.ruhenheim.himemo.notes.zip',
+            'version': 1,
+            'noteCount': 1,
+            'attachmentCount': 0,
+          }),
+        ),
+      )
+      ..addFile(
+        ArchiveFile.string(
+          'notes.json',
+          jsonEncode({
+            'notes': [note.toJson()],
+          }),
+        ),
+      );
+    await c.adminImportArchive(
+      bytes: Uint8List.fromList(ZipEncoder().encode(archive)),
+    );
+    expect(c.profiles, hasLength(2));
+    await c.selectProfile(c.profiles.singleWhere((p) => !p.isNormal).id);
+    expect(c.notes.single.note.title, 'Restored through settings');
+    expect(c.canManageAdminCredentials, isFalse);
+    await expectLater(
+      c.changeProfilePassword(c.selectedProfileId!, 'new-password-123'),
+      throwsA(isA<SyncV2WorkspaceException>()),
+    );
+    await expectLater(
+      c.repairProfilePassword(c.selectedProfileId!, 'new-password-123'),
+      throwsA(isA<SyncV2WorkspaceException>()),
+    );
+    c.lockSettingsAdmin();
+    expect(c.adminUnlocked, isFalse);
+    expect(c.notes, isEmpty);
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  test(
+    'settings lock during device-key read or verification cancels admin unlock',
+    () async {
+      final cloud = _Cloud();
+      var settingsAuthenticated = true;
+      final device = _Device(
+        cloud,
+        settingsAdminAuthenticated: () => settingsAuthenticated,
+      );
+      addTearDown(device.workspace.dispose);
+      final c = device.workspace;
+      await c.initialize();
+      await c.prepareNewBiometric();
+      await c.confirmSetup();
+
+      device.store.deviceAdminReadEntered = Completer<void>();
+      device.store.deviceAdminReadRelease = Completer<void>();
+      final duringRead = expectLater(
+        c.unlockAdminFromSettings(),
+        throwsA(isA<SyncV2WorkspaceException>()),
+      );
+      await device.store.deviceAdminReadEntered!.future;
+      c.lockPrivate();
+      device.store.deviceAdminReadRelease!.complete();
+      await duringRead;
+      expect(c.adminUnlocked, isFalse);
+
+      device.store.enrollmentReadEntered = Completer<void>();
+      device.store.enrollmentReadRelease = Completer<void>();
+      final duringVerification = expectLater(
+        c.unlockAdminFromSettings(),
+        throwsA(isA<SyncV2WorkspaceException>()),
+      );
+      await device.store.enrollmentReadEntered!.future;
+      c.lockPrivate();
+      device.store.enrollmentReadRelease!.complete();
+      await duringVerification;
+      expect(c.adminUnlocked, isFalse);
+
+      device.store.deviceAdminReadEntered = Completer<void>();
+      device.store.deviceAdminReadRelease = Completer<void>();
+      final acrossSettingsRelock = expectLater(
+        c.unlockAdminFromSettings(),
+        throwsA(isA<SyncV2WorkspaceException>()),
+      );
+      await device.store.deviceAdminReadEntered!.future;
+      settingsAuthenticated = false;
+      c.lockSettingsAdmin();
+      settingsAuthenticated = true;
+      device.store.deviceAdminReadRelease!.complete();
+      await acrossSettingsRelock;
+      expect(c.adminUnlocked, isFalse);
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
+
+  test('SYNC-only recovery has no device admin grant', () async {
+    final cloud = _Cloud();
+    final first = _Device(cloud);
+    addTearDown(first.workspace.dispose);
+    await first.workspace.initialize();
+    final codes = await first.workspace.prepareNewBiometric();
+    await first.workspace.confirmSetup();
+
+    var settingsAuthenticated = true;
+    final second = _Device(
+      cloud,
+      settingsAdminAuthenticated: () => settingsAuthenticated,
+    );
+    addTearDown(second.workspace.dispose);
+    await second.workspace.initialize();
+    await second.workspace.recover(codes.syncCode);
+    expect(
+      await second.workspace.deviceAdminStore.read(
+        accountId: second.workspace.accountId!,
+        generationId: second.workspace.generationId!,
+      ),
+      isNull,
+    );
+    expect(await second.workspace.unlockAdminFromSettings(), isFalse);
+    expect(second.workspace.adminUnlocked, isFalse);
+    settingsAuthenticated = false;
+    await expectLater(
+      second.workspace.unlockAdminFromSettings(),
+      throwsA(isA<SyncV2WorkspaceException>()),
+    );
+    expect(second.workspace.error, 'admin_required');
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  test(
+    'invalid device grant is deleted and falls back to original credentials',
+    () async {
+      final cloud = _Cloud();
+      var settingsAuthenticated = true;
+      final device = _Device(
+        cloud,
+        settingsAdminAuthenticated: () => settingsAuthenticated,
+      );
+      addTearDown(device.workspace.dispose);
+      final c = device.workspace;
+      await c.initialize();
+      await c.prepareNewBiometric();
+      await c.confirmSetup();
+      c.lockPrivate();
+      final key = c.deviceAdminStore.storageKey(
+        installationId: 'test-installation',
+        accountId: c.accountId!,
+        generationId: c.generationId!,
+      );
+      await device.store.write(key, '{invalid-json');
+
+      expect(await c.unlockAdminFromSettings(), isFalse);
+      expect(c.adminUnlocked, isFalse);
+      expect(await device.store.read(key), isNull);
+      // The original biometric credential remains available after bad-cache
+      // cleanup and can repopulate a valid cache entry.
+      await c.unlockAdminBiometric();
+      expect(c.adminUnlocked, isTrue);
+      final repaired = await c.deviceAdminStore.read(
+        accountId: c.accountId!,
+        generationId: c.generationId!,
+      );
+      expect(repaired, isNotNull);
+      repaired!.destroy();
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
+
+  test(
+    'device grant write failures do not block setup or biometric unlock',
+    () async {
+      final cloud = _Cloud();
+      final device = _Device(cloud);
+      addTearDown(device.workspace.dispose);
+      final c = device.workspace;
+      await c.initialize();
+      device.store.failDeviceAdminWrites = true;
+      await c.prepareNewBiometric();
+      await c.confirmSetup();
+      expect(c.registered, isTrue);
+      expect(c.adminUnlocked, isTrue);
+      expect(
+        await c.deviceAdminStore.read(
+          accountId: c.accountId!,
+          generationId: c.generationId!,
+        ),
+        isNull,
+      );
+
+      c.lockPrivate();
+      await c.unlockAdminBiometric();
+      expect(c.adminUnlocked, isTrue);
+      expect(
+        await c.deviceAdminStore.read(
+          accountId: c.accountId!,
+          generationId: c.generationId!,
+        ),
+        isNull,
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
 
   test(
     'six character admin password is accepted and biometrics can be enabled',

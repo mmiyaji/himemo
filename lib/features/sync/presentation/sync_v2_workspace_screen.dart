@@ -48,7 +48,9 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
   Completer<void>? _foregroundChanged;
   bool _privacyAcquired = false;
   late final SyncV2PrivacyRoute _privacy;
+  late final SyncV2SystemPicker _systemPicker;
   bool _pickingAttachments = false;
+  bool _pickingArchive = false;
   bool _attachmentPickerInterrupted = false;
   final _added = <SyncV2PendingAttachment>[];
   final _removed = <String>[];
@@ -61,6 +63,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
     super.initState();
     _controller = ref.read(syncV2WorkspaceProvider);
     _privacy = ref.read(syncV2PrivacyRouteProvider.notifier);
+    _systemPicker = ref.read(syncV2SystemPickerProvider.notifier);
     Future.microtask(() {
       if (mounted) {
         _privacy.acquire();
@@ -76,7 +79,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.inactive &&
-        _controller.biometricAuthenticating) {
+        (_controller.biometricAuthenticating || _pickingArchive)) {
       if (mounted) setState(() => _foreground = false);
       return;
     }
@@ -122,11 +125,13 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    final picker = _systemPicker;
     final routes = List<Route<dynamic>>.of(_dialogRoutes);
     _dialogRoutes.clear();
     // Keep privacy protection acquired until the route cleanup and key lock
     // complete, without notifying dialog listeners while the tree is locked.
     scheduleMicrotask(() {
+      picker.end();
       _closeSyncV2DialogRoutes(routes);
       _controller.background();
     });
@@ -173,6 +178,10 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
     'authentication_cancelled' => t(
       '生体認証をキャンセルしました。もう一度試せます。',
       'Biometric authentication cancelled. You can retry.',
+    ),
+    'admin_required' => t(
+      '設定で管理者モードに入るか、v2の管理者認証を行ってください。',
+      'Enter admin mode in Settings or authenticate as a v2 administrator.',
     ),
     'wrong_password' => t('パスワードが一致しません。', 'Password does not match.'),
     'sync_required' => t(
@@ -564,11 +573,30 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
 
   Future<void> _import() async {
     final c = ref.read(syncV2WorkspaceProvider);
-    final selected = await FilePicker.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['zip'],
-    );
-    if (!mounted || !_foreground || selected.isEmpty) {
+    final picker = _systemPicker;
+    final pickerVersion = _backgroundVersion;
+    _pickingArchive = true;
+    picker.begin();
+    final List<PlatformFile> selected;
+    try {
+      selected = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['zip'],
+      );
+      // iOS can return the document before delivering resumed. Keep the
+      // selection until that event; an actual background invalidates it.
+      if (mounted && !_foreground && pickerVersion == _backgroundVersion) {
+        _foregroundChanged ??= Completer<void>();
+        await _foregroundChanged!.future;
+      }
+    } finally {
+      _pickingArchive = false;
+      picker.end();
+    }
+    if (!mounted ||
+        !_foreground ||
+        pickerVersion != _backgroundVersion ||
+        selected.isEmpty) {
       return;
     }
     final bytes = await selected.single.readAsBytes();
@@ -604,6 +632,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
 
       Future<void> unlockAdmin() async {
         if (!active() || c.adminUnlocked) return;
+        if (c.settingsAdminActive && await c.unlockAdminFromSettings()) return;
         if (c.biometricEnabled) {
           await _run(c.unlockAdminBiometric);
           await waitForBiometricResume();
@@ -1035,7 +1064,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
                                               ),
                                             if (c.biometricsAvailable &&
                                                 !c.biometricEnabled &&
-                                                c.adminUnlocked)
+                                                c.canManageAdminCredentials)
                                               PopupMenuItem(
                                                 value: 'biometric-enable',
                                                 child: Text(
@@ -1083,17 +1112,22 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
                                                   ),
                                                 ),
                                               ),
-                                              PopupMenuItem(
-                                                value: 'password',
-                                                child: Text(
-                                                  t(
-                                                    '選択中のパスワード変更',
-                                                    'Change selected profile password',
+                                              if (c.canManageAdminCredentials)
+                                                PopupMenuItem(
+                                                  value: 'password',
+                                                  child: Text(
+                                                    t(
+                                                      '選択中のパスワード変更',
+                                                      'Change selected profile password',
+                                                    ),
                                                   ),
                                                 ),
-                                              ),
                                               for (final conflict
-                                                  in c.profileConflicts)
+                                                  in c.canManageAdminCredentials
+                                                      ? c.profileConflicts
+                                                      : const <
+                                                          SyncV2WorkspaceProfile
+                                                        >[])
                                                 PopupMenuItem(
                                                   value:
                                                       'repair:${conflict.id}',
@@ -1498,7 +1532,7 @@ class _SyncV2ImportReviewDialogState extends State<SyncV2ImportReviewDialog> {
                         }),
                   icon: const Icon(Icons.admin_panel_settings),
                   label: Text(
-                    c.adminUnlocked
+                    (c.adminUnlocked || c.settingsAdminActive)
                         ? t('管理者として一括復元・上書き', 'Restore and overwrite as admin')
                         : t('管理者認証して一括復元・上書き', 'Authenticate and restore all'),
                   ),

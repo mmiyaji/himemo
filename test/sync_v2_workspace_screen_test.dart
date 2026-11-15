@@ -29,6 +29,10 @@ final class _PickedArchive extends PlatformFile {
 }
 
 class _ArchivePicker extends FilePickerPlatform {
+  _ArchivePicker({this.onPickerCalled});
+
+  final Future<void> Function()? onPickerCalled;
+
   @override
   Future<List<PlatformFile>> pickFiles({
     String? dialogTitle,
@@ -42,7 +46,10 @@ class _ArchivePicker extends FilePickerPlatform {
     WindowsOptions windowsOptions = const WindowsOptions(),
     LinuxOptions linuxOptions = const LinuxOptions(),
     WebOptions webOptions = const WebOptions(),
-  }) async => [_PickedArchive()];
+  }) async {
+    await onPickerCalled?.call();
+    return [_PickedArchive()];
+  }
 }
 
 class _Inbox implements SyncV2Inbox {
@@ -63,8 +70,9 @@ class _Cloud implements SyncV2GenerationRegistrationTransport {
 }
 
 class _Controller extends SyncV2WorkspaceController {
-  _Controller()
-    : super(
+  _Controller({bool settingsAdminActive = false})
+    : settingsAdminActiveForTest = settingsAdminActive,
+      super(
         inbox: _Inbox(),
         repository: _Repository(),
         store: MemorySecureKeyValueStore(),
@@ -75,8 +83,24 @@ class _Controller extends SyncV2WorkspaceController {
         activate: () async {},
         deactivate: () async {},
         supported: true,
+        settingsAdminAuthenticated: () => settingsAdminActive,
         automaticSync: false,
       );
+  final bool settingsAdminActiveForTest;
+  @override
+  bool get settingsAdminActive => settingsAdminActiveForTest;
+  bool settingsUnlockSucceeds = true;
+  int settingsUnlockCalls = 0;
+  int biometricUnlockCalls = 0;
+  @override
+  Future<bool> unlockAdminFromSettings() async {
+    settingsUnlockCalls++;
+    if (!settingsUnlockSucceeds) return false;
+    isAdmin = true;
+    notifyListeners();
+    return true;
+  }
+
   bool biometricSetup = false;
   Future<void> Function()? biometricDelay;
   @override
@@ -117,6 +141,7 @@ class _Controller extends SyncV2WorkspaceController {
   bool isAdmin = false;
   Future<void> Function()? importBiometricDelay;
   Map<String, String>? importedDestinations;
+  String? inspectedArchivePassword;
   bool? importedAdminOverwrite;
   bool? importedAcceptUnlinked;
   bool failAdminUnlock = false;
@@ -125,7 +150,11 @@ class _Controller extends SyncV2WorkspaceController {
   Future<SyncV2ArchiveInspection> inspectArchive(
     Uint8List bytes, {
     String? password,
-  }) async => SyncV2ArchiveInspection({'everyday': 33, 'private': 20}, 0);
+  }) async {
+    inspectedArchivePassword = password;
+    return SyncV2ArchiveInspection({'everyday': 33, 'private': 20}, 0);
+  }
+
   @override
   Future<void> importArchive({
     required Uint8List bytes,
@@ -156,6 +185,7 @@ class _Controller extends SyncV2WorkspaceController {
 
   @override
   Future<void> unlockAdminBiometric() async {
+    biometricUnlockCalls++;
     biometricAuthenticating = true;
     await importBiometricDelay?.call();
     biometricAuthenticating = false;
@@ -173,6 +203,7 @@ class _Controller extends SyncV2WorkspaceController {
   bool get adminUnlocked => isAdmin;
 
   bool backgroundCalled = false;
+  int backgroundCalls = 0;
   bool fakeDisposed = false;
   @override
   void dispose() {
@@ -218,6 +249,7 @@ class _Controller extends SyncV2WorkspaceController {
   @override
   void background() {
     backgroundCalled = true;
+    backgroundCalls++;
     availablePrivateProfiles.clear();
     isAdmin = false;
     if (!fakeDisposed) notifyListeners();
@@ -705,10 +737,22 @@ void main() {
     },
   );
 
-  Future<void> openPickedArchive(WidgetTester tester) async {
+  void installArchivePicker(
+    WidgetTester tester, {
+    Future<void> Function()? onPickerCalled,
+  }) {
     final original = FilePickerPlatform.instance;
-    FilePickerPlatform.instance = _ArchivePicker();
+    FilePickerPlatform.instance = _ArchivePicker(
+      onPickerCalled: onPickerCalled,
+    );
     addTearDown(() => FilePickerPlatform.instance = original);
+  }
+
+  Future<void> openPickedArchive(
+    WidgetTester tester, {
+    Future<void> Function()? onPickerCalled,
+  }) async {
+    installArchivePicker(tester, onPickerCalled: onPickerCalled);
     await tester.ensureVisible(find.text('Import ZIP'));
     await tester.tap(find.text('Import ZIP'));
     await tester.pumpAndSettle();
@@ -716,6 +760,102 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Review import'), findsOneWidget);
   }
+
+  testWidgets(
+    'inactive ZIP picker waits for resume before asking for ZIP password',
+    (tester) async {
+      final c = _Controller()
+        ..registered = true
+        ..isAdmin = true;
+      addTearDown(c.dispose);
+      final pickerStarted = Completer<void>();
+      final selectionReady = Completer<void>();
+      await mount(tester, c);
+      installArchivePicker(
+        tester,
+        onPickerCalled: () {
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.inactive,
+          );
+          pickerStarted.complete();
+          return selectionReady.future;
+        },
+      );
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(SyncV2WorkspaceScreen)),
+      );
+      await tester.ensureVisible(find.text('Import ZIP'));
+      await tester.tap(find.text('Import ZIP'));
+      await tester.pump();
+      await pickerStarted.future;
+      expect(container.read(syncV2SystemPickerProvider), isTrue);
+
+      selectionReady.complete();
+      await tester.pump();
+      await tester.pump();
+      expect(container.read(syncV2SystemPickerProvider), isTrue);
+      expect(find.text('ZIP password (optional)'), findsNothing);
+      expect(find.text('Review import'), findsNothing);
+      expect(c.backgroundCalled, isFalse);
+      expect(c.backgroundCalls, 0);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(container.read(syncV2SystemPickerProvider), isFalse);
+      expect(find.byType(TextField), findsOneWidget);
+      await tester.tap(find.text('Continue'));
+      await tester.pumpAndSettle();
+      expect(find.text('Review import'), findsOneWidget);
+      expect(c.inspectedArchivePassword, isNull);
+      await tapAdminImport(tester);
+      await tester.pumpAndSettle();
+      expect(c.importedAdminOverwrite, isTrue);
+    },
+  );
+
+  testWidgets('paused ZIP picker locks and discards its late selection', (
+    tester,
+  ) async {
+    final c = _Controller()
+      ..registered = true
+      ..isAdmin = true;
+    addTearDown(c.dispose);
+    final pickerStarted = Completer<void>();
+    final selectionReady = Completer<void>();
+    await mount(tester, c);
+    installArchivePicker(
+      tester,
+      onPickerCalled: () {
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.inactive,
+        );
+        pickerStarted.complete();
+        return selectionReady.future;
+      },
+    );
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(SyncV2WorkspaceScreen)),
+    );
+    await tester.ensureVisible(find.text('Import ZIP'));
+    await tester.tap(find.text('Import ZIP'));
+    await tester.pump();
+    await pickerStarted.future;
+    expect(container.read(syncV2SystemPickerProvider), isTrue);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    expect(c.backgroundCalled, isTrue);
+    expect(c.backgroundCalls, 1);
+    selectionReady.complete();
+    await tester.pumpAndSettle();
+    expect(container.read(syncV2SystemPickerProvider), isFalse);
+    expect(find.byType(TextField), findsNothing);
+    expect(find.text('Review import'), findsNothing);
+    expect(c.importedAdminOverwrite, isNull);
+    expect(tester.takeException(), isNull);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+  });
 
   testWidgets('screen routes admin selection to the overwrite controller API', (
     tester,
@@ -732,6 +872,61 @@ void main() {
     expect(c.importedAcceptUnlinked, isTrue);
     expect(c.importedDestinations, isNull);
   });
+
+  testWidgets(
+    'settings admin mode unlocks ZIP overwrite without another credential prompt',
+    (tester) async {
+      final c = _Controller(settingsAdminActive: true)..registered = true;
+      addTearDown(c.dispose);
+      await mount(tester, c);
+      await openPickedArchive(tester);
+      expect(c.inspectedArchivePassword, isNull);
+      await tapAdminImport(tester);
+      await tester.pumpAndSettle();
+      expect(c.settingsUnlockCalls, 1);
+      expect(c.adminUnlocked, isTrue);
+      expect(c.biometricUnlockCalls, 0);
+      expect(c.adminPasswords, isEmpty);
+      expect(c.importedAdminOverwrite, isTrue);
+      expect(find.byType(TextField), findsNothing);
+    },
+  );
+
+  testWidgets('without settings admin mode, ZIP uses v2 biometric auth', (
+    tester,
+  ) async {
+    final c = _Controller()
+      ..registered = true
+      ..biometricEnabled = true;
+    addTearDown(c.dispose);
+    await mount(tester, c);
+    await openPickedArchive(tester);
+    await tapAdminImport(tester);
+    await tester.pumpAndSettle();
+    expect(c.settingsUnlockCalls, 0);
+    expect(c.biometricUnlockCalls, 1);
+    expect(c.adminPasswords, isEmpty);
+    expect(c.importedAdminOverwrite, isTrue);
+  });
+
+  testWidgets(
+    'settings mode without a saved v2 admin grant falls back to biometrics',
+    (tester) async {
+      final c = _Controller(settingsAdminActive: true)
+        ..registered = true
+        ..biometricEnabled = true
+        ..settingsUnlockSucceeds = false;
+      addTearDown(c.dispose);
+      await mount(tester, c);
+      await openPickedArchive(tester);
+      await tapAdminImport(tester);
+      await tester.pumpAndSettle();
+      expect(c.settingsUnlockCalls, 1);
+      expect(c.biometricUnlockCalls, 1);
+      expect(c.adminPasswords, isEmpty);
+      expect(c.importedAdminOverwrite, isTrue);
+    },
+  );
 
   testWidgets('failed admin password leaves review open without importing', (
     tester,

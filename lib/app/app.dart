@@ -359,6 +359,10 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       _cloudSyncDebounceTimer?.cancel();
       _cloudSyncScheduled = false;
       _activateAppLockPrivacyCoverIfEnabled();
+      if (state == AppLifecycleState.inactive &&
+          ref.read(syncV2SystemPickerProvider)) {
+        return;
+      }
       if (ref.read(deviceAuthControllerProvider).isAuthenticating) {
         return;
       }

@@ -19,3 +19,21 @@ class SyncV2PrivacyRoute extends Notifier<int> {
     if (ref.mounted && state > 0) state--;
   }
 }
+
+/// Only the transient inactive state of an app-owned system picker is exempt
+/// from relocking. Hidden/paused still revoke every protected session.
+final syncV2SystemPickerProvider = NotifierProvider<SyncV2SystemPicker, bool>(
+  SyncV2SystemPicker.new,
+);
+
+class SyncV2SystemPicker extends Notifier<bool> {
+  @override
+  bool build() => false;
+  void begin() {
+    if (ref.mounted) state = true;
+  }
+
+  void end() {
+    if (ref.mounted) state = false;
+  }
+}
