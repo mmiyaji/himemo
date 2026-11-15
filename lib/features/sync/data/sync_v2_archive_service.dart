@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:isolate';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
@@ -7,6 +8,7 @@ import 'package:crypto/crypto.dart' as crypto;
 import 'package:cryptography/cryptography.dart';
 
 import '../../home/domain/note_entry.dart';
+import '../../security/data/encryption_service.dart';
 import '../../security/data/sync_v2_profile_keys.dart';
 import 'sync_v2_attachment_service.dart';
 import 'sync_v2_inbox.dart';
@@ -42,11 +44,16 @@ class SyncV2ArchiveService {
     required SecretKey syncKey,
     required Map<String, SyncV2UnlockedProfileKey> destinations,
     bool acceptUnlinkedAttachments = false,
+    bool overwriteExisting = false,
+    String? writerId,
+    void Function()? checkActive,
   }) async {
+    checkActive?.call();
     final decoded = await _decodeArchiveInWorker(
       Uint8List.fromList(bytes),
       password,
     );
+    checkActive?.call();
     final sources = decoded.inspection.noteCountsByProfile.keys.toSet();
     final mappedSources = destinations.keys
         .where((source) => source != 'everyday')
@@ -85,6 +92,11 @@ class SyncV2ArchiveService {
             : note,
     ];
     final hash = decoded.hash;
+    final writerNamespace = overwriteExisting ? (writerId ?? '') : '';
+    final random = overwriteExisting ? Random.secure() : null;
+    final callNonce = overwriteExisting
+        ? base64Url.encode(List.generate(24, (_) => random!.nextInt(256)))
+        : '';
     final key = await syncKey.extractBytes();
     String identity(String note, String profile, String purpose) =>
         crypto.Hmac(crypto.sha256, key)
@@ -94,11 +106,107 @@ class SyncV2ArchiveService {
               ),
             )
             .toString();
+    String stableNoteId(String source, String note, String profile) =>
+        'note_${crypto.Hmac(crypto.sha256, key).convert(utf8.encode(jsonEncode([generationId, source, note, profile, 'admin-import-note']))).toString()}';
+    final sourceForDestination = {
+      for (final entry in destinations.entries)
+        if (entry.key != 'everyday') entry.value.profileId: entry.key,
+    };
     return inbox.transaction(() async {
+      checkActive?.call();
+      final existingByProfile = <String, Map<String, SyncV2NoteSnapshot>>{};
+      if (overwriteExisting) {
+        for (final access in destinations.values) {
+          checkActive?.call();
+          final headers = await repository.readProfile(
+            generationId: generationId,
+            profileId: access.profileId,
+            syncKey: syncKey,
+            noteIdPrefix: 'note_',
+          );
+          checkActive?.call();
+          final ids = {
+            ...headers.keys,
+            for (final note in notes)
+              if (note.vaultId == access.profileId &&
+                  !note.id.startsWith('blob_') &&
+                  !note.id.startsWith('profile_'))
+                note.id,
+          };
+          final recovered = await repository.readManyForArchiveRecovery(
+            generationId: generationId,
+            profileId: access.profileId,
+            syncKey: syncKey,
+            profileKey: access,
+            noteIds: ids,
+            checkActive: checkActive,
+          );
+          recovered.removeWhere((_, snapshot) => snapshot.headIds.isEmpty);
+          existingByProfile[access.profileId] = recovered;
+          checkActive?.call();
+        }
+      }
       for (final note in notes) {
+        checkActive?.call();
         final access = destinations.values.singleWhere(
           (v) => v.profileId == note.vaultId,
         );
+        final sourceProfile =
+            note.vaultId == destinations['everyday']?.profileId
+            ? 'everyday'
+            : sourceForDestination[note.vaultId]!;
+        final stableId = stableNoteId(sourceProfile, note.id, note.vaultId);
+        final oldManualId = 'note_${identity(note.id, note.vaultId, 'note')}';
+        final snapshots = existingByProfile[note.vaultId];
+        String? originMatch;
+        if (overwriteExisting && snapshots != null) {
+          for (final entry in snapshots.entries) {
+            checkActive?.call();
+            for (final version in entry.value.versions) {
+              final origin = version.body?['legacyImport'];
+              if (origin is Map &&
+                  origin['profileId'] == sourceProfile &&
+                  origin['noteId'] == note.id) {
+                originMatch = entry.key;
+                break;
+              }
+            }
+            if (originMatch != null) break;
+          }
+        }
+        final noteId = overwriteExisting
+            ? (snapshots?.containsKey(note.id) == true
+                  ? note.id
+                  : snapshots?.containsKey(oldManualId) == true
+                  ? oldManualId
+                  : originMatch ?? stableId)
+            : oldManualId;
+        final current = snapshots?[noteId];
+        final currentBody = current?.versions.length == 1
+            ? current!.versions.single.body
+            : null;
+        final oldReferences = <SyncV2AttachmentReference>[];
+        for (final oldBody
+            in current?.versions.map((v) => v.body) ??
+                const <Map<String, Object?>?>[]) {
+          final rawReferences = oldBody?['attachments'];
+          if (rawReferences is! List) continue;
+          for (final raw in rawReferences) {
+            if (raw is! Map) continue;
+            try {
+              oldReferences.add(
+                SyncV2AttachmentReference.fromJson(
+                  Map<String, dynamic>.from(raw),
+                ),
+              );
+            } on FormatException {
+              // Ignore malformed old references; the archive replaces them.
+            } on TypeError {
+              // Ignore malformed old references; the archive replaces them.
+            }
+          }
+        }
+        final verifiedOldReferences = <String, bool>{};
         final refs = <String, SyncV2AttachmentReference>{};
         Future<NoteAttachment> mapAttachment(NoteAttachment attachment) async {
           final path = attachment.filePath;
@@ -111,14 +219,66 @@ class SyncV2ArchiveService {
             );
           }
           var ref = refs[path];
+          final sourceBytes = decoded.files[path]!;
+          final contentHash = crypto.sha256.convert(sourceBytes).toString();
+          if (ref == null && overwriteExisting) {
+            for (final candidate in oldReferences) {
+              checkActive?.call();
+              if (candidate.sha256 != contentHash ||
+                  candidate.size != sourceBytes.length ||
+                  candidate.label != attachment.label ||
+                  candidate.type != attachment.type.name) {
+                continue;
+              }
+              try {
+                final cached = verifiedOldReferences[candidate.id];
+                final bool verified;
+                if (cached != null) {
+                  verified = cached;
+                } else {
+                  final existingBytes = await attachments.read(
+                    reference: candidate,
+                    generationId: generationId,
+                    syncKey: syncKey,
+                    profileAccess: access,
+                    checkActive: checkActive,
+                  );
+                  try {
+                    verified =
+                        crypto.sha256.convert(existingBytes).toString() ==
+                        contentHash;
+                  } finally {
+                    existingBytes.fillRange(0, existingBytes.length, 0);
+                  }
+                  verifiedOldReferences[candidate.id] = verified;
+                }
+                if (verified) {
+                  ref = candidate;
+                  break;
+                }
+              } on FormatException {
+                verifiedOldReferences[candidate.id] = false;
+              } on HimemoDecryptionException {
+                verifiedOldReferences[candidate.id] = false;
+              }
+              checkActive?.call();
+            }
+          }
           ref ??= await attachments.store(
             generationId: generationId,
             syncKey: syncKey,
             profileAccess: access,
-            bytes: decoded.files[path]!,
+            bytes: sourceBytes,
             label: attachment.label,
             type: attachment.type.name,
-            stableId: identity(note.id, note.vaultId, path),
+            stableId: identity(
+              overwriteExisting
+                  ? jsonEncode([writerNamespace, callNonce, note.id])
+                  : note.id,
+              note.vaultId,
+              path,
+            ),
+            checkActive: checkActive,
           );
           refs[path] = ref;
           return attachment.copyWith(
@@ -132,10 +292,13 @@ class SyncV2ArchiveService {
 
         final mappedAttachments = <NoteAttachment>[];
         for (final attachment in note.attachments) {
+          checkActive?.call();
           mappedAttachments.add(await mapAttachment(attachment));
+          checkActive?.call();
         }
         final blocks = <NoteBlock>[];
         for (final block in note.blocks) {
+          checkActive?.call();
           blocks.add(
             block.attachment == null
                 ? block
@@ -143,28 +306,70 @@ class SyncV2ArchiveService {
                     attachment: await mapAttachment(block.attachment!),
                   ),
           );
+          checkActive?.call();
         }
-        final noteId = 'note_${identity(note.id, note.vaultId, 'note')}';
         final mapped = note.copyWith(
           id: noteId,
           attachments: mappedAttachments,
           blocks: blocks,
         );
-        await repository.save(
-          generationId: generationId,
-          profileId: note.vaultId,
-          noteId: noteId,
-          changeId: identity(note.id, note.vaultId, 'change'),
-          expectedHeadIds: {},
-          body: {
-            'type': 'note',
-            'note': mapped.toJson(),
-            'attachments': refs.values.map((r) => r.toJson()).toList(),
-          },
-          syncKey: syncKey,
-          profileKey: access,
-        );
+        final body = <String, Object?>{
+          'type': 'note',
+          'note': mapped.toJson(),
+          'attachments': refs.values.map((r) => r.toJson()).toList(),
+          if (overwriteExisting)
+            'legacyImport': {'profileId': sourceProfile, 'noteId': note.id},
+        };
+        if (overwriteExisting &&
+            current != null &&
+            current.versions.isNotEmpty &&
+            current.pendingIds.isEmpty &&
+            !current.hasConflict &&
+            !current.versions.single.isDeleted &&
+            currentBody != null &&
+            jsonEncode(_canonical(currentBody)) ==
+                jsonEncode(_canonical(body))) {
+          checkActive?.call();
+          continue;
+        }
+        final heads = current?.headIds ?? <String>{};
+        final parentIds = heads.toList()..sort();
+        final changeId = overwriteExisting
+            ? identity(
+                // Separate authenticated ciphertext records across devices.
+                jsonEncode([noteId, parentIds, writerNamespace, callNonce]),
+                note.vaultId,
+                'admin-overwrite-change',
+              )
+            : identity(note.id, note.vaultId, 'change');
+        if (overwriteExisting) {
+          checkActive?.call();
+          await repository.replaceKnownHeads(
+            generationId: generationId,
+            profileId: note.vaultId,
+            noteId: noteId,
+            changeId: changeId,
+            expectedHeadIds: heads,
+            body: body,
+            syncKey: syncKey,
+            profileKey: access,
+          );
+        } else {
+          checkActive?.call();
+          await repository.save(
+            generationId: generationId,
+            profileId: note.vaultId,
+            noteId: noteId,
+            changeId: changeId,
+            expectedHeadIds: {},
+            body: body,
+            syncKey: syncKey,
+            profileKey: access,
+          );
+        }
+        checkActive?.call();
       }
+      checkActive?.call();
       return notes.length;
     });
   }
@@ -248,6 +453,14 @@ class SyncV2ArchiveService {
     return _encodeArchiveInWorker(files, notes, password);
   }
 }
+
+Object? _canonical(Object? value) => switch (value) {
+  Map<String, dynamic>() => {
+    for (final key in value.keys.toList()..sort()) key: _canonical(value[key]),
+  },
+  List<Object?>() => value.map(_canonical).toList(),
+  _ => value,
+};
 
 _DecodedLegacyArchive _decodeLegacyArchive(Uint8List bytes, String? password) {
   if (bytes.isEmpty || bytes.length > SyncV2ArchiveService.maxArchiveBytes) {

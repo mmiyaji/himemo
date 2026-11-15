@@ -90,7 +90,9 @@ class SyncV2AttachmentService {
     required String label,
     required String type,
     String? stableId,
+    void Function()? checkActive,
   }) async {
+    checkActive?.call();
     final content = Uint8List.fromList(bytes);
     if (content.isEmpty || content.length > maxBytes) {
       throw const FormatException('Attachment exceeds size limit');
@@ -126,6 +128,7 @@ class SyncV2AttachmentService {
     final records =
         <({String noteId, String changeId, Map<String, Object?> body})>[];
     for (var i = 0; i < count; i++) {
+      checkActive?.call();
       final part = content.sublist(
         i * chunkBytes,
         min(content.length, (i + 1) * chunkBytes),
@@ -142,14 +145,18 @@ class SyncV2AttachmentService {
           'bytes': base64Encode(part),
         },
       ));
+      checkActive?.call();
     }
+    checkActive?.call();
     await repository.saveNewBatch(
       generationId: generationId,
       profileId: profileAccess.profileId,
       syncKey: syncKey,
       profileKey: profileAccess,
       notes: records,
+      checkActive: checkActive,
     );
+    checkActive?.call();
     return reference;
   }
 
@@ -158,7 +165,9 @@ class SyncV2AttachmentService {
     required String generationId,
     required SecretKey syncKey,
     required SyncV2UnlockedProfileKey profileAccess,
+    void Function()? checkActive,
   }) async {
+    checkActive?.call();
     reference._validate();
     final snapshots = await repository.readMany(
       generationId: generationId,
@@ -166,9 +175,11 @@ class SyncV2AttachmentService {
       syncKey: syncKey,
       profileKey: profileAccess,
       noteIds: reference.chunks.toSet(),
+      checkActive: checkActive,
     );
     final output = BytesBuilder(copy: false);
     for (var i = 0; i < reference.chunks.length; i++) {
+      checkActive?.call();
       final snapshot = snapshots[reference.chunks[i]];
       if (snapshot == null ||
           !snapshot.canCompareVersions ||
@@ -199,6 +210,7 @@ class SyncV2AttachmentService {
         throw const FormatException('Corrupt attachment chunk');
       }
       output.add(bytes);
+      checkActive?.call();
     }
     final result = output.takeBytes();
     if (result.length != reference.size ||

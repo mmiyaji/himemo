@@ -117,6 +117,10 @@ class _Controller extends SyncV2WorkspaceController {
   bool isAdmin = false;
   Future<void> Function()? importBiometricDelay;
   Map<String, String>? importedDestinations;
+  bool? importedAdminOverwrite;
+  bool? importedAcceptUnlinked;
+  bool failAdminUnlock = false;
+  final adminPasswords = <String>[];
   @override
   Future<SyncV2ArchiveInspection> inspectArchive(
     Uint8List bytes, {
@@ -130,6 +134,24 @@ class _Controller extends SyncV2WorkspaceController {
     required bool acceptUnlinkedAttachments,
   }) async {
     importedDestinations = Map.of(destinations);
+  }
+
+  @override
+  Future<void> adminImportArchive({
+    required Uint8List bytes,
+    String? password,
+    SyncV2ArchiveInspection? inspection,
+  }) async {
+    importedAdminOverwrite = true;
+    importedAcceptUnlinked = true;
+  }
+
+  @override
+  Future<void> unlockAdmin(String password) async {
+    adminPasswords.add(password);
+    if (failAdminUnlock) throw StateError('incorrect password');
+    isAdmin = true;
+    notifyListeners();
   }
 
   @override
@@ -151,6 +173,13 @@ class _Controller extends SyncV2WorkspaceController {
   bool get adminUnlocked => isAdmin;
 
   bool backgroundCalled = false;
+  bool fakeDisposed = false;
+  @override
+  void dispose() {
+    fakeDisposed = true;
+    super.dispose();
+  }
+
   @override
   Future<void> initialize() async {
     loading = false;
@@ -191,7 +220,7 @@ class _Controller extends SyncV2WorkspaceController {
     backgroundCalled = true;
     availablePrivateProfiles.clear();
     isAdmin = false;
-    notifyListeners();
+    if (!fakeDisposed) notifyListeners();
   }
 
   @override
@@ -359,12 +388,97 @@ void main() {
         ),
       ),
     );
+    await tester.ensureVisible(find.text('Review ZIP'));
     await tester.tap(find.text('Review ZIP'));
     await tester.pumpAndSettle();
   }
 
-  FilledButton importButton(WidgetTester tester) =>
-      tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Import'));
+  OutlinedButton importButton(WidgetTester tester) =>
+      tester.widget<OutlinedButton>(
+        find.widgetWithText(OutlinedButton, 'Import to selected destinations'),
+      );
+
+  Finder adminImportButton(WidgetTester tester) =>
+      find.byKey(const ValueKey('import-admin-overwrite'));
+
+  Future<void> tapAdminImport(WidgetTester tester) async {
+    final button = adminImportButton(tester);
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+  }
+
+  testWidgets(
+    'administrator overwrite stays enabled without destinations or attachment consent',
+    (tester) async {
+      final c = _Controller();
+      addTearDown(c.dispose);
+      SyncV2ImportSelection? selection;
+      await mountImportReview(
+        tester,
+        c,
+        counts: {
+          'everyday': 33,
+          'private': 20,
+          'private_profile:two': 3,
+          'private_profile:three': 1,
+        },
+        unlinked: 7,
+        unlockAdmin: () async {
+          c.isAdmin = true;
+          c.notifyListeners();
+        },
+        selected: (value) => selection = value,
+      );
+      final button = tester.widget<FilledButton>(adminImportButton(tester));
+      expect(button.onPressed, isNotNull);
+      expect(find.byType(CheckboxListTile), findsOneWidget);
+      expect(
+        find.textContaining('private destinations are prepared automatically'),
+        findsOneWidget,
+      );
+      await tapAdminImport(tester);
+      await tester.pumpAndSettle();
+      expect(selection?.administratorOverwrite, isTrue);
+      expect(selection?.destinations, isEmpty);
+      expect(selection?.acceptUnlinkedAttachments, isTrue);
+    },
+  );
+
+  testWidgets(
+    'cancelled or unsuccessful admin authentication keeps review open',
+    (tester) async {
+      for (final succeeds in [false, true]) {
+        final c = _Controller();
+        addTearDown(c.dispose);
+        SyncV2ImportSelection? selection;
+        await mountImportReview(
+          tester,
+          c,
+          counts: {'private': 1},
+          unlockAdmin: () async {
+            if (succeeds) {
+              c.isAdmin = true;
+              c.notifyListeners();
+            }
+          },
+          selected: (value) => selection = value,
+        );
+        await tapAdminImport(tester);
+        await tester.pumpAndSettle();
+        if (!succeeds) {
+          expect(find.text('Review import'), findsOneWidget);
+          expect(selection, isNull);
+          await tester.tap(find.text('Cancel').last);
+          await tester.pumpAndSettle();
+        } else {
+          expect(find.text('Review import'), findsNothing);
+          expect(selection?.administratorOverwrite, isTrue);
+        }
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+      }
+    },
+  );
 
   testWidgets(
     'empty workspace can authenticate and create three distinct ZIP destinations',
@@ -436,7 +550,7 @@ void main() {
       await tester.tap(consent);
       await tester.pumpAndSettle();
       expect(importButton(tester).onPressed, isNotNull);
-      await tester.tap(find.text('Import'));
+      await tester.tap(find.text('Import to selected destinations'));
       await tester.pumpAndSettle();
       expect(
         imported!.destinations.keys,
@@ -490,7 +604,7 @@ void main() {
       await tester.tap(find.text('Existing private').last);
       await tester.pumpAndSettle();
       expect(importButton(tester).onPressed, isNotNull);
-      await tester.tap(find.text('Import'));
+      await tester.tap(find.text('Import to selected destinations'));
       await tester.pumpAndSettle();
       expect(imported!.destinations, {'private': 'private_profile:existing'});
     },
@@ -517,15 +631,22 @@ void main() {
           return 'private_profile:one';
         },
       );
-      await tester.tap(find.byKey(const ValueKey('import-create-private')));
+      final create = find.byKey(const ValueKey('import-create-private'));
+      await tester.ensureVisible(create);
+      await tester.tap(create);
       await tester.pumpAndSettle();
       expect(importButton(tester).onPressed, isNull);
       cancelled = false;
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('import-create-private')),
+      );
       await tester.tap(find.byKey(const ValueKey('import-create-private')));
       await tester.pumpAndSettle();
-      await tester.tap(
-        find.byKey(const ValueKey('import-create-private_profile:two')),
+      final secondCreate = find.byKey(
+        const ValueKey('import-create-private_profile:two'),
       );
+      await tester.ensureVisible(secondCreate);
+      await tester.tap(secondCreate);
       await tester.pumpAndSettle();
       expect(importButton(tester).onPressed, isNull);
       final fields = tester
@@ -555,7 +676,9 @@ void main() {
         create: () => release.future,
         selected: (value) => imported = value,
       );
-      await tester.tap(find.byKey(const ValueKey('import-create-private')));
+      final create = find.byKey(const ValueKey('import-create-private'));
+      await tester.ensureVisible(create);
+      await tester.tap(create);
       await tester.pump();
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
@@ -593,6 +716,44 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Review import'), findsOneWidget);
   }
+
+  testWidgets('screen routes admin selection to the overwrite controller API', (
+    tester,
+  ) async {
+    final c = _Controller()
+      ..registered = true
+      ..isAdmin = true;
+    addTearDown(c.dispose);
+    await mount(tester, c);
+    await openPickedArchive(tester);
+    await tapAdminImport(tester);
+    await tester.pumpAndSettle();
+    expect(c.importedAdminOverwrite, isTrue);
+    expect(c.importedAcceptUnlinked, isTrue);
+    expect(c.importedDestinations, isNull);
+  });
+
+  testWidgets('failed admin password leaves review open without importing', (
+    tester,
+  ) async {
+    final c = _Controller()..registered = true;
+    c.failAdminUnlock = true;
+    addTearDown(c.dispose);
+    await mount(tester, c);
+    await openPickedArchive(tester);
+    await tapAdminImport(tester);
+    await tester.pumpAndSettle();
+    final passwordField = find.byType(TextField).first;
+    await tester.ensureVisible(passwordField);
+    await tester.enterText(passwordField, 'wrong password');
+    await tester.pump();
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+    expect(find.text('Review import'), findsOneWidget);
+    expect(c.importedAdminOverwrite, isNull);
+    expect(c.adminPasswords, ['wrong password']);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'screen background closes review even with a destination popup open',
@@ -651,7 +812,7 @@ void main() {
       await tester.tap(find.text('Existing private').last);
       await tester.pumpAndSettle();
       expect(importButton(tester).onPressed, isNotNull);
-      await tester.tap(find.text('Import'));
+      await tester.tap(find.text('Import to selected destinations'));
       await tester.pumpAndSettle();
       expect(c.importedDestinations, {'private': 'private_profile:existing'});
     },
@@ -673,7 +834,7 @@ void main() {
       };
       await mount(tester, c);
       await openPickedArchive(tester);
-      await tester.tap(find.text('Show profiles with biometrics'));
+      await tapAdminImport(tester);
       await tester.pump();
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
       await tester.pumpAndSettle();

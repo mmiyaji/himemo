@@ -175,6 +175,10 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
       'Biometric authentication cancelled. You can retry.',
     ),
     'wrong_password' => t('パスワードが一致しません。', 'Password does not match.'),
+    'sync_required' => t(
+      '同期途中の情報を取得できませんでした。接続を確認して一括復元を再試行してください。',
+      'Some sync history is still unavailable. Check your connection and retry administrator restore.',
+    ),
     'throttled' => t(
       '試行回数が多いため、時間をおいて再試行してください。',
       'Too many attempts. Wait before retrying.',
@@ -664,12 +668,21 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
           mounted &&
           _foreground &&
           version == _backgroundVersion) {
-        await c.importArchive(
-          bytes: bytes,
-          password: password.isEmpty ? null : password,
-          destinations: selection.destinations,
-          acceptUnlinkedAttachments: selection.acceptUnlinkedAttachments,
-        );
+        if (selection.administratorOverwrite) {
+          await c.adminImportArchive(
+            bytes: bytes,
+            password: password.isEmpty ? null : password,
+            inspection: inspection,
+          );
+        } else {
+          await c.importArchive(
+            bytes: bytes,
+            password: password.isEmpty ? null : password,
+            destinations: selection.destinations,
+            acceptUnlinkedAttachments: selection.acceptUnlinkedAttachments,
+          );
+        }
+        if (mounted && _foreground) setState(_clearEditor);
       }
     });
   }
@@ -1389,10 +1402,12 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
 class SyncV2ImportSelection {
   SyncV2ImportSelection(
     Map<String, String> destinations,
-    this.acceptUnlinkedAttachments,
-  ) : destinations = Map.unmodifiable(destinations);
+    this.acceptUnlinkedAttachments, {
+    this.administratorOverwrite = false,
+  }) : destinations = Map.unmodifiable(destinations);
   final Map<String, String> destinations;
   final bool acceptUnlinkedAttachments;
+  final bool administratorOverwrite;
 }
 
 /// Keeps destination preparation inside the ZIP review, after file-picker locks.
@@ -1461,6 +1476,45 @@ class _SyncV2ImportReviewDialogState extends State<SyncV2ImportReviewDialog> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                FilledButton.icon(
+                  key: const ValueKey('import-admin-overwrite'),
+                  onPressed: busy
+                      ? null
+                      : () => _perform(() async {
+                          final navigator = Navigator.of(context);
+                          if (!c.adminUnlocked) await widget.unlockAdmin();
+                          if (!mounted ||
+                              !widget.isActive() ||
+                              !c.adminUnlocked) {
+                            return;
+                          }
+                          navigator.pop(
+                            SyncV2ImportSelection(
+                              const {},
+                              true,
+                              administratorOverwrite: true,
+                            ),
+                          );
+                        }),
+                  icon: const Icon(Icons.admin_panel_settings),
+                  label: Text(
+                    c.adminUnlocked
+                        ? t('管理者として一括復元・上書き', 'Restore and overwrite as admin')
+                        : t('管理者認証して一括復元・上書き', 'Authenticate and restore all'),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  t(
+                    '同じメモはZIPの内容で上書きし、私用の復元先は自動で用意します。未連携添付のあるメモも取り込みます。個別パスワードは後で管理者から設定できます。',
+                    'Matching notes are overwritten with ZIP contents, and private destinations are prepared automatically. Notes with unlinked attachments are included. Set individual passwords later as admin.',
+                  ),
+                ),
+                const Divider(),
+                Text(
+                  t('手動で復元先を選ぶ', 'Choose destinations manually'),
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
                 if (widget.inspection.noteCountsByProfile.containsKey(
                   'everyday',
                 ))
@@ -1615,7 +1669,7 @@ class _SyncV2ImportReviewDialogState extends State<SyncV2ImportReviewDialog> {
             onPressed: () => Navigator.pop(context),
             child: Text(t('キャンセル', 'Cancel')),
           ),
-          FilledButton(
+          OutlinedButton(
             onPressed:
                 !busy &&
                     ready &&
@@ -1626,7 +1680,7 @@ class _SyncV2ImportReviewDialogState extends State<SyncV2ImportReviewDialog> {
                     SyncV2ImportSelection(_destinations, _accept),
                   )
                 : null,
-            child: Text(t('インポート', 'Import')),
+            child: Text(t('選択した復元先にインポート', 'Import to selected destinations')),
           ),
         ],
       );

@@ -418,4 +418,359 @@ void main() {
       });
     },
   );
+
+  test(
+    'admin ZIP overwrite restores edits and is a no-op when repeated',
+    () async {
+      final d = device();
+      addTearDown(d.inbox.close);
+      final service = SyncV2ArchiveService(d.inbox, d.repo);
+      final note = NoteEntry(
+        id: 'same-source-id',
+        vaultId: 'everyday',
+        title: 'archive title',
+        body: 'archive body',
+        createdAt: DateTime.utc(2020),
+      );
+      final archive = Archive()
+        ..addFile(
+          ArchiveFile.string(
+            'manifest.json',
+            jsonEncode({
+              'format': 'org.ruhenheim.himemo.notes.zip',
+              'version': 1,
+              'noteCount': 1,
+              'attachmentCount': 0,
+            }),
+          ),
+        )
+        ..addFile(
+          ArchiveFile.string(
+            'notes.json',
+            jsonEncode({
+              'notes': [note.toJson()],
+            }),
+          ),
+        );
+      final bytes = Uint8List.fromList(ZipEncoder().encode(archive));
+      await service.importArchive(
+        bytes: bytes,
+        generationId: 'g',
+        syncKey: syncKey,
+        destinations: {'everyday': access},
+      );
+      final legacySnapshot = await d.repo.readProfile(
+        generationId: 'g',
+        profileId: access.profileId,
+        syncKey: syncKey,
+        profileKey: access,
+      );
+      final legacyNoteId = legacySnapshot.keys.single;
+      Future<Map<String, SyncV2NoteSnapshot>> importAndRead() async {
+        await service.importArchive(
+          bytes: bytes,
+          generationId: 'g',
+          syncKey: syncKey,
+          destinations: {'everyday': access},
+          overwriteExisting: true,
+        );
+        return d.repo.readProfile(
+          generationId: 'g',
+          profileId: access.profileId,
+          syncKey: syncKey,
+          profileKey: access,
+        );
+      }
+
+      var snapshots = await importAndRead();
+      expect(snapshots, hasLength(1));
+      final noteId = snapshots.keys.single;
+      expect(noteId, legacyNoteId, reason: 'prior manual import ID is reused');
+      var snapshot = snapshots[noteId]!;
+      await d.repo.save(
+        generationId: 'g',
+        profileId: access.profileId,
+        noteId: noteId,
+        changeId: 'local-edit',
+        expectedHeadIds: snapshot.headIds,
+        body: {
+          'type': 'note',
+          'note': note.copyWith(title: 'local edit').toJson(),
+          'attachments': [],
+          'legacyImport': {'profileId': 'everyday', 'noteId': note.id},
+        },
+        syncKey: syncKey,
+        profileKey: access,
+      );
+      snapshots = await importAndRead();
+      snapshot = snapshots[noteId]!;
+      expect(
+        snapshot.versions.single.body!['note'],
+        note.copyWith(id: noteId, vaultId: access.profileId).toJson(),
+      );
+      final queuedCount = (await d.inbox.readOutbox(
+        generationId: 'g',
+        limit: 100,
+      )).length;
+      await importAndRead();
+      expect(
+        (await d.inbox.readOutbox(generationId: 'g', limit: 100)),
+        hasLength(queuedCount),
+      );
+      final changedArchive = Archive()
+        ..addFile(
+          ArchiveFile.string(
+            'manifest.json',
+            jsonEncode({
+              'format': 'org.ruhenheim.himemo.notes.zip',
+              'version': 1,
+              'noteCount': 1,
+              'attachmentCount': 0,
+            }),
+          ),
+        )
+        ..addFile(
+          ArchiveFile.string(
+            'notes.json',
+            jsonEncode({
+              'notes': [note.copyWith(title: 'changed ZIP').toJson()],
+            }),
+          ),
+        );
+      await service.importArchive(
+        bytes: Uint8List.fromList(ZipEncoder().encode(changedArchive)),
+        generationId: 'g',
+        syncKey: syncKey,
+        destinations: {'everyday': access},
+        overwriteExisting: true,
+      );
+      final changed = await d.repo.readProfile(
+        generationId: 'g',
+        profileId: access.profileId,
+        syncKey: syncKey,
+        profileKey: access,
+      );
+      expect(changed, hasLength(1));
+      expect(
+        NoteEntry.fromJson(
+          Map<String, dynamic>.from(
+            changed[noteId]!.versions.single.body!['note'] as Map,
+          ),
+        ).title,
+        'changed ZIP',
+      );
+    },
+  );
+
+  test(
+    'admin archive source IDs cannot overwrite profile or attachment entities',
+    () async {
+      final d = device();
+      addTearDown(d.inbox.close);
+      final service = SyncV2ArchiveService(d.inbox, d.repo);
+      final attachment = await service.attachments.store(
+        generationId: 'g',
+        syncKey: syncKey,
+        profileAccess: access,
+        bytes: Uint8List.fromList([1, 2]),
+        label: 'existing',
+        type: 'file',
+      );
+      await d.repo.save(
+        generationId: 'g',
+        profileId: access.profileId,
+        noteId: 'profile_reserved',
+        changeId: 'profile-head',
+        expectedHeadIds: {},
+        body: {'type': 'profile-key', 'sentinel': true},
+        syncKey: syncKey,
+        profileKey: access,
+      );
+      final notes = [
+        for (final id in [attachment.chunks.single, 'profile_reserved'])
+          NoteEntry(
+            id: id,
+            vaultId: 'everyday',
+            title: 'restored note',
+            body: 'ZIP content',
+            createdAt: DateTime.utc(2020),
+          ),
+      ];
+      final bytes = Uint8List.fromList(
+        ZipEncoder().encode(
+          Archive()
+            ..addFile(
+              ArchiveFile.string(
+                'manifest.json',
+                jsonEncode({
+                  'format': 'org.ruhenheim.himemo.notes.zip',
+                  'version': 1,
+                  'noteCount': 2,
+                  'attachmentCount': 0,
+                }),
+              ),
+            )
+            ..addFile(
+              ArchiveFile.string(
+                'notes.json',
+                jsonEncode({'notes': notes.map((n) => n.toJson()).toList()}),
+              ),
+            ),
+        ),
+      );
+      await service.importArchive(
+        bytes: bytes,
+        generationId: 'g',
+        syncKey: syncKey,
+        destinations: {'everyday': access},
+        overwriteExisting: true,
+      );
+      expect(
+        await service.attachments.read(
+          reference: attachment,
+          generationId: 'g',
+          syncKey: syncKey,
+          profileAccess: access,
+        ),
+        [1, 2],
+      );
+      final profile = await d.repo.readNote(
+        generationId: 'g',
+        profileId: access.profileId,
+        noteId: 'profile_reserved',
+        syncKey: syncKey,
+        profileKey: access,
+      );
+      expect(profile.versions.single.body, {
+        'type': 'profile-key',
+        'sentinel': true,
+      });
+      final restored = await d.repo.readProfile(
+        generationId: 'g',
+        profileId: access.profileId,
+        syncKey: syncKey,
+        profileKey: access,
+        noteIdPrefix: 'note_',
+      );
+      expect(restored, hasLength(2));
+    },
+  );
+
+  test('admin imports namespace change records by writer', () async {
+    final first = device(), second = device(), synced = device();
+    addTearDown(first.inbox.close);
+    addTearDown(second.inbox.close);
+    addTearDown(synced.inbox.close);
+    final note = NoteEntry(
+      id: 'shared-source-id',
+      vaultId: 'everyday',
+      title: 'shared',
+      body: '',
+      createdAt: DateTime.utc(2020),
+      attachments: [
+        NoteAttachment(
+          type: AttachmentType.file,
+          label: 'shared-file',
+          filePath: 'attachments/shared-file',
+        ),
+      ],
+    );
+    final archive = Archive()
+      ..addFile(
+        ArchiveFile.string(
+          'manifest.json',
+          jsonEncode({
+            'format': 'org.ruhenheim.himemo.notes.zip',
+            'version': 1,
+            'noteCount': 1,
+            'attachmentCount': 1,
+          }),
+        ),
+      )
+      ..addFile(
+        ArchiveFile.string(
+          'notes.json',
+          jsonEncode({
+            'notes': [note.toJson()],
+          }),
+        ),
+      )
+      ..addFile(ArchiveFile.bytes('attachments/shared-file', [2, 3, 5, 7]));
+    final bytes = Uint8List.fromList(ZipEncoder().encode(archive));
+    for (final entry in [(first, 'device-a'), (second, 'device-b')]) {
+      await SyncV2ArchiveService(entry.$1.inbox, entry.$1.repo).importArchive(
+        bytes: bytes,
+        generationId: 'g',
+        syncKey: syncKey,
+        destinations: {'everyday': access},
+        overwriteExisting: true,
+        writerId: entry.$2,
+      );
+    }
+    final firstOutbox = await first.inbox.readOutbox(
+      generationId: 'g',
+      limit: 100,
+    );
+    final secondOutbox = await second.inbox.readOutbox(
+      generationId: 'g',
+      limit: 100,
+    );
+    expect(firstOutbox, hasLength(2));
+    expect(secondOutbox, hasLength(2));
+    expect(
+      firstOutbox
+          .map((record) => record.id)
+          .toSet()
+          .intersection(secondOutbox.map((record) => record.id).toSet()),
+      isEmpty,
+    );
+    await synced.inbox.stagePage(
+      generationId: 'g',
+      expectedCursor: null,
+      nextCursor: 'page-1',
+      records: [
+        for (final record in firstOutbox)
+          (id: record.id, encryptedHeader: record.encryptedHeader),
+      ],
+      syncKey: syncKey,
+    );
+    for (final record in firstOutbox) {
+      if (record.encryptedPayload != null) {
+        await synced.inbox.storePayload(
+          generationId: 'g',
+          recordId: record.id,
+          encryptedPayload: record.encryptedPayload!,
+          syncKey: syncKey,
+        );
+      }
+    }
+    await SyncV2ArchiveService(synced.inbox, synced.repo).importArchive(
+      bytes: bytes,
+      generationId: 'g',
+      syncKey: syncKey,
+      destinations: {'everyday': access},
+      overwriteExisting: true,
+      writerId: 'device-c',
+    );
+    expect(
+      await synced.inbox.readOutbox(generationId: 'g', limit: 100),
+      isEmpty,
+      reason: 'healthy synced attachment references are reused for a no-op',
+    );
+    final firstNotes = await first.repo.readProfile(
+      generationId: 'g',
+      profileId: access.profileId,
+      syncKey: syncKey,
+      profileKey: access,
+      noteIdPrefix: 'note_',
+    );
+    final secondNotes = await second.repo.readProfile(
+      generationId: 'g',
+      profileId: access.profileId,
+      syncKey: syncKey,
+      profileKey: access,
+      noteIdPrefix: 'note_',
+    );
+    expect(firstNotes.keys, secondNotes.keys);
+  });
 }

@@ -310,6 +310,216 @@ void main() {
     timeout: const Timeout(Duration(minutes: 2)),
   );
 
+  test('admin bulk restore creates private destinations atomically and overwrites without private passwords', () async {
+    final cloud = _Cloud();
+    final first = _Device(cloud);
+    addTearDown(first.workspace.dispose);
+    final c = first.workspace;
+    await c.initialize();
+    final codes = await c.prepareNewBiometric();
+    await c.confirmSetup();
+    Uint8List zip(String title) {
+      final entries = [
+        NoteEntry(
+          id: 'legacy-normal',
+          vaultId: 'everyday',
+          title: title,
+          body: 'ZIP body',
+          createdAt: DateTime.utc(2020),
+          attachments: const [
+            NoteAttachment(type: AttachmentType.photo, label: 'unlinked'),
+          ],
+        ),
+        for (final source in [
+          'private',
+          'private_profile:old-two',
+          'private_profile:old-three',
+        ])
+          NoteEntry(
+            id: 'legacy-$source',
+            vaultId: source,
+            title: source,
+            body: 'private ZIP body',
+            createdAt: DateTime.utc(2020),
+          ),
+      ];
+      return Uint8List.fromList(
+        ZipEncoder().encode(
+          Archive()
+            ..addFile(
+              ArchiveFile.string(
+                'manifest.json',
+                jsonEncode({
+                  'format': 'org.ruhenheim.himemo.notes.zip',
+                  'version': 1,
+                  'noteCount': entries.length,
+                  'attachmentCount': 0,
+                }),
+              ),
+            )
+            ..addFile(
+              ArchiveFile.string(
+                'notes.json',
+                jsonEncode({
+                  'notes': entries.map((note) => note.toJson()).toList(),
+                }),
+              ),
+            ),
+        ),
+      );
+    }
+
+    // Even profile creation is rolled back if final ZIP validation fails.
+    await expectLater(
+      c.adminImportArchive(
+        bytes: Uint8List.fromList([1]),
+        inspection: SyncV2ArchiveInspection({'private': 1}, 0),
+      ),
+      throwsA(isA<SyncV2WorkspaceException>()),
+    );
+    expect(c.profiles, hasLength(1));
+    expect(
+      await first.inbox.readPage(generationId: c.generationId!, limit: 100),
+      isEmpty,
+    );
+    final bytes = zip('Original ZIP');
+    await c.adminImportArchive(bytes: bytes);
+    expect(c.profiles, hasLength(4));
+    final profileIds = c.profiles.map((p) => p.id).toSet();
+    expect(c.notes.single.note.title, 'Original ZIP');
+    expect(c.notes.single.note.attachments.single.filePath, isNull);
+    await c.saveNote(
+      original: c.notes.single,
+      title: 'local edit',
+      body: 'local edit',
+    );
+    await c.adminImportArchive(bytes: bytes);
+    expect(c.notes.single.note.title, 'Original ZIP');
+    final queued = (await first.inbox.readPage(
+      generationId: c.generationId!,
+      limit: 100,
+    )).length;
+    await c.adminImportArchive(bytes: bytes);
+    expect(
+      (await first.inbox.readPage(
+        generationId: c.generationId!,
+        limit: 100,
+      )).length,
+      queued,
+    );
+    await c.saveNote(title: 'Unrelated note', body: 'Keep this note');
+    await c.adminImportArchive(bytes: zip('Changed ZIP'));
+    expect(c.profiles.map((p) => p.id).toSet(), profileIds);
+    expect(c.notes.map((n) => n.note.title).toSet(), {
+      'Changed ZIP',
+      'Unrelated note',
+    });
+    c.lockPrivate();
+    await expectLater(
+      c.adminImportArchive(bytes: bytes),
+      throwsA(isA<SyncV2WorkspaceException>()),
+    );
+    expect(c.error, 'admin_required');
+    await c.unlockAdminBiometric();
+    await c.syncNow();
+    final second = _Device(cloud);
+    addTearDown(second.workspace.dispose);
+    await second.workspace.initialize();
+    await second.workspace.recover(codes.syncCode);
+    expect(second.workspace.profiles, hasLength(1));
+    await second.workspace.recoverAdminBiometric(codes.adminCode);
+    expect(second.workspace.profiles.map((p) => p.id).toSet(), profileIds);
+    for (final profile
+        in second.workspace.profiles.where((p) => !p.isNormal).toList()) {
+      await second.workspace.selectProfile(profile.id);
+      expect(second.workspace.notes.single.note.body, 'private ZIP body');
+    }
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  test('concurrent administrator restores keep access when the same source has different labels', () async {
+    final cloud = _Cloud();
+    final first = _Device(cloud);
+    final second = _Device(cloud);
+    addTearDown(first.workspace.dispose);
+    addTearDown(second.workspace.dispose);
+    await first.workspace.initialize();
+    final codes = await first.workspace.prepareNewBiometric();
+    await first.workspace.confirmSetup();
+    await second.workspace.initialize();
+    await second.workspace.recover(codes.syncCode);
+    await second.workspace.recoverAdminBiometric(codes.adminCode);
+    Uint8List zip(List<String> sources) => Uint8List.fromList(
+      ZipEncoder().encode(
+        Archive()
+          ..addFile(
+            ArchiveFile.string(
+              'manifest.json',
+              jsonEncode({
+                'format': 'org.ruhenheim.himemo.notes.zip',
+                'version': 1,
+                'noteCount': sources.length,
+                'attachmentCount': 0,
+              }),
+            ),
+          )
+          ..addFile(
+            ArchiveFile.string(
+              'notes.json',
+              jsonEncode({
+                'notes': [
+                  for (final source in sources)
+                    NoteEntry(
+                      id: 'legacy-$source',
+                      vaultId: source,
+                      title: source,
+                      body: 'same private content',
+                      createdAt: DateTime.utc(2020),
+                    ).toJson(),
+                ],
+              }),
+            ),
+          ),
+      ),
+    );
+    final full = zip(['private', 'private_profile:shared']);
+    await first.workspace.adminImportArchive(bytes: full);
+    final passwordProfile = first.workspace.profiles
+        .where((p) => !p.isNormal)
+        .last
+        .id;
+    await first.workspace.changeProfilePassword(
+      passwordProfile,
+      'user chosen private password',
+    );
+    await second.workspace.adminImportArchive(
+      bytes: zip(['private_profile:shared']),
+    );
+    await first.workspace.syncNow();
+    await second.workspace.syncNow();
+    await first.workspace.syncNow();
+    expect(first.workspace.adminUnlocked, isTrue);
+    expect(second.workspace.adminUnlocked, isTrue);
+    expect(first.workspace.profileConflicts, isNotEmpty);
+    await first.workspace.adminImportArchive(bytes: full);
+    await first.workspace.syncNow();
+    await second.workspace.syncNow();
+    expect(second.workspace.adminUnlocked, isTrue);
+    expect(second.workspace.profileConflicts, isEmpty);
+    expect(second.workspace.profiles, hasLength(3));
+    for (final profile
+        in second.workspace.profiles.where((p) => !p.isNormal).toList()) {
+      await second.workspace.selectProfile(profile.id);
+      expect(second.workspace.notes, hasLength(1));
+      expect(second.workspace.notes.single.note.body, 'same private content');
+    }
+    second.workspace.lockPrivate();
+    await second.workspace.unlockPrivate('user chosen private password');
+    expect(
+      second.workspace.profiles.where((p) => !p.isNormal).single.id,
+      passwordProfile,
+    );
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
   test('resume completes an existing registration interrupted during initial restore', () async {
     final cloud = _Cloud();
     final original = _Device(cloud);
