@@ -4,12 +4,18 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../home/domain/note_entry.dart';
+import '../../home/presentation/home_page.dart'
+    show HomeNotePreviewList, HomeBrandTitle, HomeNoteSection;
+import '../../home/presentation/home_providers.dart'
+    show NotesListDensity, NotesListSortField;
 import '../../security/data/sync_v2_admin_store.dart';
 import 'sync_v2_workspace.dart';
 import 'sync_v2_privacy.dart';
 import 'sync_v2_pairing_dialogs.dart';
+import 'sync_v2_original_editor.dart';
 
 /// The default uses the camera. Tests can supply a deterministic scanner.
 final syncV2PairingScannerBuilderProvider = Provider<Widget Function(bool)>(
@@ -17,6 +23,11 @@ final syncV2PairingScannerBuilderProvider = Provider<Widget Function(bool)>(
       (administrator) =>
           SyncV2PairingScannerDialog(administrator: administrator),
 );
+
+enum SyncV2DisplayStyle { original, simple }
+
+const syncV2DisplayStylePreference = 'settings.sync_v2.display_style';
+const _syncV2AdminMenuRoute = 'sync-v2-admin-menu';
 
 String syncV2AttachmentFileName(String label) {
   final name = label.replaceAll(r'\', '/').split('/').last;
@@ -44,8 +55,15 @@ class SyncV2WorkspaceScreen extends ConsumerStatefulWidget {
 class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
     with WidgetsBindingObserver {
   late final SyncV2WorkspaceController _controller;
+  late int _knownSessionRevision;
+  String? _knownProfileId;
   final _title = TextEditingController();
   final _body = TextEditingController();
+  final _search = TextEditingController();
+  bool _originalDesign = true;
+  bool _compactList = false;
+  bool _sortByCreated = true;
+  String _query = '';
   final _secrets = <TextEditingController>[];
   final _retired = <TextEditingController>[];
   SyncV2WorkspaceNote? _editing;
@@ -71,6 +89,9 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
   void initState() {
     super.initState();
     _controller = ref.read(syncV2WorkspaceProvider);
+    _knownSessionRevision = _controller.privateSessionRevision;
+    _knownProfileId = _controller.selectedProfileId;
+    _controller.addListener(_workspaceSessionChanged);
     _privacy = ref.read(syncV2PrivacyRouteProvider.notifier);
     _systemPicker = ref.read(syncV2SystemPickerProvider.notifier);
     Future.microtask(() {
@@ -80,9 +101,57 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
       }
     });
     WidgetsBinding.instance.addObserver(this);
+    Future.microtask(_loadDisplayStyle);
     Future.microtask(() {
       if (mounted) _run(_controller.initialize);
     });
+  }
+
+  void _workspaceSessionChanged() {
+    final changed =
+        _knownSessionRevision != _controller.privateSessionRevision ||
+        _knownProfileId != _controller.selectedProfileId;
+    _knownSessionRevision = _controller.privateSessionRevision;
+    _knownProfileId = _controller.selectedProfileId;
+    if (changed && mounted) {
+      setState(() {
+        _clearEditor();
+        _clearSearch();
+      });
+      // Close only our own popup; unrelated dialogs/pages stay untouched.
+      Navigator.maybeOf(context)
+          ?.popUntil((route) => route.settings.name != _syncV2AdminMenuRoute);
+    }
+  }
+
+  Future<void> _loadDisplayStyle() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      final style = preferences.getString(syncV2DisplayStylePreference);
+      if (mounted) setState(() => _originalDesign = style != 'simple');
+    } catch (_) {
+      // Presentation remains usable if the optional local preference is absent.
+    }
+  }
+
+  Future<void> _setDisplayStyle(SyncV2DisplayStyle style) async {
+    await _run(() async {
+      final preferences = await SharedPreferences.getInstance();
+      if (!await preferences.setString(
+        syncV2DisplayStylePreference,
+        style.name,
+      )) {
+        throw StateError('Could not save display preference');
+      }
+      if (mounted) {
+        setState(() => _originalDesign = style == SyncV2DisplayStyle.original);
+      }
+    });
+  }
+
+  void _clearSearch() {
+    _search.clear();
+    _query = '';
   }
 
   @override
@@ -116,6 +185,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
       field.clear();
     }
     _clearEditor();
+    _clearSearch();
     ref.read(syncV2WorkspaceProvider).background();
     _closeSyncV2DialogRoutes(List.of(_dialogRoutes));
     _dialogRoutes.clear();
@@ -136,6 +206,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _controller.removeListener(_workspaceSessionChanged);
     final picker = _systemPicker;
     final routes = List<Route<dynamic>>.of(_dialogRoutes);
     _dialogRoutes.clear();
@@ -158,6 +229,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
     }
     _title.dispose();
     _body.dispose();
+    _search.dispose();
     super.dispose();
   }
 
@@ -518,6 +590,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
   }
 
   Future<void> _open(SyncV2WorkspaceNote? note) async {
+    FocusScope.of(context).unfocus();
     String? selectedVersionId;
     var attachments = note?.attachments ?? <SyncV2AttachmentReference>[];
     if (note?.isConflict == true) {
@@ -904,8 +977,68 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
       listenable: c,
       builder: (context, _) => Scaffold(
         appBar: AppBar(
-          title: Text(t('暗号化同期 v2', 'Encrypted sync v2')),
+          toolbarHeight: _originalDesign && c.registered
+              ? (MediaQuery.textScalerOf(context).scale(22) +
+                        MediaQuery.textScalerOf(context).scale(12) +
+                        20)
+                    .clamp(kToolbarHeight, double.infinity)
+              : null,
+          title: _originalDesign && c.registered
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const HomeBrandTitle(),
+                    if (_foreground)
+                      Text(
+                        c.profiles
+                                    .where((p) => p.id == c.selectedProfileId)
+                                    .firstOrNull
+                                    ?.isNormal ==
+                                true
+                            ? t('通常', 'Normal')
+                            : c.profiles
+                                      .where((p) => p.id == c.selectedProfileId)
+                                      .firstOrNull
+                                      ?.name ??
+                                  '',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                  ],
+                )
+              : Text(t('暗号化同期 v2', 'Encrypted sync v2')),
           actions: [
+            if (c.registered)
+              PopupMenuButton<SyncV2DisplayStyle>(
+                key: const ValueKey('sync-v2-display-style'),
+                tooltip: t('表示デザイン', 'Display design'),
+                icon: const Icon(Icons.view_agenda_outlined),
+                onSelected: _setDisplayStyle,
+                itemBuilder: (_) => [
+                  for (final style in SyncV2DisplayStyle.values)
+                    PopupMenuItem(
+                      value: style,
+                      child: Row(
+                        children: [
+                          Icon(
+                            (_originalDesign ==
+                                    (style == SyncV2DisplayStyle.original))
+                                ? Icons.radio_button_checked
+                                : Icons.radio_button_off,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            style == SyncV2DisplayStyle.original
+                                ? t('従来のデザイン', 'Original design')
+                                : t('簡易表示', 'Simple view'),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
             IconButton(
               onPressed: c.busy || !c.registered ? null : () => _run(c.syncNow),
               tooltip: t('同期', 'Sync'),
@@ -1055,257 +1188,241 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
                           )
                         : LayoutBuilder(
                             builder: (context, constraints) {
-                              final list = Column(
-                                children: [
-                                  Padding(
-                                    padding: const EdgeInsets.all(12),
-                                    child: Wrap(
-                                      spacing: 8,
-                                      runSpacing: 8,
-                                      crossAxisAlignment:
-                                          WrapCrossAlignment.center,
-                                      children: [
-                                        DropdownButton<String>(
-                                          value:
-                                              c.profiles.any(
-                                                (p) =>
-                                                    p.id == c.selectedProfileId,
-                                              )
-                                              ? c.selectedProfileId
-                                              : null,
-                                          hint: Text(t('プロファイル', 'Profile')),
-                                          items: [
-                                            for (final p in c.profiles)
-                                              DropdownMenuItem(
-                                                value: p.id,
-                                                child: Text(
-                                                  p.isNormal
-                                                      ? t('通常', 'Normal')
-                                                      : p.name,
-                                                ),
-                                              ),
-                                          ],
-                                          onChanged: c.busy
-                                              ? null
-                                              : (v) {
-                                                  if (v != null) {
-                                                    setState(_clearEditor);
-                                                    _run(
-                                                      () => c.selectProfile(v),
-                                                    );
-                                                  }
-                                                },
-                                        ),
-                                        IconButton(
-                                          onPressed: c.busy
-                                              ? null
-                                              : () async {
-                                                  final password = await _input(
-                                                    t(
-                                                      'プライベートパスワード',
-                                                      'Private password',
-                                                    ),
-                                                  );
-                                                  if (password != null &&
-                                                      mounted &&
-                                                      _foreground) {
-                                                    await _run(
-                                                      () => c.unlockPrivate(
-                                                        password,
-                                                      ),
-                                                    );
-                                                  }
-                                                },
-                                          tooltip: t(
-                                            'プライベートを解除',
-                                            'Unlock private',
+                              final controls = Padding(
+                                padding: EdgeInsets.all(
+                                  _originalDesign ? 0 : 12,
+                                ),
+                                child: Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  children: [
+                                    DropdownButton<String>(
+                                      value:
+                                          c.profiles.any(
+                                            (p) => p.id == c.selectedProfileId,
+                                          )
+                                          ? c.selectedProfileId
+                                          : null,
+                                      hint: Text(t('プロファイル', 'Profile')),
+                                      items: [
+                                        for (final p in c.profiles)
+                                          DropdownMenuItem(
+                                            value: p.id,
+                                            child: Text(
+                                              p.isNormal
+                                                  ? t('通常', 'Normal')
+                                                  : p.name,
+                                            ),
                                           ),
-                                          icon: const Icon(Icons.lock_open),
+                                      ],
+                                      onChanged: c.busy
+                                          ? null
+                                          : (v) {
+                                              if (v != null) {
+                                                setState(() {
+                                                  _clearEditor();
+                                                  _clearSearch();
+                                                });
+                                                _run(() => c.selectProfile(v));
+                                              }
+                                            },
+                                    ),
+                                    IconButton(
+                                      onPressed: c.busy
+                                          ? null
+                                          : () async {
+                                              final password = await _input(
+                                                t(
+                                                  'プライベートパスワード',
+                                                  'Private password',
+                                                ),
+                                              );
+                                              if (password != null &&
+                                                  mounted &&
+                                                  _foreground) {
+                                                await _run(
+                                                  () =>
+                                                      c.unlockPrivate(password),
+                                                );
+                                              }
+                                            },
+                                      tooltip: t('プライベートを解除', 'Unlock private'),
+                                      icon: const Icon(Icons.lock_open),
+                                    ),
+                                    IconButton(
+                                      onPressed: c.busy
+                                          ? null
+                                          : () {
+                                              setState(() {
+                                                _clearEditor();
+                                                _clearSearch();
+                                              });
+                                              c.lockPrivate();
+                                            },
+                                      tooltip: t('ロック', 'Lock'),
+                                      icon: const Icon(Icons.lock),
+                                    ),
+                                    IconButton(
+                                      onPressed:
+                                          c.busy || c.selectedProfileId == null
+                                          ? null
+                                          : () => _open(null),
+                                      tooltip: t('新しいメモ', 'New note'),
+                                      icon: const Icon(Icons.add),
+                                    ),
+                                    PopupMenuButton<String>(
+                                      routeSettings: const RouteSettings(
+                                        name: _syncV2AdminMenuRoute,
+                                      ),
+                                      enabled: !c.busy,
+                                      onSelected: _adminAction,
+                                      itemBuilder: (_) => [
+                                        PopupMenuItem(
+                                          value: 'sync-qr',
+                                          child: Text(
+                                            t(
+                                              '他の端末をQRで追加',
+                                              'Add another device with QR',
+                                            ),
+                                          ),
                                         ),
-                                        IconButton(
-                                          onPressed: c.busy
-                                              ? null
-                                              : () {
-                                                  setState(_clearEditor);
-                                                  c.lockPrivate();
-                                                },
-                                          tooltip: t('ロック', 'Lock'),
-                                          icon: const Icon(Icons.lock),
+                                        PopupMenuItem(
+                                          value: 'codes',
+                                          child: Text(
+                                            t(
+                                              '復元コードを表示',
+                                              'Show recovery codes',
+                                            ),
+                                          ),
                                         ),
-                                        IconButton(
-                                          onPressed:
-                                              c.busy ||
-                                                  c.selectedProfileId == null
-                                              ? null
-                                              : () => _open(null),
-                                          tooltip: t('新しいメモ', 'New note'),
-                                          icon: const Icon(Icons.add),
+                                        if (c.canManageAdminCredentials)
+                                          PopupMenuItem(
+                                            value: 'admin-qr',
+                                            child: Text(
+                                              t(
+                                                '管理者登録用QRを表示',
+                                                'Show administrator QR',
+                                              ),
+                                            ),
+                                          ),
+                                        if (c.biometricsAvailable)
+                                          PopupMenuItem(
+                                            value: 'admin-scan',
+                                            child: Text(
+                                              t(
+                                                '管理者登録用QRを読み取る',
+                                                'Scan administrator QR',
+                                              ),
+                                            ),
+                                          ),
+                                        if (c.biometricEnabled)
+                                          PopupMenuItem(
+                                            value: 'biometric-unlock',
+                                            child: Text(
+                                              t(
+                                                'Face ID／Touch IDで管理者認証',
+                                                'Admin with Face ID / Touch ID',
+                                              ),
+                                            ),
+                                          ),
+                                        if (c.biometricsAvailable &&
+                                            !c.biometricEnabled &&
+                                            c.canManageAdminCredentials)
+                                          PopupMenuItem(
+                                            value: 'biometric-enable',
+                                            child: Text(
+                                              t(
+                                                '管理者の生体認証を有効にする',
+                                                'Enable admin biometrics',
+                                              ),
+                                            ),
+                                          ),
+                                        if (c.biometricsAvailable)
+                                          PopupMenuItem(
+                                            value: 'biometric-recover',
+                                            child: Text(
+                                              t(
+                                                'ADMINコードで生体認証を設定',
+                                                'Set up biometrics with ADMIN code',
+                                              ),
+                                            ),
+                                          ),
+                                        PopupMenuItem(
+                                          value: 'unlock',
+                                          child: Text(
+                                            t('管理を解除', 'Unlock administration'),
+                                          ),
                                         ),
-                                        PopupMenuButton<String>(
-                                          enabled: !c.busy,
-                                          onSelected: _adminAction,
-                                          itemBuilder: (_) => [
+                                        PopupMenuItem(
+                                          value: 'recover',
+                                          child: Text(
+                                            t(
+                                              '管理コードで復元',
+                                              'Recover administration',
+                                            ),
+                                          ),
+                                        ),
+                                        if (c.adminUnlocked) ...[
+                                          PopupMenuItem(
+                                            value: 'create',
+                                            child: Text(
+                                              t(
+                                                'プライベート作成',
+                                                'Create private profile',
+                                              ),
+                                            ),
+                                          ),
+                                          if (c.canManageAdminCredentials)
                                             PopupMenuItem(
-                                              value: 'sync-qr',
+                                              value: 'password',
                                               child: Text(
                                                 t(
-                                                  '他の端末をQRで追加',
-                                                  'Add another device with QR',
+                                                  '選択中のパスワード変更',
+                                                  'Change selected profile password',
                                                 ),
                                               ),
                                             ),
+                                          for (final conflict
+                                              in c.canManageAdminCredentials
+                                                  ? c.profileConflicts
+                                                  : const <
+                                                      SyncV2WorkspaceProfile
+                                                    >[])
                                             PopupMenuItem(
-                                              value: 'codes',
+                                              value: 'repair:${conflict.id}',
                                               child: Text(
-                                                t(
-                                                  '復元コードを表示',
-                                                  'Show recovery codes',
-                                                ),
+                                                '${t('競合を修復', 'Repair conflict')}: ${conflict.name}',
                                               ),
                                             ),
-                                            if (c.canManageAdminCredentials)
-                                              PopupMenuItem(
-                                                value: 'admin-qr',
-                                                child: Text(
-                                                  t(
-                                                    '管理者登録用QRを表示',
-                                                    'Show administrator QR',
-                                                  ),
-                                                ),
-                                              ),
-                                            if (c.biometricsAvailable)
-                                              PopupMenuItem(
-                                                value: 'admin-scan',
-                                                child: Text(
-                                                  t(
-                                                    '管理者登録用QRを読み取る',
-                                                    'Scan administrator QR',
-                                                  ),
-                                                ),
-                                              ),
-                                            if (c.biometricEnabled)
-                                              PopupMenuItem(
-                                                value: 'biometric-unlock',
-                                                child: Text(
-                                                  t(
-                                                    'Face ID／Touch IDで管理者認証',
-                                                    'Admin with Face ID / Touch ID',
-                                                  ),
-                                                ),
-                                              ),
-                                            if (c.biometricsAvailable &&
-                                                !c.biometricEnabled &&
-                                                c.canManageAdminCredentials)
-                                              PopupMenuItem(
-                                                value: 'biometric-enable',
-                                                child: Text(
-                                                  t(
-                                                    '管理者の生体認証を有効にする',
-                                                    'Enable admin biometrics',
-                                                  ),
-                                                ),
-                                              ),
-                                            if (c.biometricsAvailable)
-                                              PopupMenuItem(
-                                                value: 'biometric-recover',
-                                                child: Text(
-                                                  t(
-                                                    'ADMINコードで生体認証を設定',
-                                                    'Set up biometrics with ADMIN code',
-                                                  ),
-                                                ),
-                                              ),
-                                            PopupMenuItem(
-                                              value: 'unlock',
-                                              child: Text(
-                                                t(
-                                                  '管理を解除',
-                                                  'Unlock administration',
-                                                ),
-                                              ),
-                                            ),
-                                            PopupMenuItem(
-                                              value: 'recover',
-                                              child: Text(
-                                                t(
-                                                  '管理コードで復元',
-                                                  'Recover administration',
-                                                ),
-                                              ),
-                                            ),
-                                            if (c.adminUnlocked) ...[
-                                              PopupMenuItem(
-                                                value: 'create',
-                                                child: Text(
-                                                  t(
-                                                    'プライベート作成',
-                                                    'Create private profile',
-                                                  ),
-                                                ),
-                                              ),
-                                              if (c.canManageAdminCredentials)
-                                                PopupMenuItem(
-                                                  value: 'password',
-                                                  child: Text(
-                                                    t(
-                                                      '選択中のパスワード変更',
-                                                      'Change selected profile password',
-                                                    ),
-                                                  ),
-                                                ),
-                                              for (final conflict
-                                                  in c.canManageAdminCredentials
-                                                      ? c.profileConflicts
-                                                      : const <
-                                                          SyncV2WorkspaceProfile
-                                                        >[])
-                                                PopupMenuItem(
-                                                  value:
-                                                      'repair:${conflict.id}',
-                                                  child: Text(
-                                                    '${t('競合を修復', 'Repair conflict')}: ${conflict.name}',
-                                                  ),
-                                                ),
-                                            ],
-                                          ],
-                                        ),
+                                        ],
                                       ],
                                     ),
-                                  ),
+                                  ],
+                                ),
+                              );
+                              final profileControls = KeyedSubtree(
+                                key: ValueKey((
+                                  'profile-controls',
+                                  c.privateSessionRevision,
+                                  c.selectedProfileId,
+                                )),
+                                child: controls,
+                              );
+                              final list = Column(
+                                children: [
+                                  if (!_originalDesign) profileControls,
                                   Expanded(
-                                    child: ListView(
-                                      children: [
-                                        for (final note in c.notes)
-                                          ListTile(
-                                            selected: identical(note, _editing),
-                                            title: Text(
-                                              note.isDeleted
-                                                  ? t('削除済み', 'Deleted')
-                                                  : note.note.title,
-                                            ),
-                                            subtitle: Text(
-                                              note.isConflict
-                                                  ? t(
-                                                      '競合 · バージョンを比較',
-                                                      'Conflict · compare versions',
-                                                    )
-                                                  : !note.ready
-                                                  ? t(
-                                                      '未取得またはロック中 · 読み取り専用',
-                                                      'Missing or locked · read only',
-                                                    )
-                                                  : note.note.body,
-                                              maxLines: 2,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                            trailing: note.isConflict
-                                                ? const Icon(Icons.call_split)
-                                                : null,
-                                            onTap: c.busy
-                                                ? null
-                                                : () => _open(note),
-                                          ),
-                                      ],
+                                    child: _noteList(
+                                      c,
+                                      header: _originalDesign
+                                          ? Column(
+                                              children: [
+                                                profileControls,
+                                                _originalSearchToolbar(c),
+                                              ],
+                                            )
+                                          : null,
                                     ),
                                   ),
                                   Padding(
@@ -1359,10 +1476,22 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
                                   ),
                                 ],
                               );
-                              if (constraints.maxWidth >= 800) {
+                              if (constraints.maxWidth >=
+                                  (_originalDesign ? 1180 : 800)) {
                                 return Row(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
                                   children: [
-                                    SizedBox(width: 340, child: list),
+                                    SizedBox(
+                                      width: _originalDesign
+                                          ? (constraints.maxWidth * 5 / 11)
+                                                .clamp(
+                                                  320.0,
+                                                  constraints.maxWidth * .62,
+                                                )
+                                          : 340,
+                                      child: list,
+                                    ),
                                     const VerticalDivider(width: 1),
                                     Expanded(child: _editor(c)),
                                   ],
@@ -1412,8 +1541,8 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
                             }),
                       child: Text(
                         t(
-                          '従来のメモに戻る（データは保持）',
-                          'Return to legacy notes (keep data)',
+                          '旧データの画面に戻る（v2同期を終了）',
+                          'Open legacy data (leave v2 sync)',
                         ),
                       ),
                     ),
@@ -1424,6 +1553,178 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
     );
   }
 
+  List<SyncV2WorkspaceNote> _visibleNotes(SyncV2WorkspaceController c) {
+    final query = _query.trim().toLowerCase();
+    final result = c.notes.where((entry) {
+      return query.isEmpty ||
+          entry.note.title.toLowerCase().contains(query) ||
+          entry.note.body.toLowerCase().contains(query) ||
+          entry.note.normalizedTags.any(
+            (tag) => tag.toLowerCase().contains(query),
+          );
+    }).toList();
+    result.sort((a, b) {
+      if (a.note.isPinned != b.note.isPinned) return a.note.isPinned ? -1 : 1;
+      final am = _sortByCreated
+          ? a.note.createdAt
+          : a.note.updatedAt ?? a.note.createdAt;
+      final bm = _sortByCreated
+          ? b.note.createdAt
+          : b.note.updatedAt ?? b.note.createdAt;
+      final compared = bm.compareTo(am);
+      return compared == 0 ? a.note.id.compareTo(b.note.id) : compared;
+    });
+    return result;
+  }
+
+  Widget _originalSearchToolbar(SyncV2WorkspaceController c) => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: HomeNoteSection(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          KeyedSubtree(
+            // Retire TextField undo history together with its private session.
+            key: ValueKey((c.privateSessionRevision, c.selectedProfileId)),
+            child: TextField(
+              key: const ValueKey('sync-v2-search'),
+              controller: _search,
+              onChanged: (value) => setState(() => _query = value),
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                hintText: t('メモを検索', 'Search notes'),
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: _query.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: t('検索をクリア', 'Clear search'),
+                        icon: const Icon(Icons.close_rounded),
+                        onPressed: () => setState(_clearSearch),
+                      ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 12,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(
+                t(
+                  '${_visibleNotes(c).length}件',
+                  '${_visibleNotes(c).length} notes',
+                ),
+              ),
+              DropdownButton<bool>(
+                key: const ValueKey('sync-v2-sort'),
+                value: _sortByCreated,
+                underline: const SizedBox.shrink(),
+                onChanged: (value) {
+                  if (value != null) setState(() => _sortByCreated = value);
+                },
+                items: [
+                  DropdownMenuItem(
+                    value: true,
+                    child: Text(t('作成日時', 'Created date')),
+                  ),
+                  DropdownMenuItem(
+                    value: false,
+                    child: Text(t('更新日時', 'Updated date')),
+                  ),
+                ],
+              ),
+              IconButton(
+                key: const ValueKey('sync-v2-density'),
+                tooltip: _compactList
+                    ? t('標準表示', 'Standard list')
+                    : t('コンパクト表示', 'Compact list'),
+                icon: Icon(
+                  _compactList
+                      ? Icons.view_agenda_outlined
+                      : Icons.view_headline_rounded,
+                ),
+                onPressed: () => setState(() => _compactList = !_compactList),
+              ),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
+
+  Widget _noteList(SyncV2WorkspaceController c, {Widget? header}) {
+    if (!_originalDesign) {
+      return ListView(
+        children: [
+          for (final note in c.notes)
+            ListTile(
+              title: Text(
+                note.isDeleted ? t('削除済み', 'Deleted') : note.note.title,
+              ),
+              subtitle: Text(
+                note.isConflict
+                    ? t('競合 · バージョンを比較', 'Conflict · compare versions')
+                    : !note.ready
+                    ? t('未取得またはロック中 · 読み取り専用', 'Missing or locked · read only')
+                    : note.note.body,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              trailing: note.isConflict ? const Icon(Icons.call_split) : null,
+              onTap: c.busy ? null : () => _open(note),
+            ),
+        ],
+      );
+    }
+    final entries = _visibleNotes(c);
+    final byId = {for (final entry in entries) entry.note.id: entry};
+    final profile = c.profiles
+        .where((p) => p.id == c.selectedProfileId)
+        .firstOrNull;
+    return HomeNotePreviewList(
+      header: header,
+      notes: [
+        for (final entry in entries)
+          entry.note.copyWith(
+            title: entry.isDeleted ? t('削除済み', 'Deleted') : entry.note.title,
+            body: entry.isDeleted ? '' : entry.note.body,
+            syncState: entry.isConflict
+                ? NoteSyncState.conflict
+                : entry.note.syncState,
+            attachments: [
+              for (final attachment in entry.attachments)
+                NoteAttachment(
+                  type: AttachmentType.values.byName(attachment.type),
+                  label: attachment.label,
+                ),
+            ],
+          ),
+      ],
+      profileName: profile?.isNormal == true
+          ? t('通常', 'Normal')
+          : profile?.name ?? '',
+      selectedNoteId: _editing?.note.id,
+      query: _query,
+      density: _compactList
+          ? NotesListDensity.compact
+          : NotesListDensity.standard,
+      sortField: _sortByCreated
+          ? NotesListSortField.createdAt
+          : NotesListSortField.updatedAt,
+      onNoteSelected: (note) {
+        if (!c.busy) _open(byId[note.id]!);
+      },
+      statusBuilder: (note) => byId[note.id]!.ready
+          ? null
+          : Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Text(
+                t('未取得またはロック中 · 読み取り専用', 'Missing or locked · read only'),
+              ),
+            ),
+    );
+  }
+
   Widget _editor(SyncV2WorkspaceController c) {
     if (!_editorOpen) {
       return Center(
@@ -1431,6 +1732,110 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
       );
     }
     final writable = !c.busy && (_editing?.ready ?? true);
+    final attachments = Column(
+      children: [
+        for (final attachment in _editingAttachments)
+          if (!_removed.contains(attachment.id))
+            ListTile(
+              title: Text(attachment.label),
+              subtitle: Text('${attachment.size} bytes'),
+              trailing: Wrap(
+                children: [
+                  IconButton(
+                    onPressed: writable
+                        ? () => _run(() async {
+                            final bytes = await c.readAttachment(attachment);
+                            if (mounted && _foreground) {
+                              await FilePicker.saveFile(
+                                fileName: syncV2AttachmentFileName(
+                                  attachment.label,
+                                ),
+                                bytes: bytes,
+                              );
+                            }
+                          })
+                        : null,
+                    icon: const Icon(Icons.download),
+                  ),
+                  IconButton(
+                    onPressed: writable
+                        ? () => setState(() => _removed.add(attachment.id))
+                        : null,
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ),
+        for (var i = 0; i < _added.length; i++)
+          ListTile(
+            title: Text(_added[i].label),
+            trailing: IconButton(
+              onPressed: writable
+                  ? () => setState(() => _added.removeAt(i))
+                  : null,
+              icon: const Icon(Icons.close),
+            ),
+          ),
+      ],
+    );
+    final actions = Wrap(
+      spacing: 8,
+      children: [
+        TextButton.icon(
+          onPressed: writable ? () => _run(_pickAttachments) : null,
+          icon: const Icon(Icons.attach_file),
+          label: Text(t('添付（64 MiBまで）', 'Attach (up to 64 MiB)')),
+        ),
+        FilledButton(
+          onPressed: writable
+              ? () => _run(() async {
+                  await c.saveNote(
+                    original: _editing,
+                    selectedVersionId: _selectedVersionId,
+                    title: _title.text,
+                    body: _body.text,
+                    addedFiles: List.of(_added),
+                    removedAttachmentIds: List.of(_removed),
+                  );
+                  if (mounted) setState(_clearEditor);
+                })
+              : null,
+          child: Text(t('保存', 'Save')),
+        ),
+        if (_editing != null)
+          TextButton(
+            onPressed: writable
+                ? () async {
+                    if (await _confirm(
+                          t('メモを削除', 'Delete note'),
+                          t('このメモを削除しますか？', 'Delete this note?'),
+                        ) &&
+                        mounted &&
+                        _foreground) {
+                      await _run(() async {
+                        await c.deleteNote(_editing!);
+                        if (mounted) setState(_clearEditor);
+                      });
+                    }
+                  }
+                : null,
+            child: Text(t('削除', 'Delete')),
+          ),
+      ],
+    );
+    if (_originalDesign) {
+      return SyncV2OriginalEditor(
+        titleController: _title,
+        bodyController: _body,
+        writable: writable,
+        onClose: c.busy ? null : () => setState(_clearEditor),
+        attachments: attachments,
+        actions: actions,
+        createdAt: _editing?.note.createdAt,
+        editing: _editing != null,
+        wide: MediaQuery.sizeOf(context).width >= 1180,
+      );
+    }
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -1462,93 +1867,8 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
               border: const OutlineInputBorder(),
             ),
           ),
-          for (final attachment in _editingAttachments)
-            if (!_removed.contains(attachment.id))
-              ListTile(
-                title: Text(attachment.label),
-                subtitle: Text('${attachment.size} bytes'),
-                trailing: Wrap(
-                  children: [
-                    IconButton(
-                      onPressed: writable
-                          ? () => _run(() async {
-                              final bytes = await c.readAttachment(attachment);
-                              if (mounted && _foreground) {
-                                await FilePicker.saveFile(
-                                  fileName: syncV2AttachmentFileName(
-                                    attachment.label,
-                                  ),
-                                  bytes: bytes,
-                                );
-                              }
-                            })
-                          : null,
-                      icon: const Icon(Icons.download),
-                    ),
-                    IconButton(
-                      onPressed: writable
-                          ? () => setState(() => _removed.add(attachment.id))
-                          : null,
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
-                ),
-              ),
-          for (var i = 0; i < _added.length; i++)
-            ListTile(
-              title: Text(_added[i].label),
-              trailing: IconButton(
-                onPressed: writable
-                    ? () => setState(() => _added.removeAt(i))
-                    : null,
-                icon: const Icon(Icons.close),
-              ),
-            ),
-          Wrap(
-            spacing: 8,
-            children: [
-              TextButton.icon(
-                onPressed: writable ? () => _run(_pickAttachments) : null,
-                icon: const Icon(Icons.attach_file),
-                label: Text(t('添付（64 MiBまで）', 'Attach (up to 64 MiB)')),
-              ),
-              FilledButton(
-                onPressed: writable
-                    ? () => _run(() async {
-                        await c.saveNote(
-                          original: _editing,
-                          selectedVersionId: _selectedVersionId,
-                          title: _title.text,
-                          body: _body.text,
-                          addedFiles: List.of(_added),
-                          removedAttachmentIds: List.of(_removed),
-                        );
-                        if (mounted) setState(_clearEditor);
-                      })
-                    : null,
-                child: Text(t('保存', 'Save')),
-              ),
-              if (_editing != null)
-                TextButton(
-                  onPressed: writable
-                      ? () async {
-                          if (await _confirm(
-                                t('メモを削除', 'Delete note'),
-                                t('このメモを削除しますか？', 'Delete this note?'),
-                              ) &&
-                              mounted &&
-                              _foreground) {
-                            await _run(() async {
-                              await c.deleteNote(_editing!);
-                              if (mounted) setState(_clearEditor);
-                            });
-                          }
-                        }
-                      : null,
-                  child: Text(t('削除', 'Delete')),
-                ),
-            ],
-          ),
+          attachments,
+          actions,
         ],
       ),
     );

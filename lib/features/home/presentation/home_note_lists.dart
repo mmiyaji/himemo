@@ -1,5 +1,172 @@
 part of 'home_page.dart';
 
+/// Reuses the standard HiMemo mark in another screen's app bar.
+class HomeBrandTitle extends StatelessWidget {
+  const HomeBrandTitle({super.key});
+
+  @override
+  Widget build(BuildContext context) => const _AppBrandTitle();
+}
+
+/// A section surface styled like the legacy home screen's content panels.
+class HomeNoteSection extends StatelessWidget {
+  const HomeNoteSection({
+    super.key,
+    required this.child,
+    this.padding = const EdgeInsets.all(16),
+  });
+
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: _sectionDecoration(context),
+    padding: padding,
+    child: child,
+  );
+}
+
+/// Pure, ordered note preview list for callers that own their data access.
+/// The widget never sorts notes or reads providers. In particular, its
+/// attachment previews use metadata-only icons and labels without storage I/O.
+class HomeNotePreviewList extends StatelessWidget {
+  const HomeNotePreviewList({
+    super.key,
+    required this.notes,
+    required this.onNoteSelected,
+    required this.profileName,
+    this.selectedNoteId,
+    this.query = '',
+    this.density = NotesListDensity.standard,
+    this.sortField = NotesListSortField.createdAt,
+    this.statusBuilder,
+    this.header,
+  });
+
+  final List<NoteEntry> notes;
+  final ValueChanged<NoteEntry> onNoteSelected;
+  final String profileName;
+  final String? selectedNoteId;
+  final String query;
+  final NotesListDensity density;
+  final NotesListSortField sortField;
+  final Widget? Function(NoteEntry)? statusBuilder;
+  final Widget? header;
+
+  @override
+  Widget build(BuildContext context) {
+    if (notes.isEmpty) {
+      final empty = Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            context.strings.localized(
+              en: query.trim().isEmpty ? 'No notes yet' : 'No matching notes',
+              ja: query.trim().isEmpty ? 'メモはありません' : '該当するメモはありません',
+            ),
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyMedium
+                ?.copyWith(color: _mutedTextColor(context)),
+          ),
+        ),
+      );
+      if (header == null) return empty;
+      return ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        children: [header!, empty],
+      );
+    }
+
+    final rows = _buildHomeNotePreviewRows(
+      notes: notes,
+      density: density,
+      sortField: sortField,
+    );
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      itemCount: rows.length + (header == null ? 0 : 1),
+      itemBuilder: (context, index) {
+        if (header != null && index == 0) return header!;
+        final row = rows[index - (header == null ? 0 : 1)];
+        return switch (row) {
+          _MobileDayRow(:final date) => _DecoratedMobileNoteRow(
+            position: row.position,
+            child: _NoteDayDivider(date: date),
+          ),
+          _MobileTileRow(:final note) => _DecoratedMobileNoteRow(
+            position: row.position,
+            child: _NoteListTile(
+              note: note,
+              vaultName: profileName,
+              showVaultName: true,
+              density: density,
+              attachmentPreviewFit: AttachmentPreviewFit.icon,
+              attachmentPreviewBuilder: _homeNoteAttachmentPreview,
+              query: query,
+              selected: note.id == selectedNoteId,
+              status: statusBuilder?.call(note),
+              onTap: () => onNoteSelected(note),
+            ),
+          ),
+          _MobileDividerRow() => _DecoratedMobileNoteRow(
+            position: row.position,
+            child: const _IntraDayNoteGap(),
+          ),
+          _ => const SizedBox.shrink(),
+        };
+      },
+    );
+  }
+}
+
+List<_MobileNoteRow> _buildHomeNotePreviewRows({
+  required List<NoteEntry> notes,
+  required NotesListDensity density,
+  required NotesListSortField sortField,
+}) {
+  final rows = <_MobileNoteRow>[];
+  for (var i = 0; i < notes.length; i++) {
+    if (density != NotesListDensity.compact &&
+        (i == 0 || !_isSameNoteDay(notes[i - 1], notes[i], sortField))) {
+      rows.add(_MobileDayRow(_noteListMoment(notes[i], sortField)));
+    }
+    rows.add(_MobileTileRow(notes[i]));
+    if (density != NotesListDensity.compact &&
+        i != notes.length - 1 &&
+        _isSameNoteDay(notes[i], notes[i + 1], sortField)) {
+      rows.add(const _MobileDividerRow());
+    }
+  }
+  return [
+    for (var i = 0; i < rows.length; i++)
+      rows[i].withPosition(
+        _MobileNoteRowPosition(first: i == 0, last: i == rows.length - 1),
+      ),
+  ];
+}
+
+Widget _homeNoteAttachmentPreview(NoteAttachment attachment, double size) {
+  return SizedBox(
+    width: size,
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _AttachmentIconBox(type: attachment.type, size: size),
+        const SizedBox(height: 4),
+        Text(
+          attachment.label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 10),
+        ),
+      ],
+    ),
+  );
+}
+
 class _PrivateVaultLockedNotice extends StatelessWidget {
   const _PrivateVaultLockedNotice();
 
@@ -579,6 +746,8 @@ class _NoteListTile extends StatelessWidget {
     required this.query,
     required this.selected,
     required this.onTap,
+    this.attachmentPreviewBuilder,
+    this.status,
   });
 
   final NoteEntry note;
@@ -589,6 +758,9 @@ class _NoteListTile extends StatelessWidget {
   final String query;
   final bool selected;
   final VoidCallback onTap;
+  final Widget Function(NoteAttachment attachment, double size)?
+  attachmentPreviewBuilder;
+  final Widget? status;
 
   @override
   Widget build(BuildContext context) {
@@ -639,6 +811,15 @@ class _NoteListTile extends StatelessWidget {
       NotesListDensity.compact => 1,
       NotesListDensity.standard => 2,
     };
+    final status = this.status;
+    final compactTitlePreview = _HighlightedText(
+      text: compactPreview.isEmpty ? note.title : compactPreview,
+      query: query,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: Theme.of(context).textTheme.bodyMedium
+          ?.copyWith(color: _strongMutedTextColor(context)),
+    );
 
     if (density == NotesListDensity.compact) {
       return _NoteListTileSelectionSurface(
@@ -669,14 +850,17 @@ class _NoteListTile extends StatelessWidget {
                   const SizedBox(width: 8),
                 ],
                 Expanded(
-                  child: _HighlightedText(
-                    text: compactPreview.isEmpty ? note.title : compactPreview,
-                    query: query,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodyMedium
-                        ?.copyWith(color: _strongMutedTextColor(context)),
-                  ),
+                  child: status == null
+                      ? compactTitlePreview
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            compactTitlePreview,
+                            const SizedBox(height: 4),
+                            status,
+                          ],
+                        ),
                 ),
                 if (note.isPinned) ...[
                   const SizedBox(width: 8),
@@ -745,6 +929,7 @@ class _NoteListTile extends StatelessWidget {
                     ),
                 ],
               ),
+              if (status != null) ...[const SizedBox(height: 6), status],
               const SizedBox(height: 6),
               if (hasDistinctBody)
                 _HighlightedText(
@@ -799,11 +984,16 @@ class _NoteListTile extends StatelessWidget {
                         padding: EdgeInsets.only(
                           right: i == maxThumbs - 1 ? 0 : 8,
                         ),
-                        child: _NoteListAttachmentPreview(
-                          attachment: note.attachments[i],
-                          size: thumbnailSize,
-                          previewFit: attachmentPreviewFit,
-                        ),
+                        child:
+                            attachmentPreviewBuilder?.call(
+                              note.attachments[i],
+                              thumbnailSize,
+                            ) ??
+                            _NoteListAttachmentPreview(
+                              attachment: note.attachments[i],
+                              size: thumbnailSize,
+                              previewFit: attachmentPreviewFit,
+                            ),
                       ),
                     ],
                     if (note.attachments.length > maxThumbs) ...[

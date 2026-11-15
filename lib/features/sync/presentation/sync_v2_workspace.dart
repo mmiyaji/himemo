@@ -355,6 +355,9 @@ class SyncV2WorkspaceController extends ChangeNotifier {
   List<({String id, String phase, String reason, int attempts, int? retryAt})>
   failures = [];
   bool get adminUnlocked => _admin != null;
+
+  /// Changes whenever unlocked projections must be discarded by the UI.
+  int get privateSessionRevision => _epoch;
   bool get hasPreparedSetup => _prepared != null;
   List<SyncV2WorkspaceProfile> get profiles => [
     if (_normal != null)

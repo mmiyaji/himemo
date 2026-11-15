@@ -9,7 +9,11 @@ import 'package:himemo/features/sync/data/sync_v2_history.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:himemo/features/security/data/secure_key_value_store.dart';
+import 'package:himemo/features/home/presentation/home_page.dart';
+import 'package:himemo/l10n/app_strings.dart';
 import 'package:himemo/features/sync/data/sync_v2_enrollment_store.dart';
 import 'package:himemo/features/sync/data/sync_v2_generation_registration.dart';
 import 'package:himemo/features/sync/data/sync_v2_inbox.dart';
@@ -286,6 +290,7 @@ class _Controller extends SyncV2WorkspaceController {
   bool backgroundCalled = false;
   int backgroundCalls = 0;
   bool fakeDisposed = false;
+  bool clearNotesOnBackground = false;
   @override
   void dispose() {
     fakeDisposed = true;
@@ -333,6 +338,10 @@ class _Controller extends SyncV2WorkspaceController {
     backgroundCalls++;
     availablePrivateProfiles.clear();
     isAdmin = false;
+    if (clearNotesOnBackground) {
+      notes = [];
+      selectedProfileId = null;
+    }
     if (!fakeDisposed) notifyListeners();
   }
 
@@ -340,10 +349,54 @@ class _Controller extends SyncV2WorkspaceController {
   Future<void> resume() async {}
 }
 
+SyncV2WorkspaceNote _note(
+  String id, {
+  required String title,
+  required String body,
+  required DateTime createdAt,
+  DateTime? updatedAt,
+  List<String> tags = const [],
+  String profileId = 'normal',
+}) {
+  final note = NoteEntry(
+    id: id,
+    vaultId: profileId,
+    title: title,
+    body: body,
+    createdAt: createdAt,
+    updatedAt: updatedAt,
+    tags: tags,
+  );
+  return SyncV2WorkspaceNote(
+    note,
+    SyncV2NoteSnapshot(
+      versions: [
+        SyncV2NoteVersion(
+          change: SyncV2Change(
+            id: 'change-$id',
+            profileId: profileId,
+            noteId: id,
+            operation: SyncV2Operation.upsert,
+            parentIds: {},
+            payloadDigest: 'digest-$id',
+          ),
+          payloadAvailable: true,
+          body: {'type': 'note', 'note': note.toJson(), 'attachments': []},
+        ),
+      ],
+      pendingIds: {},
+    ),
+    [],
+  );
+}
+
 void main() {
   testWidgets(
     'workspace lifetime enables native privacy protection independently of legacy profiles',
     (tester) async {
+      SharedPreferences.setMockInitialValues({
+        syncV2DisplayStylePreference: 'simple',
+      });
       final controller = _Controller();
       final container = ProviderContainer(
         overrides: [syncV2WorkspaceProvider.overrideWithValue(controller)],
@@ -373,7 +426,16 @@ void main() {
     WidgetTester tester,
     _Controller controller, {
     Widget Function(bool administrator)? scannerBuilder,
+    String? displayStyle = 'simple',
+    bool resetDisplayStyle = true,
   }) async {
+    if (resetDisplayStyle) {
+      final initialPreferences = <String, Object>{};
+      if (displayStyle != null) {
+        initialPreferences[syncV2DisplayStylePreference] = displayStyle;
+      }
+      SharedPreferences.setMockInitialValues(initialPreferences);
+    }
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -383,11 +445,381 @@ void main() {
               scannerBuilder,
             ),
         ],
-        child: const MaterialApp(home: SyncV2WorkspaceScreen()),
+        child: MaterialApp(
+          localizationsDelegates: const [
+            AppStrings.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: AppStrings.supportedLocales,
+          home: const SyncV2WorkspaceScreen(),
+        ),
       ),
     );
     await tester.pumpAndSettle();
   }
+
+  Future<void> selectDisplayStyle(
+    WidgetTester tester,
+    SyncV2DisplayStyle style,
+  ) async {
+    await tester.tap(find.byKey(const ValueKey('sync-v2-display-style')));
+    await tester.pumpAndSettle();
+    final label = style == SyncV2DisplayStyle.original
+        ? 'Original design'
+        : 'Simple view';
+    await tester.ensureVisible(find.text(label).last);
+    await tester.tap(find.text(label).last);
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('registered workspace defaults to original HiMemo design', (
+    tester,
+  ) async {
+    final c = _Controller()
+      ..registered = true
+      ..selectedProfileId = 'normal'
+      ..notes = [
+        _note(
+          'default-note',
+          title: 'Original note',
+          body: 'Preview body',
+          createdAt: DateTime.utc(2025),
+        ),
+      ];
+    addTearDown(c.dispose);
+    await mount(tester, c, displayStyle: null);
+    expect(find.byType(HomeBrandTitle), findsOneWidget);
+    expect(find.byType(HomeNotePreviewList), findsOneWidget);
+    expect(find.byKey(const ValueKey('sync-v2-search')), findsOneWidget);
+  });
+
+  testWidgets('simple view preference persists after remount', (tester) async {
+    final c = _Controller()
+      ..registered = true
+      ..selectedProfileId = 'normal'
+      ..notes = [
+        _note(
+          'persist-note',
+          title: 'Persistent note',
+          body: 'Body',
+          createdAt: DateTime.utc(2025),
+        ),
+      ];
+    addTearDown(c.dispose);
+    await mount(tester, c, displayStyle: null);
+    expect(find.byType(HomeNotePreviewList), findsOneWidget);
+    await selectDisplayStyle(tester, SyncV2DisplayStyle.simple);
+    expect(find.byType(HomeNotePreviewList), findsNothing);
+    expect(find.byKey(const ValueKey('sync-v2-search')), findsNothing);
+    expect(
+      (await SharedPreferences.getInstance()).getString(
+        syncV2DisplayStylePreference,
+      ),
+      'simple',
+    );
+    await mount(tester, c, resetDisplayStyle: false);
+    expect(find.byType(HomeNotePreviewList), findsNothing);
+    expect(find.byKey(const ValueKey('sync-v2-search')), findsNothing);
+    expect(find.text('Persistent note'), findsOneWidget);
+  });
+
+  testWidgets('switching designs preserves the open note draft', (
+    tester,
+  ) async {
+    final c = _Controller()
+      ..registered = true
+      ..selectedProfileId = 'normal'
+      ..notes = [
+        _note(
+          'draft-note',
+          title: 'Saved title',
+          body: 'Saved body',
+          createdAt: DateTime.utc(2025),
+        ),
+      ];
+    addTearDown(c.dispose);
+    await mount(tester, c, displayStyle: null);
+    await tester.tap(find.text('Saved title'));
+    await tester.pumpAndSettle();
+    final title = find.byKey(const Key('sync-v2-title'));
+    final body = find.byKey(const Key('sync-v2-body'));
+    await tester.enterText(title, 'Unsaved title draft');
+    await tester.enterText(body, 'Unsaved private draft');
+    await tester.pump();
+
+    await selectDisplayStyle(tester, SyncV2DisplayStyle.simple);
+    expect(
+      tester.widget<TextField>(title).controller!.text,
+      'Unsaved title draft',
+    );
+    expect(
+      tester.widget<TextField>(body).controller!.text,
+      'Unsaved private draft',
+    );
+    await selectDisplayStyle(tester, SyncV2DisplayStyle.original);
+    expect(
+      tester.widget<TextField>(title).controller!.text,
+      'Unsaved title draft',
+    );
+    expect(
+      tester.widget<TextField>(body).controller!.text,
+      'Unsaved private draft',
+    );
+    expect(c.savedOriginal, isNull);
+    expect(c.chosenVersion, isNull);
+    expect(c.registered, isTrue);
+  });
+
+  testWidgets('original list filters notes and exposes sort and density', (
+    tester,
+  ) async {
+    final c = _Controller()
+      ..registered = true
+      ..selectedProfileId = 'normal'
+      ..notes = [
+        _note(
+          'a',
+          title: 'Needle title',
+          body: 'First body',
+          tags: ['violet-tag'],
+          createdAt: DateTime.utc(2020),
+          updatedAt: DateTime.utc(2024),
+        ),
+        _note(
+          'b',
+          title: 'Second title',
+          body: 'Needle body',
+          createdAt: DateTime.utc(2021),
+          updatedAt: DateTime.utc(2023),
+        ),
+        _note(
+          'c',
+          title: 'Third title',
+          body: 'Third body',
+          tags: ['Needle tag'],
+          createdAt: DateTime.utc(2022),
+          updatedAt: DateTime.utc(2022),
+        ),
+      ];
+    addTearDown(c.dispose);
+    await mount(tester, c, displayStyle: null);
+    HomeNotePreviewList list() =>
+        tester.widget<HomeNotePreviewList>(find.byType(HomeNotePreviewList));
+    final search = find.byKey(const ValueKey('sync-v2-search'));
+    await tester.enterText(search, 'needle title');
+    await tester.pumpAndSettle();
+    expect(list().notes.map((note) => note.title), ['Needle title']);
+    await tester.enterText(search, 'needle body');
+    await tester.pumpAndSettle();
+    expect(list().notes.map((note) => note.title), ['Second title']);
+    await tester.enterText(search, 'needle tag');
+    await tester.pumpAndSettle();
+    expect(list().notes.map((note) => note.title), ['Third title']);
+    await tester.enterText(search, '');
+    await tester.pumpAndSettle();
+    expect(list().notes.map((note) => note.title), [
+      'Third title',
+      'Second title',
+      'Needle title',
+    ]);
+    await tester.tap(find.byKey(const ValueKey('sync-v2-sort')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Updated date').last);
+    await tester.pumpAndSettle();
+    expect(list().sortField.name, 'updatedAt');
+    expect(list().notes.map((note) => note.title), [
+      'Needle title',
+      'Second title',
+      'Third title',
+    ]);
+    await tester.tap(find.byKey(const ValueKey('sync-v2-density')));
+    await tester.pumpAndSettle();
+    expect(list().density.name, 'compact');
+  });
+
+  testWidgets('background clears original search and private editor draft', (
+    tester,
+  ) async {
+    final c = _Controller()
+      ..registered = true
+      ..selectedProfileId = 'private_profile:notes'
+      ..clearNotesOnBackground = true;
+    c.availablePrivateProfiles.add(
+      const SyncV2WorkspaceProfile('private_profile:notes', 'Private'),
+    );
+    c.notes = [
+      _note(
+        'private-note',
+        title: 'Private note',
+        body: 'Sensitive private text',
+        createdAt: DateTime.utc(2025),
+        profileId: 'private_profile:notes',
+      ),
+    ];
+    addTearDown(c.dispose);
+    await mount(tester, c, displayStyle: null);
+    final search = find.byKey(const ValueKey('sync-v2-search'));
+    await tester.enterText(search, 'private');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Private note'));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('sync-v2-body')))
+          .controller!
+          .text,
+      'Sensitive private text',
+    );
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    expect(c.backgroundCalled, isTrue);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(c.notes, isEmpty);
+    expect(find.byKey(const Key('sync-v2-body')), findsNothing);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const ValueKey('sync-v2-search')))
+          .controller!
+          .text,
+      isEmpty,
+    );
+  });
+
+  testWidgets('external private lock clears search and open editor state', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final c = _Controller()
+      ..registered = true
+      ..selectedProfileId = 'private_profile:notes';
+    c.availablePrivateProfiles.add(
+      const SyncV2WorkspaceProfile('private_profile:notes', 'Private'),
+    );
+    c.notes = [
+      _note(
+        'external-lock-note',
+        title: 'Private note',
+        body: 'Sensitive source text',
+        createdAt: DateTime.utc(2025),
+        profileId: 'private_profile:notes',
+      ),
+    ];
+    addTearDown(c.dispose);
+    await mount(tester, c, displayStyle: null);
+    final search = find.byKey(const ValueKey('sync-v2-search'));
+    await tester.enterText(search, 'private');
+    await tester.pumpAndSettle();
+    final searchStateBeforeLock = tester.state(search);
+    await tester.tap(find.text('Private note'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('sync-v2-title')),
+      'Unsaved private title',
+    );
+    await tester.enterText(
+      find.byKey(const Key('sync-v2-body')),
+      'Unsaved private draft',
+    );
+    await tester.pump();
+
+    c.lockPrivate();
+    await tester.pumpAndSettle();
+    expect(c.selectedProfileId, isNull);
+    expect(c.notes, isEmpty);
+    expect(find.byKey(const Key('sync-v2-title')), findsNothing);
+    expect(find.byKey(const Key('sync-v2-body')), findsNothing);
+    expect(tester.state(search), isNot(same(searchStateBeforeLock)));
+    expect(tester.widget<TextField>(search).controller!.text, isEmpty);
+  });
+
+  testWidgets('external lock closes a profile popup holding private names', (
+    tester,
+  ) async {
+    final c = _Controller()
+      ..registered = true
+      ..selectedProfileId = 'normal';
+    c.availablePrivateProfiles.add(
+      const SyncV2WorkspaceProfile('private_profile:secret', 'SecretName'),
+    );
+    addTearDown(c.dispose);
+    await mount(tester, c, displayStyle: null);
+    final profiles = find.byType(DropdownButton<String>).first;
+    await tester.tap(profiles);
+    await tester.pumpAndSettle();
+    expect(find.text('SecretName'), findsOneWidget);
+
+    c.availablePrivateProfiles.clear();
+    c.lockPrivate();
+    await tester.pumpAndSettle();
+    expect(find.text('SecretName'), findsNothing);
+    expect(find.byType(SyncV2WorkspaceScreen), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('external lock closes only the named admin menu route', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final c = _Controller()
+      ..registered = true
+      ..selectedProfileId = 'normal'
+      ..isAdmin = true
+      ..profileConflicts = [
+        const SyncV2WorkspaceProfile(
+          'private_profile:secret-conflict',
+          'SecretConflict',
+        ),
+      ];
+    addTearDown(c.dispose);
+    await mount(tester, c, displayStyle: null);
+    final screenContext = tester.element(find.byType(SyncV2WorkspaceScreen));
+    final navigator = Navigator.of(screenContext, rootNavigator: true);
+    unawaited(
+      navigator.push<void>(
+        DialogRoute<void>(
+          context: screenContext,
+          builder: (context) => AlertDialog(
+            title: const Text('External authentication dialog'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close external dialog'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('External authentication dialog'), findsOneWidget);
+
+    final adminMenu = find.byType(PopupMenuButton<String>);
+    tester.state<PopupMenuButtonState<String>>(adminMenu).showButtonMenu();
+    await tester.pumpAndSettle();
+    expect(find.text('Repair conflict: SecretConflict'), findsOneWidget);
+
+    c.lockPrivate();
+    await tester.pumpAndSettle();
+    expect(find.text('Repair conflict: SecretConflict'), findsNothing);
+    expect(find.text('External authentication dialog'), findsOneWidget);
+    expect(find.byType(SyncV2WorkspaceScreen), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.text('Close external dialog'));
+    await tester.pumpAndSettle();
+    expect(find.byType(SyncV2WorkspaceScreen), findsOneWidget);
+    expect(find.text('External authentication dialog'), findsNothing);
+  });
 
   testWidgets('biometric first registration does not ask for a password', (
     tester,

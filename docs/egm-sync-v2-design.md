@@ -117,3 +117,12 @@ flutter test integration_test/sync_v2_cloudkit_dev_test.dart -d <iPad-device-id>
 - [Standard Notes の暗号化プロトコル](https://github.com/standardnotes/app/blob/main/packages/snjs/specification.md) と [競合時の複製](https://standardnotes.com/help/33/how-do-i-clear-duplicates)。暗号化アイテムと鍵の分離、競合の両版を残す考え方を比較した。
 - [Obsidian の競合処理](https://obsidian.md/help/sync/troubleshoot)。Markdown とその他のファイルに異なる解決方針を採用している。HiMemo の構造化メモと添付では、初版は両版の保持を優先する。
 - [CloudKit の差分取得](https://developer.apple.com/documentation/cloudkit/remote-records) と [Google Drive の差分取得](https://developers.google.com/workspace/drive/api/guides/manage-changes)。同期先ごとのトークンを扱う根拠。
+
+
+## v2の表示デザイン切替（2026-11-16）
+
+移行・同期の操作を維持し、登録済みワークスペースの標準表示を従来デザインにする。従来のブランド見出し、メモカード、日付区切り、セクション装飾を同じUI部品から描画し、v2専用の検索・作成/更新日時の並び替え・一覧密度を提供する。広い画面では一覧と編集を左右に配置する。上部の「表示デザイン」で簡易表示へ戻すこともでき、選択を端末に保存する。
+
+表示切替はデータストアの切替とは独立させる。表示部品へ渡すのはv2で復号済みの現在プロファイルのメモと、保存・削除・添付用の既存v2コールバックだけとする。旧ノートコントローラや旧添付ストアは利用しない。添付の一覧表示はファイルを開かないメタデータアイコンとし、開く/書き出す操作はv2経由で行う。表示切替で編集中の文字・添付・競合バージョンの選択を破棄せず、バックグラウンドやロック時の秘密破棄は維持する。
+
+これは一覧・検索・クイック編集の表示整備であり、カレンダー・集計・タグ管理画面・リッチ編集機能すべてを旧実装へ接続する作業ではない。旧データを開く操作は別に残し、v2から離れることが分かる表示にする。表示変更だけで再インポートや登録を要求しない。
