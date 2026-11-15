@@ -15,6 +15,16 @@ String syncV2AttachmentFileName(String label) {
   return name.isEmpty || name == '.' || name == '..' ? 'attachment.bin' : name;
 }
 
+void _closeSyncV2DialogRoutes(Iterable<Route<dynamic>> routes) {
+  for (final route in routes.toList().reversed) {
+    final navigator = route.navigator;
+    if (navigator == null || !navigator.mounted || !route.isActive) continue;
+    // Remove only our own route. Disposing its DropdownButton also dismisses
+    // its menu, while unrelated pages on the navigator stay untouched.
+    navigator.removeRoute(route);
+  }
+}
+
 /// An isolated workspace: legacy notes and sync are never edited by this screen.
 class SyncV2WorkspaceScreen extends ConsumerStatefulWidget {
   const SyncV2WorkspaceScreen({super.key});
@@ -42,7 +52,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
   bool _attachmentPickerInterrupted = false;
   final _added = <SyncV2PendingAttachment>[];
   final _removed = <String>[];
-  int _dialogs = 0;
+  final _dialogRoutes = <Route<dynamic>>[];
   int _backgroundVersion = 0;
   String t(String ja, String en) =>
       Localizations.localeOf(context).languageCode == 'ja' ? ja : en;
@@ -93,10 +103,8 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
     }
     _clearEditor();
     ref.read(syncV2WorkspaceProvider).background();
-    while (_dialogs > 0 && mounted) {
-      Navigator.of(context, rootNavigator: true).pop();
-      _dialogs--;
-    }
+    _closeSyncV2DialogRoutes(List.of(_dialogRoutes));
+    _dialogRoutes.clear();
     if (mounted) setState(() => _foreground = false);
   }
 
@@ -114,13 +122,20 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    final routes = List<Route<dynamic>>.of(_dialogRoutes);
+    _dialogRoutes.clear();
+    // Keep privacy protection acquired until the route cleanup and key lock
+    // complete, without notifying dialog listeners while the tree is locked.
+    scheduleMicrotask(() {
+      _closeSyncV2DialogRoutes(routes);
+      _controller.background();
+    });
     _foregroundChanged?.complete();
     _foregroundChanged = null;
     _clearEditor();
     for (final secret in _secrets) {
       secret.clear();
     }
-    _controller.background();
     if (_privacyAcquired) Future.microtask(_privacy.release);
     for (final controller in _retired) {
       controller.dispose();
@@ -175,11 +190,17 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
   };
 
   Future<T?> _dialog<T>(WidgetBuilder builder) async {
-    _dialogs++;
+    final navigator = Navigator.of(context, rootNavigator: true);
+    final route = DialogRoute<T>(
+      context: context,
+      builder: builder,
+      themes: InheritedTheme.capture(from: context, to: navigator.context),
+    );
+    _dialogRoutes.add(route);
     try {
-      return await showDialog<T>(context: context, builder: builder);
+      return await navigator.push(route);
     } finally {
-      if (_dialogs > 0) _dialogs--;
+      _dialogRoutes.remove(route);
     }
   }
 
@@ -558,91 +579,96 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
         password: password.isEmpty ? null : password,
       );
       if (!mounted || !_foreground) return;
-      final destinations = <String, String>{};
-      bool accept = false;
-      final sources = inspection.noteCountsByProfile.keys
-          .where((id) => id != 'everyday')
-          .toList();
-      final approved = await _dialog<bool>(
-        (context) => StatefulBuilder(
-          builder: (context, update) => AlertDialog(
-            title: Text(t('インポート内容の確認', 'Review import')),
-            content: SizedBox(
-              width: 500,
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (inspection.noteCountsByProfile.containsKey('everyday'))
-                      Text(
-                        '${t('通常', 'Normal')} · ${inspection.noteCountsByProfile['everyday']} ${t('件', 'notes')}',
-                      ),
-                    for (var i = 0; i < sources.length; i++)
-                      DropdownButtonFormField<String>(
-                        initialValue: destinations[sources[i]],
-                        decoration: InputDecoration(
-                          labelText:
-                              '${sources[i] == 'normal' ? t('通常', 'Normal') : '${t('プライベート', 'Private')} ${i + 1}'} · ${inspection.noteCountsByProfile[sources[i]]} ${t('件', 'notes')}',
-                        ),
-                        items: [
-                          for (final profile in c.profiles)
-                            if (!profile.isNormal &&
-                                !destinations.entries.any(
-                                  (entry) =>
-                                      entry.key != sources[i] &&
-                                      entry.value == profile.id,
-                                ))
-                              DropdownMenuItem(
-                                value: profile.id,
-                                child: Text(
-                                  profile.isNormal
-                                      ? t('通常', 'Normal')
-                                      : profile.name,
-                                ),
-                              ),
-                        ],
-                        onChanged: (v) => update(() {
-                          if (v != null) destinations[sources[i]] = v;
-                        }),
-                      ),
-                    if (inspection.notesWithUnlinkedAttachments > 0)
-                      CheckboxListTile(
-                        value: accept,
-                        onChanged: (v) => update(() => accept = v ?? false),
-                        title: Text(
-                          t(
-                            '未連携の添付があるメモ ${inspection.notesWithUnlinkedAttachments} 件を受け入れる',
-                            'Accept ${inspection.notesWithUnlinkedAttachments} notes with unlinked attachments',
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: Text(t('キャンセル', 'Cancel')),
-              ),
-              FilledButton(
-                onPressed:
-                    destinations.length == sources.length &&
-                        (inspection.notesWithUnlinkedAttachments == 0 || accept)
-                    ? () => Navigator.pop(context, true)
-                    : null,
-                child: Text(t('インポート', 'Import')),
-              ),
-            ],
+      final version = _backgroundVersion;
+      var reviewing = true;
+      bool active() =>
+          mounted && _foreground && version == _backgroundVersion && reviewing;
+      Future<void> waitForBiometricResume() async {
+        if (mounted && !_foreground && version == _backgroundVersion) {
+          _foregroundChanged ??= Completer<void>();
+          await _foregroundChanged!.future;
+        }
+      }
+
+      Future<void> unlockAdminByPassword() async {
+        if (!active()) return;
+        final password = await _input(t('管理パスワード', 'Admin password'));
+        if (password != null && active()) {
+          await _run(() => c.unlockAdmin(password));
+        }
+      }
+
+      Future<void> unlockAdmin() async {
+        if (!active() || c.adminUnlocked) return;
+        if (c.biometricEnabled) {
+          await _run(c.unlockAdminBiometric);
+          await waitForBiometricResume();
+        } else {
+          await unlockAdminByPassword();
+        }
+      }
+
+      final SyncV2ImportSelection? selection;
+      try {
+        selection = await _dialog<SyncV2ImportSelection>(
+          (_) => SyncV2ImportReviewDialog(
+            controller: c,
+            inspection: inspection,
+            isActive: active,
+            errorMessage: _errorMessage,
+            unlockAdmin: unlockAdmin,
+            unlockAdminWithPassword: unlockAdminByPassword,
+            unlockPrivate: () async {
+              final password = await _input(
+                t('プライベートパスワード', 'Private password'),
+              );
+              if (password != null && active()) {
+                await _run(() => c.unlockPrivate(password));
+              }
+            },
+            recoverAdmin: () async {
+              final code = await _input(
+                t('管理復元コード（ADMIN）', 'Admin recovery code (ADMIN)'),
+              );
+              if (code != null && active()) {
+                await _run(() => c.recoverAdminBiometric(code));
+                await waitForBiometricResume();
+              }
+            },
+            createDestination: () async {
+              await unlockAdmin();
+              if (!active() || !c.adminUnlocked) return null;
+              final name = await _input(
+                t('プロファイル名', 'Profile name'),
+                secret: false,
+              );
+              if (name == null || !active()) return null;
+              final password = await _input(
+                t('プライベートパスワード', 'Private password'),
+                confirm: true,
+                minimum: 12,
+              );
+              if (password == null || !active()) return null;
+              final previous = c.selectedProfileId;
+              await _run(() => c.createProfile(name, password));
+              if (!active()) return null;
+              final created = c.selectedProfileId;
+              return created != previous ? created : null;
+            },
           ),
-        ),
-      );
-      if (approved == true && mounted && _foreground) {
+        );
+      } finally {
+        reviewing = false;
+      }
+      if (selection != null &&
+          mounted &&
+          _foreground &&
+          version == _backgroundVersion) {
         await c.importArchive(
           bytes: bytes,
           password: password.isEmpty ? null : password,
-          destinations: destinations,
-          acceptUnlinkedAttachments: accept,
+          destinations: selection.destinations,
+          acceptUnlinkedAttachments: selection.acceptUnlinkedAttachments,
         );
       }
     });
@@ -1358,4 +1384,252 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
       ),
     );
   }
+}
+
+class SyncV2ImportSelection {
+  SyncV2ImportSelection(
+    Map<String, String> destinations,
+    this.acceptUnlinkedAttachments,
+  ) : destinations = Map.unmodifiable(destinations);
+  final Map<String, String> destinations;
+  final bool acceptUnlinkedAttachments;
+}
+
+/// Keeps destination preparation inside the ZIP review, after file-picker locks.
+class SyncV2ImportReviewDialog extends StatefulWidget {
+  const SyncV2ImportReviewDialog({
+    super.key,
+    required this.controller,
+    required this.inspection,
+    required this.isActive,
+    required this.errorMessage,
+    required this.unlockAdmin,
+    required this.unlockAdminWithPassword,
+    required this.unlockPrivate,
+    required this.recoverAdmin,
+    required this.createDestination,
+  });
+  final SyncV2WorkspaceController controller;
+  final SyncV2ArchiveInspection inspection;
+  final bool Function() isActive;
+  final String Function(String) errorMessage;
+  final Future<void> Function() unlockAdmin,
+      unlockAdminWithPassword,
+      unlockPrivate,
+      recoverAdmin;
+  final Future<String?> Function() createDestination;
+  @override
+  State<SyncV2ImportReviewDialog> createState() =>
+      _SyncV2ImportReviewDialogState();
+}
+
+class _SyncV2ImportReviewDialogState extends State<SyncV2ImportReviewDialog> {
+  final _destinations = <String, String>{};
+  bool _accept = false, _working = false;
+  String t(String ja, String en) =>
+      Localizations.localeOf(context).languageCode == 'ja' ? ja : en;
+  Future<void> _perform(Future<void> Function() action) async {
+    if (_working || !widget.isActive()) return;
+    setState(() => _working = true);
+    try {
+      await action();
+    } finally {
+      if (mounted && widget.isActive()) setState(() => _working = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: widget.controller,
+    builder: (context, _) {
+      final c = widget.controller;
+      final sources = widget.inspection.noteCountsByProfile.keys
+          .where((id) => id != 'everyday')
+          .toList();
+      final profiles = c.profiles.where((p) => !p.isNormal).toList();
+      final ids = profiles.map((p) => p.id).toSet();
+      final ready =
+          sources.every((source) => ids.contains(_destinations[source])) &&
+          _destinations.values.toSet().length == sources.length;
+      final busy = _working || c.busy;
+      return AlertDialog(
+        title: Text(t('インポート内容の確認', 'Review import')),
+        content: SizedBox(
+          width: 500,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (widget.inspection.noteCountsByProfile.containsKey(
+                  'everyday',
+                ))
+                  Text(
+                    '${t('通常', 'Normal')} · ${widget.inspection.noteCountsByProfile['everyday']} ${t('件', 'notes')}',
+                  ),
+                if (sources.isNotEmpty) ...[
+                  if (!ready)
+                    Text(
+                      profiles.isEmpty
+                          ? t(
+                              '復元先が未作成またはロック中です。この画面で解除するか、私用グループごとに復元先を作成してください。',
+                              'Destinations are missing or locked. Unlock existing profiles or create a destination for each private source here.',
+                            )
+                          : t(
+                              '各私用グループに、異なる解除済みの復元先を選んでください。',
+                              'Choose a different unlocked destination for each private source.',
+                            ),
+                    ),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      TextButton(
+                        onPressed: busy
+                            ? null
+                            : () => _perform(widget.unlockPrivate),
+                        child: Text(
+                          t('既存プロファイルを解除', 'Unlock existing profile'),
+                        ),
+                      ),
+                      if (!c.adminUnlocked)
+                        TextButton(
+                          onPressed: busy
+                              ? null
+                              : () => _perform(widget.unlockAdmin),
+                          child: Text(
+                            c.biometricEnabled
+                                ? t(
+                                    '生体認証で復元先を表示',
+                                    'Show profiles with biometrics',
+                                  )
+                                : t(
+                                    '管理者認証で復元先を表示',
+                                    'Show profiles with admin password',
+                                  ),
+                          ),
+                        ),
+                      if (!c.adminUnlocked && c.biometricEnabled)
+                        TextButton(
+                          onPressed: busy
+                              ? null
+                              : () => _perform(widget.unlockAdminWithPassword),
+                          child: Text(t('管理パスワードで解除', 'Use admin password')),
+                        ),
+                      if (!c.adminUnlocked && c.biometricsAvailable)
+                        TextButton(
+                          onPressed: busy
+                              ? null
+                              : () => _perform(widget.recoverAdmin),
+                          child: Text(
+                            t(
+                              'ADMINコードで生体認証を設定',
+                              'Set up biometrics with ADMIN code',
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  for (var i = 0; i < sources.length; i++) ...[
+                    DropdownButtonFormField<String>(
+                      key: ValueKey(
+                        'import-destination-${sources[i]}-${ids.contains(_destinations[sources[i]]) ? _destinations[sources[i]] : ''}',
+                      ),
+                      initialValue: ids.contains(_destinations[sources[i]])
+                          ? _destinations[sources[i]]
+                          : null,
+                      isExpanded: true,
+                      decoration: InputDecoration(
+                        labelText:
+                            '${t('プライベート', 'Private')} ${i + 1} · ${widget.inspection.noteCountsByProfile[sources[i]]} ${t('件', 'notes')}',
+                      ),
+                      items: [
+                        for (final profile in profiles)
+                          if (!_destinations.entries.any(
+                            (entry) =>
+                                entry.key != sources[i] &&
+                                entry.value == profile.id,
+                          ))
+                            DropdownMenuItem(
+                              value: profile.id,
+                              child: Text(
+                                profile.name,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                      ],
+                      onChanged: busy
+                          ? null
+                          : (id) {
+                              if (id != null) {
+                                setState(() => _destinations[sources[i]] = id);
+                              }
+                            },
+                    ),
+                    if (!ids.contains(_destinations[sources[i]]))
+                      TextButton(
+                        key: ValueKey('import-create-${sources[i]}'),
+                        onPressed: busy
+                            ? null
+                            : () => _perform(() async {
+                                final id = await widget.createDestination();
+                                if (!mounted ||
+                                    !widget.isActive() ||
+                                    id == null) {
+                                  return;
+                                }
+                                if (!widget.controller.profiles.any(
+                                      (p) => !p.isNormal && p.id == id,
+                                    ) ||
+                                    _destinations.values.contains(id)) {
+                                  return;
+                                }
+                                _destinations[sources[i]] = id;
+                              }),
+                        child: Text(
+                          t('この復元先を新規作成', 'Create destination for this source'),
+                        ),
+                      ),
+                  ],
+                ],
+                if (c.error != null) Text(widget.errorMessage(c.error!)),
+                if (widget.inspection.notesWithUnlinkedAttachments > 0)
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: _accept,
+                    onChanged: busy
+                        ? null
+                        : (value) => setState(() => _accept = value ?? false),
+                    title: Text(
+                      t(
+                        '未連携の添付があるメモ ${widget.inspection.notesWithUnlinkedAttachments} 件を受け入れる',
+                        'Accept ${widget.inspection.notesWithUnlinkedAttachments} notes with unlinked attachments',
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(t('キャンセル', 'Cancel')),
+          ),
+          FilledButton(
+            onPressed:
+                !busy &&
+                    ready &&
+                    (widget.inspection.notesWithUnlinkedAttachments == 0 ||
+                        _accept)
+                ? () => Navigator.pop(
+                    context,
+                    SyncV2ImportSelection(_destinations, _accept),
+                  )
+                : null,
+            child: Text(t('インポート', 'Import')),
+          ),
+        ],
+      );
+    },
+  );
 }

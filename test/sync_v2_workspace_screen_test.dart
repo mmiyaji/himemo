@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
 
 import 'package:himemo/features/home/domain/note_entry.dart';
 import 'package:himemo/features/sync/data/sync_v2_history.dart';
@@ -13,6 +16,34 @@ import 'package:himemo/features/sync/data/sync_v2_note_repository.dart';
 import 'package:himemo/features/sync/presentation/sync_v2_workspace.dart';
 import 'package:himemo/features/sync/presentation/sync_v2_workspace_screen.dart';
 import 'package:himemo/features/sync/presentation/sync_v2_privacy.dart';
+
+final class _PickedArchive extends PlatformFile {
+  @override
+  String get name => 'backup.zip';
+  @override
+  Uri get uri => Uri.parse('memory:backup.zip');
+  @override
+  Future<Uint8List> readAsBytes() async => Uint8List.fromList([1]);
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _ArchivePicker extends FilePickerPlatform {
+  @override
+  Future<List<PlatformFile>> pickFiles({
+    String? dialogTitle,
+    String? initialDirectory,
+    FileType type = FileType.any,
+    List<String>? allowedExtensions,
+    Function(FilePickerStatus)? onFileLoading,
+    int compressionQuality = 0,
+    AndroidOptions androidOptions = const AndroidOptions(),
+    DarwinOptions darwinOptions = const DarwinOptions(),
+    WindowsOptions windowsOptions = const WindowsOptions(),
+    LinuxOptions linuxOptions = const LinuxOptions(),
+    WebOptions webOptions = const WebOptions(),
+  }) async => [_PickedArchive()];
+}
 
 class _Inbox implements SyncV2Inbox {
   @override
@@ -82,6 +113,43 @@ class _Controller extends SyncV2WorkspaceController {
     savedOriginal = original;
   }
 
+  final availablePrivateProfiles = <SyncV2WorkspaceProfile>[];
+  bool isAdmin = false;
+  Future<void> Function()? importBiometricDelay;
+  Map<String, String>? importedDestinations;
+  @override
+  Future<SyncV2ArchiveInspection> inspectArchive(
+    Uint8List bytes, {
+    String? password,
+  }) async => SyncV2ArchiveInspection({'everyday': 33, 'private': 20}, 0);
+  @override
+  Future<void> importArchive({
+    required Uint8List bytes,
+    String? password,
+    required Map<String, String> destinations,
+    required bool acceptUnlinkedAttachments,
+  }) async {
+    importedDestinations = Map.of(destinations);
+  }
+
+  @override
+  Future<void> unlockAdminBiometric() async {
+    biometricAuthenticating = true;
+    await importBiometricDelay?.call();
+    biometricAuthenticating = false;
+    isAdmin = true;
+    availablePrivateProfiles.add(
+      const SyncV2WorkspaceProfile(
+        'private_profile:existing',
+        'Existing private',
+      ),
+    );
+    notifyListeners();
+  }
+
+  @override
+  bool get adminUnlocked => isAdmin;
+
   bool backgroundCalled = false;
   @override
   Future<void> initialize() async {
@@ -116,10 +184,14 @@ class _Controller extends SyncV2WorkspaceController {
   @override
   List<SyncV2WorkspaceProfile> get profiles => [
     const SyncV2WorkspaceProfile('normal', '通常', isNormal: true),
+    ...availablePrivateProfiles,
   ];
   @override
   void background() {
     backgroundCalled = true;
+    availablePrivateProfiles.clear();
+    isAdmin = false;
+    notifyListeners();
   }
 
   @override
@@ -247,6 +319,444 @@ void main() {
     expect(controller.confirmations, 0);
     expect(controller.cancellations, 0);
   });
+
+  Future<void> mountImportReview(
+    WidgetTester tester,
+    _Controller c, {
+    required Map<String, int> counts,
+    int unlinked = 0,
+    Future<void> Function()? unlockAdmin,
+    Future<void> Function()? unlockPrivate,
+    Future<void> Function()? recoverAdmin,
+    Future<String?> Function()? create,
+    void Function(SyncV2ImportSelection?)? selected,
+  }) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () async {
+                final result = await showDialog<SyncV2ImportSelection>(
+                  context: context,
+                  builder: (_) => SyncV2ImportReviewDialog(
+                    controller: c,
+                    inspection: SyncV2ArchiveInspection(counts, unlinked),
+                    isActive: () => true,
+                    errorMessage: (code) => code,
+                    unlockAdmin: unlockAdmin ?? () async {},
+                    unlockAdminWithPassword: () async {},
+                    unlockPrivate: unlockPrivate ?? () async {},
+                    recoverAdmin: recoverAdmin ?? () async {},
+                    createDestination: create ?? () async => null,
+                  ),
+                );
+                selected?.call(result);
+              },
+              child: const Text('Review ZIP'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Review ZIP'));
+    await tester.pumpAndSettle();
+  }
+
+  FilledButton importButton(WidgetTester tester) =>
+      tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Import'));
+
+  testWidgets(
+    'empty workspace can authenticate and create three distinct ZIP destinations',
+    (tester) async {
+      tester.view.physicalSize = const Size(1000, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final c = _Controller()..biometricEnabled = true;
+      addTearDown(c.dispose);
+      SyncV2ImportSelection? imported;
+      var authenticated = 0;
+      await mountImportReview(
+        tester,
+        c,
+        counts: {
+          'everyday': 33,
+          'private': 20,
+          'private_profile:two': 3,
+          'private_profile:three': 1,
+        },
+        unlinked: 7,
+        unlockAdmin: () async {
+          authenticated++;
+          c.isAdmin = true;
+          c.notifyListeners();
+        },
+        create: () async {
+          expect(c.adminUnlocked, isTrue);
+          final id =
+              'private_profile:destination${c.availablePrivateProfiles.length + 1}';
+          c.availablePrivateProfiles.add(
+            SyncV2WorkspaceProfile(
+              id,
+              'Destination ${c.availablePrivateProfiles.length + 1}',
+            ),
+          );
+          c.notifyListeners();
+          return id;
+        },
+        selected: (value) => imported = value,
+      );
+      expect(
+        find.textContaining('Destinations are missing or locked'),
+        findsOneWidget,
+      );
+      expect(importButton(tester).onPressed, isNull);
+      await tester.tap(find.text('Show profiles with biometrics'));
+      await tester.pumpAndSettle();
+      expect(authenticated, 1);
+      for (final source in [
+        'private',
+        'private_profile:two',
+        'private_profile:three',
+      ]) {
+        final create = find.byKey(ValueKey('import-create-$source'));
+        await tester.ensureVisible(create);
+        await tester.tap(create);
+        await tester.pumpAndSettle();
+      }
+      expect(c.availablePrivateProfiles, hasLength(3));
+      expect(
+        importButton(tester).onPressed,
+        isNull,
+        reason: 'Missing attachment consent still required',
+      );
+      final consent = find.byType(CheckboxListTile);
+      await tester.ensureVisible(consent);
+      await tester.tap(consent);
+      await tester.pumpAndSettle();
+      expect(importButton(tester).onPressed, isNotNull);
+      await tester.tap(find.text('Import'));
+      await tester.pumpAndSettle();
+      expect(
+        imported!.destinations.keys,
+        unorderedEquals([
+          'private',
+          'private_profile:two',
+          'private_profile:three',
+        ]),
+      );
+      expect(imported!.destinations.values.toSet(), hasLength(3));
+      expect(
+        imported!.destinations.values,
+        everyElement(startsWith('private_profile:')),
+      );
+      expect(imported!.acceptUnlinkedAttachments, isTrue);
+    },
+  );
+
+  testWidgets(
+    'locked ZIP destination can be unlocked without selecting the ZIP again',
+    (tester) async {
+      final c = _Controller();
+      addTearDown(c.dispose);
+      var cancel = true;
+      SyncV2ImportSelection? imported;
+      await mountImportReview(
+        tester,
+        c,
+        counts: {'private': 1},
+        unlockPrivate: () async {
+          if (cancel) return;
+          c.availablePrivateProfiles.add(
+            const SyncV2WorkspaceProfile(
+              'private_profile:existing',
+              'Existing private',
+            ),
+          );
+          c.notifyListeners();
+        },
+        selected: (value) => imported = value,
+      );
+      await tester.tap(find.text('Unlock existing profile'));
+      await tester.pumpAndSettle();
+      expect(find.text('Review import'), findsOneWidget);
+      expect(importButton(tester).onPressed, isNull);
+      cancel = false;
+      await tester.tap(find.text('Unlock existing profile'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(DropdownButtonFormField<String>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Existing private').last);
+      await tester.pumpAndSettle();
+      expect(importButton(tester).onPressed, isNotNull);
+      await tester.tap(find.text('Import'));
+      await tester.pumpAndSettle();
+      expect(imported!.destinations, {'private': 'private_profile:existing'});
+    },
+  );
+
+  testWidgets(
+    'cancelled creation and duplicate destination cannot enable ZIP import',
+    (tester) async {
+      final c = _Controller();
+      addTearDown(c.dispose);
+      var cancelled = true;
+      await mountImportReview(
+        tester,
+        c,
+        counts: {'private': 1, 'private_profile:two': 1},
+        create: () async {
+          if (cancelled) return null;
+          if (c.availablePrivateProfiles.isEmpty) {
+            c.availablePrivateProfiles.add(
+              const SyncV2WorkspaceProfile('private_profile:one', 'One'),
+            );
+          }
+          c.notifyListeners();
+          return 'private_profile:one';
+        },
+      );
+      await tester.tap(find.byKey(const ValueKey('import-create-private')));
+      await tester.pumpAndSettle();
+      expect(importButton(tester).onPressed, isNull);
+      cancelled = false;
+      await tester.tap(find.byKey(const ValueKey('import-create-private')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('import-create-private_profile:two')),
+      );
+      await tester.pumpAndSettle();
+      expect(importButton(tester).onPressed, isNull);
+      final fields = tester
+          .widgetList<DropdownButton<String>>(
+            find.byType(DropdownButton<String>),
+          )
+          .toList();
+      expect(
+        fields[1].items,
+        isEmpty,
+        reason: 'Already assigned destination is not offered twice',
+      );
+    },
+  );
+
+  testWidgets(
+    'closing review while creation is pending does not import or update a disposed dialog',
+    (tester) async {
+      final c = _Controller();
+      addTearDown(c.dispose);
+      final release = Completer<String?>();
+      SyncV2ImportSelection? imported;
+      await mountImportReview(
+        tester,
+        c,
+        counts: {'private': 1},
+        create: () => release.future,
+        selected: (value) => imported = value,
+      );
+      await tester.tap(find.byKey(const ValueKey('import-create-private')));
+      await tester.pump();
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      release.complete('private_profile:late');
+      await tester.pumpAndSettle();
+      expect(imported, isNull);
+      expect(find.text('Review import'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'normal-only ZIP requires no private authentication or destination',
+    (tester) async {
+      final c = _Controller();
+      addTearDown(c.dispose);
+      await mountImportReview(tester, c, counts: {'everyday': 33});
+      expect(find.text('Unlock existing profile'), findsNothing);
+      expect(
+        find.textContaining('Destinations are missing or locked'),
+        findsNothing,
+      );
+      expect(importButton(tester).onPressed, isNotNull);
+    },
+  );
+
+  Future<void> openPickedArchive(WidgetTester tester) async {
+    final original = FilePickerPlatform.instance;
+    FilePickerPlatform.instance = _ArchivePicker();
+    addTearDown(() => FilePickerPlatform.instance = original);
+    await tester.ensureVisible(find.text('Import ZIP'));
+    await tester.tap(find.text('Import ZIP'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+    expect(find.text('Review import'), findsOneWidget);
+  }
+
+  testWidgets(
+    'screen background closes review even with a destination popup open',
+    (tester) async {
+      final c = _Controller()..registered = true;
+      c.availablePrivateProfiles.add(
+        const SyncV2WorkspaceProfile(
+          'private_profile:existing',
+          'Existing private',
+        ),
+      );
+      addTearDown(c.dispose);
+      await mount(tester, c);
+      await openPickedArchive(tester);
+      await tester.tap(find.byType(DropdownButtonFormField<String>));
+      await tester.pumpAndSettle();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pumpAndSettle();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(find.text('Review import'), findsNothing);
+      expect(find.text('Encrypted sync v2'), findsOneWidget);
+      expect(c.importedDestinations, isNull);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'screen review survives biometric inactive and waits for resumed',
+    (tester) async {
+      final c = _Controller()
+        ..registered = true
+        ..biometricEnabled = true;
+      addTearDown(c.dispose);
+      final release = Completer<void>();
+      c.importBiometricDelay = () {
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.inactive,
+        );
+        return release.future;
+      };
+      await mount(tester, c);
+      await openPickedArchive(tester);
+      await tester.tap(find.text('Show profiles with biometrics'));
+      await tester.pump();
+      release.complete();
+      await tester.pumpAndSettle();
+      expect(find.text('Review import'), findsOneWidget);
+      expect(c.backgroundCalled, isFalse);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(find.text('Review import'), findsOneWidget);
+      await tester.tap(find.byType(DropdownButtonFormField<String>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Existing private').last);
+      await tester.pumpAndSettle();
+      expect(importButton(tester).onPressed, isNotNull);
+      await tester.tap(find.text('Import'));
+      await tester.pumpAndSettle();
+      expect(c.importedDestinations, {'private': 'private_profile:existing'});
+    },
+  );
+
+  testWidgets(
+    'screen background during biometric unlock does not reopen or import',
+    (tester) async {
+      final c = _Controller()
+        ..registered = true
+        ..biometricEnabled = true;
+      addTearDown(c.dispose);
+      final release = Completer<void>();
+      c.importBiometricDelay = () {
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.inactive,
+        );
+        return release.future;
+      };
+      await mount(tester, c);
+      await openPickedArchive(tester);
+      await tester.tap(find.text('Show profiles with biometrics'));
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pumpAndSettle();
+      release.complete();
+      await tester.pumpAndSettle();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(find.text('Review import'), findsNothing);
+      expect(c.importedDestinations, isNull);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'removing the workspace closes its root navigator review dialog',
+    (tester) async {
+      final c = _Controller()..registered = true;
+      addTearDown(c.dispose);
+      final visible = ValueNotifier(true);
+      final navigatorKey = GlobalKey<NavigatorState>();
+      addTearDown(visible.dispose);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [syncV2WorkspaceProvider.overrideWithValue(c)],
+          child: MaterialApp(
+            navigatorKey: navigatorKey,
+            home: ValueListenableBuilder<bool>(
+              valueListenable: visible,
+              builder: (context, show, _) => show
+                  ? const SyncV2WorkspaceScreen()
+                  : const SizedBox.shrink(),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await openPickedArchive(tester);
+      unawaited(
+        navigatorKey.currentState!.push(
+          MaterialPageRoute<void>(
+            builder: (_) => const Scaffold(body: Text('Destination page')),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      visible.value = false;
+      await tester.pumpAndSettle();
+      expect(find.text('Review import', skipOffstage: false), findsNothing);
+      expect(find.text('Destination page'), findsOneWidget);
+      expect(c.importedDestinations, isNull);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'invalidated biometrics keeps ADMIN recovery available in review',
+    (tester) async {
+      final c = _Controller()
+        ..biometricEnabled = true
+        ..biometricsAvailable = true
+        ..error = 'biometric_unavailable';
+      addTearDown(c.dispose);
+      var recovered = false;
+      await mountImportReview(
+        tester,
+        c,
+        counts: {'private': 1},
+        recoverAdmin: () async {
+          recovered = true;
+          c.isAdmin = true;
+          c.notifyListeners();
+        },
+      );
+      expect(find.text('Use admin password'), findsOneWidget);
+      await tester.ensureVisible(
+        find.text('Set up biometrics with ADMIN code'),
+      );
+      await tester.tap(find.text('Set up biometrics with ADMIN code'));
+      await tester.pumpAndSettle();
+      expect(recovered, isTrue);
+      expect(c.adminUnlocked, isTrue);
+    },
+  );
 
   testWidgets('cloud registration requires both recovery acknowledgments', (
     tester,
