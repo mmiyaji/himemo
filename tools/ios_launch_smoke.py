@@ -7,6 +7,7 @@ import argparse
 import json
 import re
 import shlex
+import shutil
 import socket
 import subprocess
 import sys
@@ -27,11 +28,9 @@ def choose_loopback_port() -> int:
 def _runtime_sort_key(runtime: dict[str, object]) -> tuple[object, ...]:
     version_text = str(runtime.get("version", ""))
     parts = tuple(int(part) for part in re.findall(r"\d+", version_text))
-    if version_text == "27.1":
-        return (0, 0, ())
-    if version_text == "27.2":
-        return (0, 1, ())
-    return (1, tuple(-part for part in parts), version_text)
+    major_minor = parts[:2]
+    priority = {(27, 1): 0, (27, 0): 1, (27, 2): 2}.get(major_minor, 3)
+    return (priority, tuple(-part for part in parts), version_text)
 
 
 def _device_type_sort_key(device_type: dict[str, object]) -> tuple[object, ...]:
@@ -189,6 +188,7 @@ def run_command(
     log: IO[str],
     label: str,
     allow_failure: bool = False,
+    max_output_chars: int | None = None,
 ) -> int:
     log.write(f"\n$ {shlex.join(list(command))}\n")
     log.flush()
@@ -206,7 +206,7 @@ def run_command(
         if isinstance(output, bytes):
             output = output.decode(errors="replace")
         if output:
-            log.write(output)
+            log.write(_limit_output(output, max_output_chars))
         log.write(f"\n{label} timed out after {timeout_seconds:g}s\n")
         log.flush()
         if not allow_failure:
@@ -220,12 +220,33 @@ def run_command(
         return 127
 
     if completed.stdout:
-        log.write(completed.stdout)
+        log.write(_limit_output(completed.stdout, max_output_chars))
     log.write(f"\n{label} exit code: {completed.returncode}\n")
     log.flush()
     if completed.returncode and not allow_failure:
         raise RuntimeError(f"{label} failed with exit code {completed.returncode}")
     return completed.returncode
+
+
+def _limit_output(output: str, max_chars: int | None) -> str:
+    if max_chars is None or len(output) <= max_chars:
+        return output
+    return output[:max_chars] + f"\n[output truncated at {max_chars} characters]\n"
+
+
+def collect_failure_diagnostics(
+    xcrun: str,
+    device_id: str,
+    app_path: str,
+    log: IO[str],
+) -> None:
+    commands = (
+        (["du", "-sh", app_path], 10, "simulator app bundle size"),
+        ([xcrun, "simctl", "spawn", device_id, "log", "show", "--last", "5m", "--style", "compact", "--predicate", 'process == "installd" OR process == "SpringBoard"'], 20, "simulator install system logs"),
+        (["/usr/bin/log", "show", "--last", "5m", "--style", "compact", "--predicate", 'process == "CoreSimulatorService" OR process == "Simulator"'], 20, "host simulator system logs"),
+    )
+    for command, timeout_seconds, label in commands:
+        run_command(command, timeout_seconds=timeout_seconds, log=log, label=label, allow_failure=True, max_output_chars=100_000)
 
 
 def wait_for_vm_service(
@@ -295,6 +316,8 @@ def run_smoke(args: argparse.Namespace) -> int:
 
     with transcript_path.open("w", encoding="utf-8") as log:
         log.write(f"Requested owned simulator name: {device_name}\nBundle: {args.bundle_id}\n")
+        shutil.copyfile(args.runtimes_file, evidence / "simulator-runtimes.json")
+        shutil.copyfile(args.device_types_file, evidence / "simulator-device-types.json")
         port = choose_loopback_port()
         log.write(f"Chosen VM service loopback port: {port}\n")
         log.flush()
@@ -336,7 +359,7 @@ def run_smoke(args: argparse.Namespace) -> int:
                 allow_failure=True,
             )
             run_command(
-                [xcrun, "simctl", "bootstatus", device_id, "-b"],
+                [xcrun, "simctl", "bootstatus", device_id, "-bd"],
                 timeout_seconds=args.boot_timeout_seconds,
                 log=log,
                 label="simulator bootstatus",
@@ -423,6 +446,12 @@ def run_smoke(args: argparse.Namespace) -> int:
             log.flush()
             print(f"iOS launch smoke failed: {error}", file=sys.stderr, flush=True)
             exit_code = 1
+            if created_device_udid is not None:
+                try:
+                    collect_failure_diagnostics(xcrun, created_device_udid, args.app_path, log)
+                except Exception as diagnostic_error:  # Keep the original smoke failure.
+                    log.write(f"Diagnostic collection failed: {type(diagnostic_error).__name__}\n")
+                    log.flush()
         finally:
             if device_id is not None:
                 run_command(

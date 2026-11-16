@@ -143,8 +143,24 @@ class IOSLaunchSmokeTests(unittest.TestCase):
                     ],
                 },
                 {
+                    "identifier": "com.apple.CoreSimulator.SimRuntime.iOS-27-1-1",
+                    "version": "27.1.1",
+                    "isAvailable": True,
+                    "supportedDeviceTypes": [
+                        {"identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro"},
+                    ],
+                },
+                {
+                    "identifier": "com.apple.CoreSimulator.SimRuntime.iOS-27-0",
+                    "version": "27.0.0",
+                    "isAvailable": True,
+                    "supportedDeviceTypes": [
+                        {"identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro"},
+                    ],
+                },
+                {
                     "identifier": "com.apple.CoreSimulator.SimRuntime.iOS-27-2",
-                    "version": "27.2",
+                    "version": "27.2.0",
                     "isAvailable": True,
                     "supportedDeviceTypes": [
                         {"identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro"},
@@ -153,7 +169,7 @@ class IOSLaunchSmokeTests(unittest.TestCase):
                 },
                 {
                     "identifier": "com.apple.CoreSimulator.SimRuntime.iOS-27-1",
-                    "version": "27.1",
+                    "version": "27.1.0",
                     "isAvailable": True,
                     "supportedDeviceTypes": [
                         {"identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro"},
@@ -187,13 +203,17 @@ class IOSLaunchSmokeTests(unittest.TestCase):
         self.assertEqual(
             candidates[0],
             (
-                "com.apple.CoreSimulator.SimRuntime.iOS-27-1",
-                "27.1",
+                "com.apple.CoreSimulator.SimRuntime.iOS-27-1-1",
+                "27.1.1",
                 "com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro",
                 "iPhone 18 Pro",
             ),
         )
         self.assertTrue(all("Duo" not in name for _, _, _, name in candidates))
+        self.assertEqual(
+            [candidate[1] for candidate in candidates],
+            ["27.1.1", "27.1.0", "27.1.0", "27.0.0", "27.2.0"],
+        )
 
     def test_simulator_selection_falls_back_to_an_available_standard_iphone(self):
         candidates = select_simulator_candidates(
@@ -254,6 +274,8 @@ class IOSLaunchSmokeTests(unittest.TestCase):
             self.assertIn("--no-dds", driver_command)
             self.assertIn("--use-existing-app=http://127.0.0.1:9123/", driver_command)
             self.assertIn("simulator screenshot", events)
+            bootstatus = next(command for label, command in commands if label == "simulator bootstatus")
+            self.assertEqual(bootstatus[-1], "-bd")
             self.assertLess(events.index("simulator screenshot"), events.index("console-terminate"))
             self.assertIn("simulator app terminate", events)
             self.assertIn("simulator shutdown", events)
@@ -265,6 +287,7 @@ class IOSLaunchSmokeTests(unittest.TestCase):
             self.assertEqual(delete_command, ["xcrun", "simctl", "delete", "owned-uuid"])
             transcript = Path(directory, "smoke-run.log").read_text(encoding="utf-8")
             self.assertIn("Smoke exit code: 0", transcript)
+            self.assertTrue(Path(directory, "simulator-runtimes.json").exists())
 
     def test_invalid_vm_service_skips_driver_but_cleans_up_and_screenshots(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -318,6 +341,9 @@ class IOSLaunchSmokeTests(unittest.TestCase):
             self.assertIn("simulator app terminate", events)
             self.assertIn("simulator shutdown", events)
             self.assertIn("owned simulator delete", events)
+            self.assertIn("simulator app bundle size", events)
+            self.assertIn("simulator install system logs", events)
+            self.assertIn("host simulator system logs", events)
 
 
 if __name__ == "__main__":
