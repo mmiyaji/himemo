@@ -1052,6 +1052,125 @@ void main() {
     expect(roundTripped.attachments, isEmpty);
     expect(roundTripped.note.attachments, isEmpty);
   }, timeout: const Timeout(Duration(minutes: 2)));
+  test(
+    'attachment previews are quiet, cancellable and keep the queue usable',
+    () async {
+      final cloud = _Cloud();
+      final device = _Device(cloud);
+      addTearDown(device.workspace.dispose);
+      await device.workspace.initialize();
+      await device.workspace.prepareNewBiometric();
+      await device.workspace.confirmSetup();
+      await device.workspace.createProfile('Research', 'private password');
+      final privateId = device.workspace.selectedProfileId!;
+      final normalId = device.workspace.profiles
+          .singleWhere((p) => p.isNormal)
+          .id;
+      final photo = Uint8List.fromList(List.generate(2048, (i) => i % 251));
+      await device.workspace.saveNote(
+        title: 'Preview',
+        body: 'Attachment preview test',
+        addedFiles: [
+          SyncV2PendingAttachment(
+            label: 'photo',
+            type: AttachmentType.photo,
+            bytes: photo,
+          ),
+        ],
+      );
+      final reference = device.workspace.notes.single.attachments.single;
+      var notifications = 0;
+      void listener() => notifications++;
+      device.workspace.addListener(listener);
+      expect(device.workspace.busy, isFalse);
+      expect(await device.workspace.readAttachmentPreview(reference), photo);
+      expect(device.workspace.busy, isFalse);
+      expect(notifications, 0);
+      device.workspace.removeListener(listener);
+
+      final badReference = SyncV2AttachmentReference(
+        id: reference.id,
+        label: reference.label,
+        type: reference.type,
+        size: reference.size,
+        sha256: '0' * 64,
+        chunks: reference.chunks,
+      );
+      await expectLater(
+        device.workspace.readAttachmentPreview(badReference),
+        throwsA(isA<FormatException>()),
+      );
+      await expectLater(
+        device.workspace.readAttachmentPreview(
+          reference,
+          isActive: () => false,
+        ),
+        throwsA(isA<SyncV2WorkspaceException>()),
+      );
+      expect(await device.workspace.readAttachmentPreview(reference), photo);
+
+      // A queued read is rejected if the selected profile changes before it
+      // reaches the head of the serialized workspace queue.
+      device.syncEntered = Completer<void>();
+      device.syncRelease = Completer<void>();
+      final heldSync = device.workspace.syncNow();
+      await device.syncEntered!.future;
+      final staleBySelection = device.workspace.readAttachmentPreview(
+        reference,
+      );
+      device.workspace.selectedProfileId = normalId;
+      device.syncRelease!.complete();
+      await heldSync;
+      await expectLater(
+        staleBySelection,
+        throwsA(isA<SyncV2WorkspaceException>()),
+      );
+      await device.workspace.selectProfile(privateId);
+
+      // Backgrounding also invalidates a queued preview; subsequent operations
+      // still run after the failed read.
+      device.syncEntered = Completer<void>();
+      device.syncRelease = Completer<void>();
+      final secondHeldSync = device.workspace.syncNow();
+      await device.syncEntered!.future;
+      final staleByLock = device.workspace.readAttachmentPreview(reference);
+      device.workspace.background();
+      device.syncRelease!.complete();
+      await secondHeldSync;
+      await expectLater(staleByLock, throwsA(isA<SyncV2WorkspaceException>()));
+      await device.workspace.resume();
+      await device.workspace.unlockPrivate('private password');
+      expect(await device.workspace.readAttachmentPreview(reference), photo);
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
+
+  test('disposed workspace rejects a queued attachment preview', () async {
+    final cloud = _Cloud();
+    final device = _Device(cloud);
+    await device.workspace.initialize();
+    await device.workspace.prepareNewBiometric();
+    await device.workspace.confirmSetup();
+    device.syncEntered = Completer<void>();
+    device.syncRelease = Completer<void>();
+    final heldSync = device.workspace.syncNow();
+    await device.syncEntered!.future;
+    final queuedPreview = device.workspace.readAttachmentPreview(
+      SyncV2AttachmentReference(
+        id: 'a' * 64,
+        label: 'photo',
+        type: 'photo',
+        size: 1,
+        sha256: 'b' * 64,
+        chunks: ['blob_${'c' * 64}'],
+      ),
+    );
+    device.workspace.dispose();
+    device.syncRelease!.complete();
+    await heldSync;
+    await expectLater(queuedPreview, throwsA(isA<SyncV2WorkspaceException>()));
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
   test('two isolated workspaces enroll, transfer private files and resolve concurrent heads', () async {
     final cloud = _Cloud();
     final a = _Device(cloud), b = _Device(cloud);

@@ -1306,6 +1306,65 @@ class SyncV2WorkspaceController extends ChangeNotifier {
       ),
     ),
   );
+
+  /// Reads attachment bytes for an in-app preview without changing workspace
+  /// operation state (in particular, without toggling [busy] or notifying).
+  /// The read is serialized with other workspace operations and discarded if
+  /// the unlocked session changes while it is queued or running.
+  Future<Uint8List> readAttachmentPreview(
+    SyncV2AttachmentReference reference, {
+    bool Function()? isActive,
+  }) {
+    final result = Completer<Uint8List>();
+    final epoch = _epoch;
+    final profileId = selectedProfileId;
+    final requestedGeneration = generationId;
+
+    bool active() =>
+        supported &&
+        registered &&
+        !_disposed &&
+        !_paused &&
+        epoch == _epoch &&
+        profileId != null &&
+        profileId == selectedProfileId &&
+        requestedGeneration != null &&
+        requestedGeneration == generationId &&
+        _syncKey != null &&
+        (isActive == null || isActive());
+
+    void checkActive() {
+      if (!active()) throw const SyncV2WorkspaceException('locked');
+    }
+
+    Future<void> read() async {
+      Uint8List? bytes;
+      try {
+        checkActive();
+        final access = _selected;
+        if (access.profileId != profileId) {
+          throw const SyncV2WorkspaceException('locked');
+        }
+        bytes = await SyncV2AttachmentService(inbox, repository).read(
+          reference: reference,
+          generationId: requestedGeneration!,
+          syncKey: _syncKey!,
+          profileAccess: access,
+          checkActive: checkActive,
+        );
+        checkActive();
+        result.complete(bytes);
+      } catch (failure, stackTrace) {
+        if (bytes != null) bytes.fillRange(0, bytes.length, 0);
+        result.completeError(failure, stackTrace);
+      }
+    }
+
+    // Keep _tail successful even if a prior operation unexpectedly failed.
+    _tail = _tail.then((_) => read(), onError: (_) => read());
+    return result.future;
+  }
+
   Future<Uint8List> _protectBytes(Future<Uint8List> Function() read) async {
     final epoch = _epoch;
     final bytes = await read();

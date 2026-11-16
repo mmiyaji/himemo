@@ -45,6 +45,7 @@ import FoundationModels
   private var networkChannel: FlutterMethodChannel?
   private var spotlightChannel: FlutterMethodChannel?
   private var intelligenceChannel: FlutterMethodChannel?
+  private var syncV2AttachmentViewer: SyncV2AttachmentViewer?
   private var pendingQuickCapturePayload: [String: Any]?
   private var pendingSpotlightNoteId: String?
   private var privacyProtectionEnabled = false
@@ -71,6 +72,7 @@ import FoundationModels
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     let messenger = engineBridge.applicationRegistrar.messenger()
     SyncV2BiometricKeyStore.register(with: messenger)
+    syncV2AttachmentViewer = SyncV2AttachmentViewer(messenger: messenger)
     widgetChannel = FlutterMethodChannel(
       name: widgetChannelName,
       binaryMessenger: messenger

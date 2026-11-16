@@ -13,6 +13,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:himemo/features/security/data/secure_key_value_store.dart';
 import 'package:himemo/features/home/presentation/home_page.dart';
+import 'package:himemo/features/sync/presentation/sync_v2_attachment_image.dart';
 import 'package:himemo/l10n/app_strings.dart';
 import 'package:himemo/features/sync/data/sync_v2_enrollment_store.dart';
 import 'package:himemo/features/sync/data/sync_v2_generation_registration.dart';
@@ -22,6 +23,7 @@ import 'package:himemo/features/sync/presentation/sync_v2_workspace.dart';
 import 'package:himemo/features/sync/presentation/sync_v2_pairing_dialogs.dart';
 import 'package:himemo/features/sync/presentation/sync_v2_workspace_screen.dart';
 import 'package:himemo/features/sync/presentation/sync_v2_privacy.dart';
+import 'package:himemo/features/sync/presentation/sync_v2_attachment_viewer.dart';
 
 String _syncPairingCode() => base64Url.encode(
   utf8.encode(
@@ -151,6 +153,33 @@ class _Controller extends SyncV2WorkspaceController {
   bool settingsUnlockSucceeds = true;
   int settingsUnlockCalls = 0;
   int biometricUnlockCalls = 0;
+  Uint8List previewBytes = Uint8List.fromList([1, 2, 3]);
+  Completer<Uint8List>? previewBytesCompleter;
+  Completer<void>? previewReadStarted;
+  bool Function()? latestPreviewIsActive;
+  Uint8List? latestPreviewBytes;
+  final previewReads = <SyncV2AttachmentReference>[];
+  @override
+  Future<Uint8List> readAttachmentPreview(
+    SyncV2AttachmentReference reference, {
+    bool Function()? isActive,
+  }) {
+    previewReads.add(reference);
+    latestPreviewIsActive = isActive;
+    if (previewReadStarted != null && !previewReadStarted!.isCompleted) {
+      previewReadStarted!.complete();
+    }
+    final pending = previewBytesCompleter;
+    if (pending != null) {
+      return pending.future.then((bytes) {
+        latestPreviewBytes = bytes;
+        return bytes;
+      });
+    }
+    latestPreviewBytes = Uint8List.fromList(previewBytes);
+    return Future.value(latestPreviewBytes);
+  }
+
   @override
   Future<bool> unlockAdminFromSettings() async {
     settingsUnlockCalls++;
@@ -349,6 +378,54 @@ class _Controller extends SyncV2WorkspaceController {
   Future<void> resume() async {}
 }
 
+class _AttachmentViewer implements SyncV2AttachmentViewer {
+  Completer<void>? openCompleter;
+  Uint8List? openedBytes;
+  String? openedLabel;
+  int openCalls = 0;
+  int closeCalls = 0;
+  bool _openInProgress = false;
+
+  @override
+  Future<void> open({required Uint8List bytes, required String label}) async {
+    openCalls++;
+    openedBytes = bytes;
+    openedLabel = label;
+    _openInProgress = true;
+    try {
+      await openCompleter?.future;
+    } finally {
+      _openInProgress = false;
+    }
+  }
+
+  @override
+  Future<void> close() async {
+    closeCalls++;
+    if (_openInProgress &&
+        openCompleter != null &&
+        !openCompleter!.isCompleted) {
+      openCompleter!.complete();
+    }
+  }
+}
+
+SyncV2AttachmentReference _attachmentReference({
+  String type = 'photo',
+  String label = 'photo.jpg',
+}) => SyncV2AttachmentReference(
+  id: 'a' * 64,
+  label: label,
+  type: type,
+  size: 1,
+  sha256: 'b' * 64,
+  chunks: ['blob_${'c' * 64}'],
+);
+
+Uint8List _pixel() => base64Decode(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC',
+);
+
 SyncV2WorkspaceNote _note(
   String id, {
   required String title,
@@ -356,6 +433,7 @@ SyncV2WorkspaceNote _note(
   required DateTime createdAt,
   DateTime? updatedAt,
   List<String> tags = const [],
+  List<SyncV2AttachmentReference> attachments = const [],
   String profileId = 'normal',
 }) {
   final note = NoteEntry(
@@ -366,6 +444,14 @@ SyncV2WorkspaceNote _note(
     createdAt: createdAt,
     updatedAt: updatedAt,
     tags: tags,
+    attachments: [
+      for (final attachment in attachments)
+        NoteAttachment(
+          type: AttachmentType.values.byName(attachment.type),
+          label: attachment.label,
+          filePath: 'v2attachment:${attachment.id}',
+        ),
+    ],
   );
   return SyncV2WorkspaceNote(
     note,
@@ -381,12 +467,18 @@ SyncV2WorkspaceNote _note(
             payloadDigest: 'digest-$id',
           ),
           payloadAvailable: true,
-          body: {'type': 'note', 'note': note.toJson(), 'attachments': []},
+          body: {
+            'type': 'note',
+            'note': note.toJson(),
+            'attachments': [
+              for (final attachment in attachments) attachment.toJson(),
+            ],
+          },
         ),
       ],
       pendingIds: {},
     ),
-    [],
+    attachments,
   );
 }
 
@@ -426,6 +518,7 @@ void main() {
     WidgetTester tester,
     _Controller controller, {
     Widget Function(bool administrator)? scannerBuilder,
+    SyncV2AttachmentViewer? attachmentViewer,
     String? displayStyle = 'simple',
     bool resetDisplayStyle = true,
   }) async {
@@ -444,6 +537,8 @@ void main() {
             syncV2PairingScannerBuilderProvider.overrideWithValue(
               scannerBuilder,
             ),
+          if (attachmentViewer != null)
+            syncV2AttachmentViewerProvider.overrideWithValue(attachmentViewer),
         ],
         child: MaterialApp(
           localizationsDelegates: const [
@@ -1966,6 +2061,183 @@ void main() {
       expect(controller.savedOriginal!.headIds, {'first', 'second', 'deleted'});
     },
   );
+  testWidgets('photo attachment opens a full zoomable image preview', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1000, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final attachment = _attachmentReference();
+    final controller = _Controller()
+      ..registered = true
+      ..selectedProfileId = 'normal'
+      ..previewBytes = _pixel()
+      ..notes = [
+        _note(
+          'photo-note',
+          title: 'Photo note',
+          body: 'A picture',
+          createdAt: DateTime.utc(2026),
+          attachments: [attachment],
+        ),
+      ];
+    final viewer = _AttachmentViewer();
+    addTearDown(controller.dispose);
+    await mount(
+      tester,
+      controller,
+      displayStyle: 'simple',
+      attachmentViewer: viewer,
+    );
+    await tester.tap(find.text('Photo note'));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 100));
+    final inlineImage = find.byWidgetPredicate(
+      (widget) => widget is SyncV2AttachmentImage && widget.thumbnail == false,
+    );
+    expect(inlineImage, findsOneWidget);
+    await tester.ensureVisible(inlineImage);
+    await tester.tap(inlineImage);
+    await tester.pumpAndSettle();
+    expect(find.byType(InteractiveViewer), findsNWidgets(2));
+    expect(
+      find.byKey(const ValueKey('sync-v2-attachment-image-data')),
+      findsNWidgets(2),
+    );
+    await tester.tap(find.byTooltip('Close'));
+    await tester.pumpAndSettle();
+    expect(viewer.closeCalls, greaterThan(0));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('native viewer provider closes on background and clears bytes', (
+    tester,
+  ) async {
+    final attachment = _attachmentReference(
+      type: 'video',
+      label: r'C:\private\clip.mov',
+    );
+    final controller = _Controller()
+      ..registered = true
+      ..selectedProfileId = 'normal'
+      ..notes = [
+        _note(
+          'video-note',
+          title: 'Video note',
+          body: 'A clip',
+          createdAt: DateTime.utc(2026),
+          attachments: [attachment],
+        ),
+      ];
+    final viewer = _AttachmentViewer()..openCompleter = Completer<void>();
+    addTearDown(controller.dispose);
+    await mount(
+      tester,
+      controller,
+      displayStyle: 'simple',
+      attachmentViewer: viewer,
+    );
+    await tester.tap(find.text('Video note'));
+    await tester.pumpAndSettle();
+    final attachmentLabel = find.text('clip.mov');
+    await tester.ensureVisible(attachmentLabel);
+    await tester.tap(attachmentLabel);
+    await tester.pump();
+    await tester.pump();
+    expect(viewer.openCalls, 1);
+    expect(viewer.openedLabel, 'clip.mov');
+    final nativeBytes = viewer.openedBytes!;
+    expect(nativeBytes, controller.previewBytes);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    await tester.pumpAndSettle();
+    expect(viewer.closeCalls, greaterThan(0));
+    expect(nativeBytes, everyElement(0));
+    expect(controller.backgroundCalled, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('closing editor invalidates a pending attachment preview read', (
+    tester,
+  ) async {
+    final attachment = _attachmentReference();
+    final controller = _Controller()
+      ..registered = true
+      ..selectedProfileId = 'normal'
+      ..notes = [
+        _note(
+          'pending-photo-note',
+          title: 'Pending photo',
+          body: 'Wait for preview',
+          createdAt: DateTime.utc(2026),
+          attachments: [attachment],
+        ),
+      ]
+      ..previewBytesCompleter = Completer<Uint8List>()
+      ..previewReadStarted = Completer<void>();
+    addTearDown(controller.dispose);
+    await mount(tester, controller, displayStyle: 'simple');
+    await tester.tap(find.text('Pending photo'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    await controller.previewReadStarted!.future;
+
+    final returnedBytes = _pixel();
+    await tester.tap(find.text('Notes'));
+    await tester.pumpAndSettle();
+    expect(find.byType(SyncV2AttachmentImage), findsNothing);
+    controller.previewBytesCompleter!.complete(returnedBytes);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(controller.latestPreviewIsActive!(), isFalse);
+    expect(returnedBytes, everyElement(0));
+    expect(controller.latestPreviewBytes, same(returnedBytes));
+    expect(find.text('Pending photo'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('failed 56px photo thumbnail keeps its fallback action usable', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final attachment = _attachmentReference();
+    final controller = _Controller()
+      ..registered = true
+      ..selectedProfileId = 'normal'
+      ..previewBytes = Uint8List.fromList([1, 2, 3])
+      ..notes = [
+        _note(
+          'broken-photo-note',
+          title: 'Broken photo',
+          body: 'Unreadable image',
+          createdAt: DateTime.utc(2026),
+          attachments: [attachment],
+        ),
+      ];
+    final viewer = _AttachmentViewer();
+    addTearDown(controller.dispose);
+    await mount(
+      tester,
+      controller,
+      displayStyle: null,
+      attachmentViewer: viewer,
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Open another way'), findsOneWidget);
+    expect(controller.latestPreviewBytes, everyElement(0));
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.byTooltip('Open another way'));
+    await tester.pumpAndSettle();
+    expect(viewer.openCalls, 1);
+    expect(tester.takeException(), isNull);
+  });
+
   test('attachment save names use a safe basename', () {
     expect(syncV2AttachmentFileName(r'C:\secret\memo.txt'), 'memo.txt');
     expect(syncV2AttachmentFileName('../../memo.txt'), 'memo.txt');

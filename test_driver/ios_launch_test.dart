@@ -15,7 +15,10 @@ void main() {
         );
         expect(
           await driver.requestData('check-native-channels'),
-          startsWith('native-channels-ready:'),
+          allOf(
+            startsWith('native-channels-ready:'),
+            contains(':attachment-preview-ready'),
+          ),
         );
         final directory = Directory('build/ios-launch-smoke')
           ..createSync(recursive: true);

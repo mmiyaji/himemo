@@ -177,46 +177,57 @@ class SyncV2AttachmentService {
       noteIds: reference.chunks.toSet(),
       checkActive: checkActive,
     );
-    final output = BytesBuilder(copy: false);
-    for (var i = 0; i < reference.chunks.length; i++) {
-      checkActive?.call();
-      final snapshot = snapshots[reference.chunks[i]];
-      if (snapshot == null ||
-          !snapshot.canCompareVersions ||
-          snapshot.versions.length != 1 ||
-          snapshot.versions.single.isDeleted) {
-        throw const FormatException('Missing attachment chunk');
+    final output = Uint8List(reference.size);
+    var offset = 0;
+    var succeeded = false;
+    try {
+      for (var i = 0; i < reference.chunks.length; i++) {
+        checkActive?.call();
+        final snapshot = snapshots[reference.chunks[i]];
+        if (snapshot == null ||
+            !snapshot.canCompareVersions ||
+            snapshot.versions.length != 1 ||
+            snapshot.versions.single.isDeleted) {
+          throw const FormatException('Missing attachment chunk');
+        }
+        final body = snapshot.versions.single.body!;
+        if (body.length != 6 ||
+            body['type'] != 'attachment-chunk' ||
+            body['attachmentId'] != reference.id ||
+            body['index'] != i ||
+            body['total'] != reference.chunks.length ||
+            body['bytes'] is! String ||
+            body['digest'] is! String) {
+          throw const FormatException('Invalid attachment chunk');
+        }
+        final encoded = body['bytes'] as String;
+        if (encoded.length > (chunkBytes + 2) ~/ 3 * 4) {
+          throw const FormatException('Oversized attachment chunk');
+        }
+        final bytes = base64Decode(encoded);
+        try {
+          final expected = i == reference.chunks.length - 1
+              ? reference.size - i * chunkBytes
+              : chunkBytes;
+          if (bytes.length != expected ||
+              crypto.sha256.convert(bytes).toString() != body['digest']) {
+            throw const FormatException('Corrupt attachment chunk');
+          }
+          output.setRange(offset, offset + bytes.length, bytes);
+          offset += bytes.length;
+          checkActive?.call();
+        } finally {
+          bytes.fillRange(0, bytes.length, 0);
+        }
       }
-      final body = snapshot.versions.single.body!;
-      if (body.length != 6 ||
-          body['type'] != 'attachment-chunk' ||
-          body['attachmentId'] != reference.id ||
-          body['index'] != i ||
-          body['total'] != reference.chunks.length ||
-          body['bytes'] is! String ||
-          body['digest'] is! String) {
-        throw const FormatException('Invalid attachment chunk');
+      if (offset != reference.size ||
+          crypto.sha256.convert(output).toString() != reference.sha256) {
+        throw const FormatException('Corrupt attachment');
       }
-      final encoded = body['bytes'] as String;
-      if (encoded.length > (chunkBytes + 2) ~/ 3 * 4) {
-        throw const FormatException('Oversized attachment chunk');
-      }
-      final bytes = base64Decode(encoded);
-      final expected = i == reference.chunks.length - 1
-          ? reference.size - i * chunkBytes
-          : chunkBytes;
-      if (bytes.length != expected ||
-          crypto.sha256.convert(bytes).toString() != body['digest']) {
-        throw const FormatException('Corrupt attachment chunk');
-      }
-      output.add(bytes);
-      checkActive?.call();
+      succeeded = true;
+      return output;
+    } finally {
+      if (!succeeded) output.fillRange(0, output.length, 0);
     }
-    final result = output.takeBytes();
-    if (result.length != reference.size ||
-        crypto.sha256.convert(result).toString() != reference.sha256) {
-      throw const FormatException('Corrupt attachment');
-    }
-    return result;
   }
 }

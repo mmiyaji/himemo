@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -16,6 +17,8 @@ import 'sync_v2_workspace.dart';
 import 'sync_v2_privacy.dart';
 import 'sync_v2_pairing_dialogs.dart';
 import 'sync_v2_original_editor.dart';
+import 'sync_v2_attachment_image.dart';
+import 'sync_v2_attachment_viewer.dart';
 
 /// The default uses the camera. Tests can supply a deterministic scanner.
 final syncV2PairingScannerBuilderProvider = Provider<Widget Function(bool)>(
@@ -55,6 +58,10 @@ class SyncV2WorkspaceScreen extends ConsumerStatefulWidget {
 class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
     with WidgetsBindingObserver {
   late final SyncV2WorkspaceController _controller;
+  late final SyncV2AttachmentViewer _attachmentViewer;
+  bool _openingAttachment = false;
+  bool _openingNativeAttachment = false;
+  int _attachmentViewRevision = 0;
   late int _knownSessionRevision;
   String? _knownProfileId;
   final _title = TextEditingController();
@@ -82,6 +89,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
   final _added = <SyncV2PendingAttachment>[];
   final _removed = <String>[];
   final _dialogRoutes = <Route<dynamic>>[];
+  final _attachmentDialogRoutes = <Route<dynamic>>[];
   int _backgroundVersion = 0;
   String t(String ja, String en) =>
       Localizations.localeOf(context).languageCode == 'ja' ? ja : en;
@@ -89,6 +97,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
   void initState() {
     super.initState();
     _controller = ref.read(syncV2WorkspaceProvider);
+    _attachmentViewer = ref.read(syncV2AttachmentViewerProvider);
     _knownSessionRevision = _controller.privateSessionRevision;
     _knownProfileId = _controller.selectedProfileId;
     _controller.addListener(_workspaceSessionChanged);
@@ -114,6 +123,8 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
     _knownSessionRevision = _controller.privateSessionRevision;
     _knownProfileId = _controller.selectedProfileId;
     if (changed && mounted) {
+      unawaited(_attachmentViewer.close());
+      _closeSyncV2DialogRoutes(List.of(_attachmentDialogRoutes));
       setState(() {
         _clearEditor();
         _clearSearch();
@@ -186,6 +197,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
     }
     _clearEditor();
     _clearSearch();
+    unawaited(_attachmentViewer.close());
     ref.read(syncV2WorkspaceProvider).background();
     _closeSyncV2DialogRoutes(List.of(_dialogRoutes));
     _dialogRoutes.clear();
@@ -193,6 +205,8 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
   }
 
   void _clearEditor() {
+    _attachmentViewRevision++;
+    unawaited(_attachmentViewer.close());
     _title.clear();
     _body.clear();
     _editing = null;
@@ -207,6 +221,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _controller.removeListener(_workspaceSessionChanged);
+    unawaited(_attachmentViewer.close());
     final picker = _systemPicker;
     final routes = List<Route<dynamic>>.of(_dialogRoutes);
     _dialogRoutes.clear();
@@ -285,7 +300,10 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
     ),
   };
 
-  Future<T?> _dialog<T>(WidgetBuilder builder) async {
+  Future<T?> _dialog<T>(
+    WidgetBuilder builder, {
+    bool attachment = false,
+  }) async {
     final navigator = Navigator.of(context, rootNavigator: true);
     final route = DialogRoute<T>(
       context: context,
@@ -293,10 +311,12 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
       themes: InheritedTheme.capture(from: context, to: navigator.context),
     );
     _dialogRoutes.add(route);
+    if (attachment) _attachmentDialogRoutes.add(route);
     try {
       return await navigator.push(route);
     } finally {
       _dialogRoutes.remove(route);
+      _attachmentDialogRoutes.remove(route);
     }
   }
 
@@ -590,6 +610,8 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
   }
 
   Future<void> _open(SyncV2WorkspaceNote? note) async {
+    _attachmentViewRevision++;
+    unawaited(_attachmentViewer.close());
     FocusScope.of(context).unfocus();
     String? selectedVersionId;
     var attachments = note?.attachments ?? <SyncV2AttachmentReference>[];
@@ -678,6 +700,210 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
       _added.clear();
       _removed.clear();
     });
+  }
+
+  bool Function() _attachmentSessionIsActive({bool bindView = false}) {
+    final epoch = _controller.privateSessionRevision;
+    final profile = _controller.selectedProfileId;
+    final version = _backgroundVersion;
+    final view = _attachmentViewRevision;
+    return () =>
+        mounted &&
+        _foreground &&
+        epoch == _controller.privateSessionRevision &&
+        profile == _controller.selectedProfileId &&
+        version == _backgroundVersion &&
+        (!bindView || view == _attachmentViewRevision);
+  }
+
+  Future<void> _nativeAttachment(
+    SyncV2AttachmentReference attachment,
+    bool Function() active,
+  ) async {
+    if (_openingNativeAttachment || !active()) return;
+    setState(() => _openingNativeAttachment = true);
+    Uint8List? bytes;
+    try {
+      bytes = await _controller.readAttachmentPreview(
+        attachment,
+        isActive: active,
+      );
+      if (!active()) return;
+      await _attachmentViewer.open(
+        bytes: bytes,
+        label: syncV2AttachmentFileName(attachment.label),
+      );
+    } finally {
+      if (bytes != null) bytes.fillRange(0, bytes.length, 0);
+      if (mounted) setState(() => _openingNativeAttachment = false);
+    }
+  }
+
+  Future<void> _openAttachment(SyncV2AttachmentReference attachment) async {
+    if (_openingAttachment ||
+        _openingNativeAttachment ||
+        !_foreground ||
+        _controller.busy) {
+      return;
+    }
+    final sessionActive = _attachmentSessionIsActive(bindView: true);
+    var ownerOpen = true;
+    bool active() => ownerOpen && sessionActive();
+    _openingAttachment = true;
+    try {
+      if (attachment.type == 'photo') {
+        await _dialog<void>(
+          (context) => Dialog(
+            child: SizedBox(
+              width: 800,
+              height: MediaQuery.sizeOf(context).height * .82,
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Text(
+                            syncV2AttachmentFileName(attachment.label),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: t('閉じる', 'Close'),
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.of(context).pop(),
+                      ),
+                    ],
+                  ),
+                  Expanded(
+                    child: SyncV2AttachmentImage(
+                      key: ValueKey((
+                        'full-photo',
+                        _controller.privateSessionRevision,
+                        attachment.id,
+                      )),
+                      label: attachment.label,
+                      thumbnail: false,
+                      isActive: active,
+                      loadBytes: (isCurrent) =>
+                          _controller.readAttachmentPreview(
+                            attachment,
+                            isActive: isCurrent,
+                          ),
+                      onUnsupported: () => unawaited(
+                        _viewAttachmentAction(
+                          () => _nativeAttachment(attachment, active),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          attachment: true,
+        );
+      } else {
+        await _nativeAttachment(attachment, active);
+      }
+    } catch (failure) {
+      if (active()) _attachmentViewError(failure);
+    } finally {
+      ownerOpen = false;
+      if (attachment.type == 'photo') unawaited(_attachmentViewer.close());
+      _openingAttachment = false;
+    }
+  }
+
+  void _attachmentViewError(Object failure) {
+    if (!mounted || !_foreground) return;
+    if (failure is SyncV2AttachmentViewerException &&
+        failure.code == 'cancelled') {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          t(
+            'この添付を表示できません。ダウンロードして確認してください。',
+            'Could not display this attachment. Download it to open it.',
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _viewAttachmentAction(Future<void> Function() action) async {
+    try {
+      await action();
+    } catch (failure) {
+      _attachmentViewError(failure);
+    }
+  }
+
+  Widget _attachmentPreview(
+    SyncV2AttachmentReference attachment,
+    double size, {
+    bool inline = false,
+    bool autoLoad = true,
+  }) {
+    final active = _attachmentSessionIsActive();
+    if (autoLoad &&
+        attachment.type == 'photo' &&
+        attachment.size <= 4 * 1024 * 1024) {
+      final image = SyncV2AttachmentImage(
+        key: ValueKey((
+          'photo',
+          _controller.privateSessionRevision,
+          _controller.selectedProfileId,
+          attachment.id,
+          inline,
+        )),
+        label: attachment.label,
+        size: inline ? null : size,
+        thumbnail: !inline,
+        decodeWidth: inline ? 512 : null,
+        isActive: active,
+        loadBytes: (isCurrent) =>
+            _controller.readAttachmentPreview(attachment, isActive: isCurrent),
+        onTap: () => unawaited(_openAttachment(attachment)),
+        onUnsupported: () => unawaited(
+          _viewAttachmentAction(
+            () => _nativeAttachment(
+              attachment,
+              _attachmentSessionIsActive(bindView: true),
+            ),
+          ),
+        ),
+      );
+      return inline
+          ? GestureDetector(
+              onTap: () => _openAttachment(attachment),
+              child: SizedBox(height: 240, child: image),
+            )
+          : image;
+    }
+    final icon = switch (attachment.type) {
+      'photo' => Icons.image_outlined,
+      'video' => Icons.play_circle_outline,
+      'audio' => Icons.headphones_outlined,
+      _ => Icons.insert_drive_file_outlined,
+    };
+    return SizedBox(
+      width: inline ? null : size,
+      height: inline ? 80 : size,
+      child: Material(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(6),
+        child: InkWell(
+          onTap: () => _openAttachment(attachment),
+          child: Center(child: Icon(icon, size: inline ? 40 : 28)),
+        ),
+      ),
+    );
   }
 
   Future<void> _pickAttachments() async {
@@ -1058,7 +1284,8 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
               )
             : Column(
                 children: [
-                  if (c.busy) const LinearProgressIndicator(),
+                  if (c.busy || _openingNativeAttachment)
+                    const LinearProgressIndicator(),
                   if (_attachmentPickerInterrupted)
                     MaterialBanner(
                       content: Text(
@@ -1683,6 +1910,13 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
         .firstOrNull;
     return HomeNotePreviewList(
       header: header,
+      attachmentPreviewBuilder: (note, index, size) {
+        final entry = byId[note.id]!;
+        if (!entry.ready || index >= entry.attachments.length) {
+          return SizedBox.square(dimension: size);
+        }
+        return _attachmentPreview(entry.attachments[index], size);
+      },
       notes: [
         for (final entry in entries)
           entry.note.copyWith(
@@ -1734,35 +1968,69 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
     final writable = !c.busy && (_editing?.ready ?? true);
     final attachments = Column(
       children: [
-        for (final attachment in _editingAttachments)
+        for (final (index, attachment) in _editingAttachments.indexed)
           if (!_removed.contains(attachment.id))
-            ListTile(
-              title: Text(attachment.label),
-              subtitle: Text('${attachment.size} bytes'),
-              trailing: Wrap(
+            Card(
+              clipBehavior: Clip.antiAlias,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  IconButton(
-                    onPressed: writable
-                        ? () => _run(() async {
-                            final bytes = await c.readAttachment(attachment);
-                            if (mounted && _foreground) {
-                              await FilePicker.saveFile(
-                                fileName: syncV2AttachmentFileName(
-                                  attachment.label,
-                                ),
-                                bytes: bytes,
-                              );
-                            }
-                          })
-                        : null,
-                    icon: const Icon(Icons.download),
+                  ListTile(
+                    title: Text(
+                      syncV2AttachmentFileName(attachment.label),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Text(
+                      attachment.size >= 1024 * 1024
+                          ? '${(attachment.size / (1024 * 1024)).toStringAsFixed(1)} MB'
+                          : '${(attachment.size / 1024).toStringAsFixed(0)} KB',
+                    ),
+                    onTap: writable ? () => _openAttachment(attachment) : null,
+                    trailing: Wrap(
+                      children: [
+                        IconButton(
+                          tooltip: t('ダウンロード', 'Download'),
+                          onPressed: writable
+                              ? () => _run(() async {
+                                  final active = _attachmentSessionIsActive();
+                                  final bytes = await c.readAttachment(
+                                    attachment,
+                                  );
+                                  try {
+                                    if (active()) {
+                                      await FilePicker.saveFile(
+                                        fileName: syncV2AttachmentFileName(
+                                          attachment.label,
+                                        ),
+                                        bytes: bytes,
+                                      );
+                                    }
+                                  } finally {
+                                    bytes.fillRange(0, bytes.length, 0);
+                                  }
+                                })
+                              : null,
+                          icon: const Icon(Icons.download),
+                        ),
+                        IconButton(
+                          tooltip: t('添付を削除', 'Remove attachment'),
+                          onPressed: writable
+                              ? () =>
+                                    setState(() => _removed.add(attachment.id))
+                              : null,
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
+                    ),
                   ),
-                  IconButton(
-                    onPressed: writable
-                        ? () => setState(() => _removed.add(attachment.id))
-                        : null,
-                    icon: const Icon(Icons.close),
-                  ),
+                  if (writable)
+                    _attachmentPreview(
+                      attachment,
+                      240,
+                      inline: true,
+                      autoLoad: index < 3,
+                    ),
                 ],
               ),
             ),

@@ -29,7 +29,8 @@ class HomeNoteSection extends StatelessWidget {
 
 /// Pure, ordered note preview list for callers that own their data access.
 /// The widget never sorts notes or reads providers. In particular, its
-/// attachment previews use metadata-only icons and labels without storage I/O.
+/// default attachment previews use metadata-only icons and labels. Callers may
+/// explicitly supply a preview builder tied to their own storage/session.
 class HomeNotePreviewList extends StatelessWidget {
   const HomeNotePreviewList({
     super.key,
@@ -42,6 +43,7 @@ class HomeNotePreviewList extends StatelessWidget {
     this.sortField = NotesListSortField.createdAt,
     this.statusBuilder,
     this.header,
+    this.attachmentPreviewBuilder,
   });
 
   final List<NoteEntry> notes;
@@ -53,6 +55,8 @@ class HomeNotePreviewList extends StatelessWidget {
   final NotesListSortField sortField;
   final Widget? Function(NoteEntry)? statusBuilder;
   final Widget? header;
+  final Widget Function(NoteEntry note, int index, double size)?
+  attachmentPreviewBuilder;
 
   @override
   Widget build(BuildContext context) {
@@ -103,7 +107,9 @@ class HomeNotePreviewList extends StatelessWidget {
               showVaultName: true,
               density: density,
               attachmentPreviewFit: AttachmentPreviewFit.icon,
-              attachmentPreviewBuilder: _homeNoteAttachmentPreview,
+              attachmentPreviewBuilder: (attachment, index, size) =>
+                  attachmentPreviewBuilder?.call(note, index, size) ??
+                  _homeNoteAttachmentPreview(attachment, size),
               query: query,
               selected: note.id == selectedNoteId,
               status: statusBuilder?.call(note),
@@ -758,7 +764,7 @@ class _NoteListTile extends StatelessWidget {
   final String query;
   final bool selected;
   final VoidCallback onTap;
-  final Widget Function(NoteAttachment attachment, double size)?
+  final Widget Function(NoteAttachment attachment, int index, double size)?
   attachmentPreviewBuilder;
   final Widget? status;
 
@@ -987,6 +993,7 @@ class _NoteListTile extends StatelessWidget {
                         child:
                             attachmentPreviewBuilder?.call(
                               note.attachments[i],
+                              i,
                               thumbnailSize,
                             ) ??
                             _NoteListAttachmentPreview(
