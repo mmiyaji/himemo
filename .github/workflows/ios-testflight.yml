@@ -223,14 +223,16 @@ jobs:
           print(sorted(candidates, key=lambda item: item[0], reverse=True)[0][1]["udid"])
           PY
           )"
-          xcrun simctl boot "$SIMULATOR_ID" || true
-          xcrun simctl bootstatus "$SIMULATOR_ID" -b
-          flutter drive --verbose --debug --no-pub -d "$SIMULATOR_ID" \
-            --use-application-binary=build/ios/iphonesimulator/Runner.app \
+          python3 tools/ios_launch_smoke.py \
+            --device "$SIMULATOR_ID" \
+            --bundle-id "$BUNDLE_ID" \
+            --app-path build/ios/iphonesimulator/Runner.app \
             --target=test_driver/ios_launch_app.dart \
             --driver=test_driver/ios_launch_test.dart \
-            --timeout=480
-          xcrun simctl shutdown "$SIMULATOR_ID"
+            --evidence-dir build/ios-launch-smoke \
+            --boot-timeout-seconds 180 \
+            --startup-timeout-seconds 180 \
+            --driver-timeout-seconds 480
 
       - name: Upload iOS launch evidence
         if: always()
@@ -257,7 +259,7 @@ jobs:
           -t lib/main_development.dart
 
       - name: Validate TestFlight release automation
-        run: python3 -m unittest discover -s tools -p 'test_finalize_testflight.py'
+        run: python3 -m unittest discover -s tools -p 'test_*.py'
 
       - name: Validate Functions
         run: |
