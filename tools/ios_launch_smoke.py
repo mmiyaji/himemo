@@ -5,8 +5,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import socket
+import re
 import shlex
+import socket
 import subprocess
 import sys
 import time
@@ -21,6 +22,139 @@ def choose_loopback_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
         listener.bind(("127.0.0.1", 0))
         return int(listener.getsockname()[1])
+
+
+def _runtime_sort_key(runtime: dict[str, object]) -> tuple[object, ...]:
+    version_text = str(runtime.get("version", ""))
+    parts = tuple(int(part) for part in re.findall(r"\d+", version_text))
+    if version_text == "27.1":
+        return (0, 0, ())
+    if version_text == "27.2":
+        return (0, 1, ())
+    return (1, tuple(-part for part in parts), version_text)
+
+
+def _device_type_sort_key(device_type: dict[str, object]) -> tuple[object, ...]:
+    name = str(device_type.get("name", ""))
+    if name == "iPhone 18 Pro":
+        return (0, 0, 0, name)
+    match = re.match(r"iPhone\s+(\d+)(?:\s+(.*))?$", name)
+    generation = int(match.group(1)) if match else 0
+    variant = (match.group(2) or "") if match else ""
+    variant_rank = 0 if variant == "Pro" else 1 if not variant else 2
+    return (1, -generation, variant_rank, name)
+
+
+def select_simulator_candidates(
+    runtimes_payload: object,
+    device_types_payload: object,
+) -> list[tuple[str, str, str, str]]:
+    """Return supported iOS runtime/device-type pairs from simctl metadata."""
+    if not isinstance(runtimes_payload, dict) or not isinstance(device_types_payload, dict):
+        raise ValueError("simctl runtime and device-type metadata must be JSON objects")
+    runtimes = runtimes_payload.get("runtimes")
+    device_types = device_types_payload.get("devicetypes", device_types_payload.get("deviceTypes"))
+    if not isinstance(runtimes, list) or not isinstance(device_types, list):
+        raise ValueError("simctl metadata is missing runtimes or devicetypes")
+
+    available_runtimes = [
+        runtime
+        for runtime in runtimes
+        if isinstance(runtime, dict)
+        and runtime.get("isAvailable", True) is True
+        and str(runtime.get("identifier", "")).startswith(
+            "com.apple.CoreSimulator.SimRuntime.iOS-"
+        )
+        and str(runtime.get("version", "")).startswith("27.")
+    ]
+    standard_iphones = [
+        device_type
+        for device_type in device_types
+        if isinstance(device_type, dict)
+        and device_type.get("isAvailable", True) is True
+        and str(device_type.get("name", "")).startswith("iPhone")
+        and "duo" not in str(device_type.get("name", "")).casefold()
+        and isinstance(device_type.get("identifier"), str)
+        and (
+            device_type.get("productFamily") == "iPhone"
+            or (
+                device_type.get("productFamily") is None
+                and str(device_type.get("identifier", "")).startswith(
+                    "com.apple.CoreSimulator.SimDeviceType.iPhone-"
+                )
+            )
+        )
+    ]
+    available_runtimes.sort(key=_runtime_sort_key)
+    standard_iphones.sort(key=_device_type_sort_key)
+
+    candidates: list[tuple[str, str, str, str]] = []
+    for runtime in available_runtimes:
+        runtime_id = runtime["identifier"]
+        runtime_version = str(runtime.get("version", "unknown"))
+        supported_types = runtime.get("supportedDeviceTypes")
+        supported_ids = {
+            item.get("identifier")
+            for item in supported_types
+            if isinstance(item, dict) and isinstance(item.get("identifier"), str)
+        } if isinstance(supported_types, list) else None
+        for device_type in standard_iphones:
+            type_id = device_type["identifier"]
+            if supported_ids is not None and type_id not in supported_ids:
+                continue
+            candidates.append(
+                (
+                    str(runtime_id),
+                    runtime_version,
+                    str(type_id),
+                    str(device_type.get("name", "")),
+                )
+            )
+    if not candidates:
+        raise ValueError("simctl reports no available iOS runtime with a standard iPhone type")
+    return candidates
+
+
+def create_simulator(
+    xcrun: str,
+    name: str,
+    device_type_id: str,
+    runtime_id: str,
+    *,
+    timeout_seconds: float,
+    log: IO[str],
+) -> str | None:
+    command = [xcrun, "simctl", "create", name, device_type_id, runtime_id]
+    log.write(f"\n$ {shlex.join(command)}\n")
+    log.flush()
+    try:
+        completed = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=timeout_seconds,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as error:
+        log.write(f"simulator create timed out after {timeout_seconds:g}s\n")
+        log.flush()
+        raise RuntimeError(f"simulator create timed out after {timeout_seconds:g}s") from error
+    except OSError as error:
+        log.write(f"simulator create could not start: {error}\n")
+        log.flush()
+        raise RuntimeError("simulator create could not start") from error
+
+    output = completed.stdout or ""
+    log.write(output)
+    log.write(f"simulator create exit code: {completed.returncode}\n")
+    log.flush()
+    if completed.returncode != 0:
+        return None
+    created_id = output.strip().splitlines()[-1].strip() if output.strip() else ""
+    if re.fullmatch(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", created_id) is None:
+        raise RuntimeError("simctl create succeeded without returning a simulator UUID")
+    return created_id
 
 
 def is_vm_service_response(payload: object) -> bool:
@@ -155,29 +289,60 @@ def run_smoke(args: argparse.Namespace) -> int:
     console_process: subprocess.Popen[bytes] | None = None
     exit_code = 1
     xcrun = args.xcrun
+    created_device_udid: str | None = None
+    device_id: str | None = None
+    device_name = args.device_name
 
     with transcript_path.open("w", encoding="utf-8") as log:
-        log.write(f"Simulator: {args.device}\nBundle: {args.bundle_id}\n")
+        log.write(f"Requested owned simulator name: {device_name}\nBundle: {args.bundle_id}\n")
         port = choose_loopback_port()
         log.write(f"Chosen VM service loopback port: {port}\n")
         log.flush()
         try:
-            print("Booting iOS simulator and installing the app...", flush=True)
+            runtimes = json.loads(Path(args.runtimes_file).read_text(encoding="utf-8"))
+            device_types = json.loads(Path(args.device_types_file).read_text(encoding="utf-8"))
+            candidates = select_simulator_candidates(runtimes, device_types)
+            log.write(f"Available supported simulator candidates: {len(candidates)}\n")
+            log.flush()
+            runtime_id, runtime_version, type_id, type_name = candidates[0]
+            device_name = f"{device_name}-01"
+            print(
+                f"Creating owned {type_name} simulator on iOS {runtime_version}...",
+                flush=True,
+            )
+            created_device_udid = create_simulator(
+                xcrun,
+                device_name,
+                type_id,
+                runtime_id,
+                timeout_seconds=45,
+                log=log,
+            )
+            if created_device_udid is None:
+                raise RuntimeError("simctl could not create a fresh standard iPhone simulator")
+            device_id = created_device_udid
+            log.write(
+                f"Created owned simulator {device_name} ({device_id}), "
+                f"type={type_name}, runtime=iOS {runtime_version} ({runtime_id}).\n"
+            )
+            log.flush()
+
+            print("Booting owned iOS simulator and installing the app...", flush=True)
             run_command(
-                [xcrun, "simctl", "boot", args.device],
+                [xcrun, "simctl", "boot", device_id],
                 timeout_seconds=30,
                 log=log,
                 label="simulator boot",
                 allow_failure=True,
             )
             run_command(
-                [xcrun, "simctl", "bootstatus", args.device, "-b"],
+                [xcrun, "simctl", "bootstatus", device_id, "-b"],
                 timeout_seconds=args.boot_timeout_seconds,
                 log=log,
                 label="simulator bootstatus",
             )
             run_command(
-                [xcrun, "simctl", "install", args.device, args.app_path],
+                [xcrun, "simctl", "install", device_id, args.app_path],
                 timeout_seconds=120,
                 log=log,
                 label="simulator install",
@@ -188,7 +353,7 @@ def run_smoke(args: argparse.Namespace) -> int:
                 "simctl",
                 "launch",
                 "--console-pty",
-                args.device,
+                device_id,
                 args.bundle_id,
                 "--enable-dart-profiling",
                 f"--vm-service-port={port}",
@@ -236,7 +401,7 @@ def run_smoke(args: argparse.Namespace) -> int:
                 "--no-pub",
                 "--no-dds",
                 "-d",
-                args.device,
+                device_id,
                 f"--use-existing-app=http://127.0.0.1:{port}/",
                 f"--target={args.target}",
                 f"--driver={args.driver}",
@@ -259,28 +424,39 @@ def run_smoke(args: argparse.Namespace) -> int:
             print(f"iOS launch smoke failed: {error}", file=sys.stderr, flush=True)
             exit_code = 1
         finally:
-            run_command(
-                [xcrun, "simctl", "io", args.device, "screenshot", str(screenshot_path)],
-                timeout_seconds=30,
-                log=log,
-                label="simulator screenshot",
-                allow_failure=True,
-            )
-            terminate_process(console_process, log)
-            run_command(
-                [xcrun, "simctl", "terminate", args.device, args.bundle_id],
-                timeout_seconds=30,
-                log=log,
-                label="simulator app terminate",
-                allow_failure=True,
-            )
-            run_command(
-                [xcrun, "simctl", "shutdown", args.device],
-                timeout_seconds=60,
-                log=log,
-                label="simulator shutdown",
-                allow_failure=True,
-            )
+            if device_id is not None:
+                run_command(
+                    [xcrun, "simctl", "io", device_id, "screenshot", str(screenshot_path)],
+                    timeout_seconds=20,
+                    log=log,
+                    label="simulator screenshot",
+                    allow_failure=True,
+                )
+                terminate_process(console_process, log)
+                run_command(
+                    [xcrun, "simctl", "terminate", device_id, args.bundle_id],
+                    timeout_seconds=20,
+                    log=log,
+                    label="simulator app terminate",
+                    allow_failure=True,
+                )
+                run_command(
+                    [xcrun, "simctl", "shutdown", device_id],
+                    timeout_seconds=30,
+                    log=log,
+                    label="simulator shutdown",
+                    allow_failure=True,
+                )
+                run_command(
+                    [xcrun, "simctl", "delete", created_device_udid],
+                    timeout_seconds=30,
+                    log=log,
+                    label="owned simulator delete",
+                    allow_failure=True,
+                )
+            else:
+                log.write("No owned simulator was created; no existing simulator was modified.\n")
+                log.flush()
             log.write(f"\nSmoke exit code: {exit_code}\n")
             log.flush()
             print(f"Simulator evidence saved under {evidence}.", flush=True)
@@ -294,7 +470,9 @@ def run_smoke(args: argparse.Namespace) -> int:
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--device", required=True)
+    parser.add_argument("--device-name", required=True)
+    parser.add_argument("--runtimes-file", required=True)
+    parser.add_argument("--device-types-file", required=True)
     parser.add_argument("--bundle-id", required=True)
     parser.add_argument("--app-path", required=True)
     parser.add_argument("--target", required=True)
@@ -302,7 +480,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--evidence-dir", required=True)
     parser.add_argument("--xcrun", default="xcrun")
     parser.add_argument("--flutter", default="flutter")
-    parser.add_argument("--boot-timeout-seconds", type=int, default=180)
+    parser.add_argument("--boot-timeout-seconds", type=int, default=150)
     parser.add_argument("--startup-timeout-seconds", type=int, default=180)
     parser.add_argument("--driver-timeout-seconds", type=int, default=480)
     return parser.parse_args(argv)
