@@ -223,8 +223,10 @@ jobs:
             --driver=test_driver/ios_launch_test.dart \
             --evidence-dir build/ios-launch-smoke \
             --boot-timeout-seconds 150 \
+            --install-timeout-seconds 600 \
             --startup-timeout-seconds 180 \
-            --driver-timeout-seconds 480
+            --driver-timeout-seconds 480 \
+            --operation-timeout-seconds 960
 
       - name: Upload iOS launch evidence
         if: always()

@@ -15,7 +15,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import IO, Sequence
+from typing import Callable, IO, Sequence
 
 
 def choose_loopback_port() -> int:
@@ -189,6 +189,7 @@ def run_command(
     label: str,
     allow_failure: bool = False,
     max_output_chars: int | None = None,
+    output_callback: Callable[[str], None] | None = None,
 ) -> int:
     log.write(f"\n$ {shlex.join(list(command))}\n")
     log.flush()
@@ -221,6 +222,8 @@ def run_command(
 
     if completed.stdout:
         log.write(_limit_output(completed.stdout, max_output_chars))
+        if output_callback is not None:
+            output_callback(completed.stdout)
     log.write(f"\n{label} exit code: {completed.returncode}\n")
     log.flush()
     if completed.returncode and not allow_failure:
@@ -232,6 +235,94 @@ def _limit_output(output: str, max_chars: int | None) -> str:
     if max_chars is None or len(output) <= max_chars:
         return output
     return output[:max_chars] + f"\n[output truncated at {max_chars} characters]\n"
+
+
+def _bounded_timeout(limit_seconds: float, deadline: float, label: str) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise RuntimeError(f"iOS simulator smoke time budget expired before {label}.")
+    return min(float(limit_seconds), remaining)
+
+
+def parse_migration_statuses(output: str) -> dict[str, str]:
+    """Parse simctl bootstatus migration rows, rejecting unknown output formats."""
+    lines = output.splitlines()
+    try:
+        marker = next(
+            i for i, line in enumerate(lines) if line.strip() == "Data migration details:"
+        )
+    except StopIteration as error:
+        raise RuntimeError("simctl bootstatus output omitted data migration details") from error
+
+    statuses: dict[str, str] = {}
+    row_pattern = re.compile(
+        r"^\s*(\S+)\s*:\s*duration:\s*[^,]+,\s*status:\s*([a-zA-Z_-]+)\s*$"
+    )
+    for line in lines[marker + 1 :]:
+        if not line.strip():
+            break
+        match = row_pattern.fullmatch(line)
+        if match is None:
+            raise RuntimeError("could not parse a simctl data migration status row")
+        name, status = match.groups()
+        status = status.casefold()
+        if status not in {"success", "pending", "running"}:
+            raise RuntimeError(
+                f"simctl reports unsuccessful data migration state: {name}={status}"
+            )
+        statuses[name] = status
+    if not statuses:
+        raise RuntimeError("simctl bootstatus reported no parseable data migration statuses")
+    return statuses
+
+
+def wait_for_migration_quiescence(
+    xcrun: str,
+    device_id: str,
+    initial_output: str,
+    *,
+    deadline: float,
+    log: IO[str],
+    poll_interval_seconds: float = 10,
+) -> None:
+    """Wait for all reported running migrations; persistent pending rows are ignored."""
+    output = initial_output
+    attempt = 0
+    while True:
+        statuses = parse_migration_statuses(output)
+        running = sorted(name for name, status in statuses.items() if status == "running")
+        if not running:
+            log.write(
+                "No simulator data migrations are running; pending rows are treated as deferred.\n"
+            )
+            log.flush()
+            return
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise RuntimeError(
+                "simulator data migrations remained running until the smoke time budget expired: "
+                + ", ".join(running)
+            )
+        attempt += 1
+        log.write(
+            f"Simulator data migration poll {attempt}: still running: "
+            + ", ".join(running)
+            + f"; {remaining:.0f}s remain.\n"
+        )
+        log.flush()
+        time.sleep(min(poll_interval_seconds, remaining))
+        output_chunks: list[str] = []
+        run_command(
+            [xcrun, "simctl", "bootstatus", device_id, "-b", "-d"],
+            timeout_seconds=min(30.0, _bounded_timeout(30, deadline, "migration status poll")),
+            log=log,
+            label="simulator bootstatus migration check",
+            output_callback=output_chunks.append,
+        )
+        if not output_chunks:
+            raise RuntimeError("simctl bootstatus migration check produced no output")
+        output = output_chunks[-1]
 
 
 def collect_failure_diagnostics(
@@ -310,6 +401,8 @@ def run_smoke(args: argparse.Namespace) -> int:
     console_process: subprocess.Popen[bytes] | None = None
     exit_code = 1
     xcrun = args.xcrun
+    # The CI step has a 20-minute ceiling; reserve four minutes for diagnostics and cleanup.
+    operation_deadline = time.monotonic() + args.operation_timeout_seconds
     created_device_udid: str | None = None
     device_id: str | None = None
     device_name = args.device_name
@@ -338,7 +431,7 @@ def run_smoke(args: argparse.Namespace) -> int:
                 device_name,
                 type_id,
                 runtime_id,
-                timeout_seconds=45,
+                timeout_seconds=_bounded_timeout(45, operation_deadline, "simulator create"),
                 log=log,
             )
             if created_device_udid is None:
@@ -353,20 +446,38 @@ def run_smoke(args: argparse.Namespace) -> int:
             print("Booting owned iOS simulator and installing the app...", flush=True)
             run_command(
                 [xcrun, "simctl", "boot", device_id],
-                timeout_seconds=30,
+                timeout_seconds=_bounded_timeout(30, operation_deadline, "simulator boot"),
                 log=log,
                 label="simulator boot",
                 allow_failure=True,
             )
+            bootstatus_output: list[str] = []
             run_command(
                 [xcrun, "simctl", "bootstatus", device_id, "-bd"],
-                timeout_seconds=args.boot_timeout_seconds,
+                timeout_seconds=_bounded_timeout(
+                    args.boot_timeout_seconds, operation_deadline, "simulator bootstatus"
+                ),
                 log=log,
                 label="simulator bootstatus",
+                output_callback=bootstatus_output.append,
+            )
+            if not bootstatus_output:
+                raise RuntimeError("simctl bootstatus produced no output")
+            wait_for_migration_quiescence(
+                xcrun,
+                device_id,
+                bootstatus_output[-1],
+                deadline=operation_deadline,
+                log=log,
             )
             run_command(
                 [xcrun, "simctl", "install", device_id, args.app_path],
-                timeout_seconds=120,
+                # iOS may continue first-boot MobileAsset/data migration after
+                # bootstatus reports boot completion. Let install wait for the
+                # simulator service to become ready, but retain a hard ceiling.
+                timeout_seconds=_bounded_timeout(
+                    args.install_timeout_seconds, operation_deadline, "simulator install"
+                ),
                 log=log,
                 label="simulator install",
             )
@@ -406,7 +517,10 @@ def run_smoke(args: argparse.Namespace) -> int:
             )
             if not wait_for_vm_service(
                 port,
-                args.startup_timeout_seconds,
+                min(
+                    args.startup_timeout_seconds,
+                    max(0, operation_deadline - time.monotonic()),
+                ),
                 log,
                 launch_process=console_process,
             ):
@@ -433,7 +547,11 @@ def run_smoke(args: argparse.Namespace) -> int:
             print("VM service is ready; running Flutter driver startup/native-channel checks.", flush=True)
             exit_code = run_command(
                 drive_command,
-                timeout_seconds=args.driver_timeout_seconds + 60,
+                timeout_seconds=_bounded_timeout(
+                    args.driver_timeout_seconds + 60,
+                    operation_deadline,
+                    "Flutter driver smoke",
+                ),
                 log=log,
                 label="Flutter driver smoke",
                 allow_failure=True,
@@ -510,8 +628,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--xcrun", default="xcrun")
     parser.add_argument("--flutter", default="flutter")
     parser.add_argument("--boot-timeout-seconds", type=int, default=150)
+    parser.add_argument("--install-timeout-seconds", type=int, default=600)
     parser.add_argument("--startup-timeout-seconds", type=int, default=180)
     parser.add_argument("--driver-timeout-seconds", type=int, default=480)
+    parser.add_argument("--operation-timeout-seconds", type=int, default=960)
     return parser.parse_args(argv)
 
 
