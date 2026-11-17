@@ -24,11 +24,12 @@ class SyncV2WrappedProfileKey {
   final bool adminOnly;
 
   static const format = 'himemo.sync.v2.profile-key';
-  static const formatVersion = 1;
+  // Version 3 switched the KDF to OWASP minimum parameters (no migration).
+  static const formatVersion = 3;
   static const adminOnlyFormatVersion = 2;
-  static const kdfMemoryKiB = 64 * 1024;
-  static const kdfIterations = 3;
-  static const kdfParallelism = 4;
+  static const kdfMemoryKiB = 19 * 1024;
+  static const kdfIterations = 2;
+  static const kdfParallelism = 1;
   static const kdfHashLength = 32;
   // Argon2 v1.3 is encoded as 0x13 (decimal 19), not decimal 13.
   static const kdfAlgorithmVersion = 0x13;
@@ -250,6 +251,10 @@ final class SyncV2UnlockedProfileKey {
 }
 
 class SyncV2ProfileKeys {
+  /// Profile and admin passcodes may be as short as four digits; the SYNC key
+  /// is the external protection and local retries are throttled.
+  static const minimumPasscodeLength = 4;
+
   SyncV2ProfileKeys(this._encryption);
 
   final EncryptionService _encryption;

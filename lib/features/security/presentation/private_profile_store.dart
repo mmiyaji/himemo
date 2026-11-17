@@ -25,7 +25,7 @@ class PrivateMemoProfileStore {
   final String listStorageKey;
   final String verifierStoragePrefix;
 
-  static const minimumPasswordLength = 10;
+  static const minimumPasswordLength = 4;
   static const minimumPinLength = 4;
   static final _pinDigits = RegExp(r'^[0-9]+$');
 

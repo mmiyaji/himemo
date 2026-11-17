@@ -114,7 +114,7 @@ void main() {
     }
     for (final field in (valid['kdf'] as Map).keys) {
       final kdf = Map<String, dynamic>.from(valid['kdf'] as Map);
-      kdf[field as String] = field == 'algorithm' ? 'pbkdf2' : 1;
+      kdf[field as String] = field == 'algorithm' ? 'pbkdf2' : 999;
       expect(
         () => SyncV2WrappedProfileKey.fromJson({...valid, 'kdf': kdf}),
         throwsFormatException,
@@ -204,7 +204,7 @@ void main() {
       );
 
       for (final invalid in [
-        {...json, 'version': 3},
+        {...json, 'version': 1},
         {...json, 'mode': 'other'},
         {...json, 'extra': true},
         {...json, 'kdf': <String, Object>{}},
@@ -220,7 +220,7 @@ void main() {
         throwsFormatException,
       );
 
-      // Adding a password later emits the unchanged v1 record format, while
+      // Adding a password later emits the current passphrase record format, while
       // preserving the same raw profile key under its administrator wrapper.
       final passwordConfigured = await service.wrap(
         generationId: generation,
@@ -230,7 +230,7 @@ void main() {
         passphrase: 'new-private-password',
         adminKey: adminKey,
       );
-      expect(passwordConfigured.toJson()['version'], 1);
+      expect(passwordConfigured.toJson()['version'], 3);
       expect(passwordConfigured.toJson().keys.toSet(), {
         'format',
         'version',
@@ -285,9 +285,9 @@ void main() {
     expect(wrapped.first.toJson()['kdf'], {
       'algorithm': 'argon2id',
       'algorithmVersion': 19,
-      'memoryKiB': 65536,
-      'iterations': 3,
-      'parallelism': 4,
+      'memoryKiB': 19456,
+      'iterations': 2,
+      'parallelism': 1,
       'hashLength': 32,
     });
     for (final field in ['profileId', 'keyId']) {

@@ -37,7 +37,7 @@ void main() {
     );
     expect(() => store.decodeRecoveryCode('$code='), throwsFormatException);
     await expectLater(
-      store.configure(adminKey: key, password: 'short'),
+      store.configure(adminKey: key, password: '123'),
       throwsArgumentError,
     );
     key.destroy();

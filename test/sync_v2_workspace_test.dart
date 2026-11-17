@@ -133,7 +133,7 @@ class _Store extends SecureKeyValueStore {
       await enrollmentReadRelease!.future;
       enrollmentReadRelease = null;
     }
-    if (key.startsWith('sync.v2.profiles.') &&
+    if (key.startsWith('sync.v2.unlock.') &&
         key.endsWith('.attempts') &&
         unlockRelease != null) {
       unlockEntered!.complete();
@@ -873,17 +873,17 @@ void main() {
   );
 
   test(
-    'six character admin password is accepted and biometrics can be enabled',
+    'four character admin password is accepted and biometrics can be enabled',
     () async {
       final device = _Device(_Cloud());
       addTearDown(device.workspace.dispose);
       final c = device.workspace;
       await c.initialize();
       await expectLater(
-        c.prepareNew('12345'),
+        c.prepareNew('123'),
         throwsA(isA<SyncV2WorkspaceException>()),
       );
-      await c.prepareNew('123456');
+      await c.prepareNew('1234');
       await c.confirmSetup();
       await c.enableAdminBiometrics();
       c.lockPrivate();

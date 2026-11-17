@@ -17,11 +17,21 @@ class AuthenticationThrottle {
     required this._store,
     required this.storageKey,
     DateTime Function()? now,
-  }) : _now = now ?? DateTime.now;
+    Duration Function(int failures)? delayFor,
+  }) : _now = now ?? DateTime.now,
+       _delayFor = delayFor ?? _defaultDelay;
 
   final SecureKeyValueStore _store;
   final String storageKey;
   final DateTime Function() _now;
+  final Duration Function(int failures) _delayFor;
+
+  // 5 failures: 30s; subsequent failures double, capped at one hour.
+  static Duration _defaultDelay(int count) {
+    if (count < 5) return Duration.zero;
+    final exponent = (count - 5).clamp(0, 7);
+    return Duration(seconds: (30 * (1 << exponent)).clamp(0, 3600));
+  }
 
   Future<bool> verify(Future<bool> Function() check) =>
       StorageSerialExecutor.run(_store, storageKey, () async {
@@ -64,10 +74,8 @@ class AuthenticationThrottle {
           return true;
         }
         final count = failures + 1;
-        // 5 failures: 30s; subsequent failures double, capped at one hour.
-        final exponent = (count - 5).clamp(0, 7);
-        final seconds = count < 5 ? 0 : (30 * (1 << exponent)).clamp(0, 3600);
-        await _persist(count, _now().millisecondsSinceEpoch + seconds * 1000);
+        final delay = _delayFor(count).inMilliseconds.clamp(0, 3600000);
+        await _persist(count, _now().millisecondsSinceEpoch + delay);
         return false;
       });
 
@@ -88,3 +96,18 @@ class AuthenticationThrottle {
     () => _store.delete(storageKey),
   );
 }
+
+/// One counter per v2 generation, shared by profile and admin passcodes so
+/// alternating between them cannot avoid the delay.
+String syncV2UnlockAttemptsKey(String generationId) =>
+    'sync.v2.unlock.${Uri.encodeComponent(generationId)}.attempts';
+
+/// Delay after [failures] consecutive v2 passcode failures.
+Duration syncV2UnlockDelay(int failures) => switch (failures) {
+  < 5 => Duration.zero,
+  5 => const Duration(seconds: 30),
+  6 => const Duration(minutes: 1),
+  7 => const Duration(minutes: 5),
+  8 => const Duration(minutes: 15),
+  _ => const Duration(hours: 1),
+};

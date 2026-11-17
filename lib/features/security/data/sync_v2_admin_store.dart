@@ -10,7 +10,7 @@ import 'sync_v2_profile_keys.dart';
 /// Local passphrase protection. The caller verifies imported recovery keys
 /// against the cloud registration before configuring this store.
 class SyncV2AdminStore {
-  static const minimumPasswordLength = 6;
+  static const minimumPasswordLength = SyncV2ProfileKeys.minimumPasscodeLength;
   SyncV2AdminStore(
     this._store,
     EncryptionService encryption, {
@@ -44,7 +44,8 @@ class SyncV2AdminStore {
     }
     await AuthenticationThrottle(
       store: _store,
-      storageKey: '$storageKey.attempts',
+      storageKey: syncV2UnlockAttemptsKey(generationId),
+      delayFor: syncV2UnlockDelay,
     ).reset();
   }
 
@@ -53,7 +54,8 @@ class SyncV2AdminStore {
     try {
       await AuthenticationThrottle(
         store: _store,
-        storageKey: '$storageKey.attempts',
+        storageKey: syncV2UnlockAttemptsKey(generationId),
+        delayFor: syncV2UnlockDelay,
       ).verify(() async {
         final raw = await _store.read(storageKey);
         if (raw == null || password.isEmpty) return false;

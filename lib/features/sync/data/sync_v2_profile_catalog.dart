@@ -242,7 +242,7 @@ class SyncV2ProfileCatalog {
     required String password,
     required SecretKey adminKey,
   }) async {
-    if (password.length < 12) {
+    if (password.length < SyncV2ProfileKeys.minimumPasscodeLength) {
       throw ArgumentError('Use at least 12 characters.');
     }
     final conflict = (await loadConflicts()).singleWhere(
@@ -464,7 +464,9 @@ class SyncV2ProfileCatalog {
     required String password,
     required SecretKey adminKey,
   }) async {
-    if (name.trim().isEmpty || name.length > 1024 || password.length < 12) {
+    if (name.trim().isEmpty ||
+        name.length > 1024 ||
+        password.length < SyncV2ProfileKeys.minimumPasscodeLength) {
       throw ArgumentError(
         'Provide a name and a password of at least 12 characters.',
       );
@@ -506,8 +508,8 @@ class SyncV2ProfileCatalog {
     try {
       await AuthenticationThrottle(
         store: _store,
-        storageKey:
-            'sync.v2.profiles.${Uri.encodeComponent(generationId)}.attempts',
+        storageKey: syncV2UnlockAttemptsKey(generationId),
+        delayFor: syncV2UnlockDelay,
       ).verify(() async {
         if (password.isEmpty) return false;
         sessions = await _keys.unlockMatchingSessions(
@@ -557,7 +559,7 @@ class SyncV2ProfileCatalog {
     required String password,
     required SecretKey adminKey,
   }) async {
-    if (password.length < 12) {
+    if (password.length < SyncV2ProfileKeys.minimumPasscodeLength) {
       throw ArgumentError('Use at least 12 characters.');
     }
     final record = (await load()).singleWhere(

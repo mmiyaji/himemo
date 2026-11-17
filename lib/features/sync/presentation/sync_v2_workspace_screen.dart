@@ -39,6 +39,7 @@ import '../../home/presentation/home_providers.dart'
         isSystemSyncExclusionTag,
         systemSyncExcludedTag;
 import '../../security/data/sync_v2_admin_store.dart';
+import '../../security/data/sync_v2_profile_keys.dart';
 import '../data/sync_v2_note_repository.dart' show SyncV2NoteVersion;
 import 'sync_v2_workspace.dart';
 import 'sync_v2_privacy.dart';
@@ -2183,7 +2184,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
               final password = await _input(
                 t('プライベートパスワード', 'Private password'),
                 confirm: true,
-                minimum: 12,
+                minimum: SyncV2ProfileKeys.minimumPasscodeLength,
               );
               if (password == null || !active()) return null;
               final previous = c.selectedProfileId;
@@ -2265,7 +2266,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
       final password = await _input(
         t('プライベートパスワード', 'Private password'),
         confirm: true,
-        minimum: 12,
+        minimum: SyncV2ProfileKeys.minimumPasscodeLength,
       );
       if (password != null && mounted && _foreground) {
         await _run(() => c.createProfile(name, password));
@@ -2274,7 +2275,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
       final password = await _input(
         t('新しいプライベートパスワード', 'New private password'),
         confirm: true,
-        minimum: 12,
+        minimum: SyncV2ProfileKeys.minimumPasscodeLength,
       );
       if (password != null &&
           c.selectedProfileId != null &&
@@ -2288,7 +2289,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
       final password = await _input(
         t('競合プロファイルの新しいパスワード', 'New password for conflicted profile'),
         confirm: true,
-        minimum: 12,
+        minimum: SyncV2ProfileKeys.minimumPasscodeLength,
       );
       if (password != null && mounted && _foreground) {
         await _run(

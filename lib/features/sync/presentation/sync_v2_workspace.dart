@@ -849,6 +849,19 @@ class SyncV2WorkspaceController extends ChangeNotifier {
       rethrow;
     }
   });
+  AuthenticationThrottle get _unlockThrottle => AuthenticationThrottle(
+    store: store,
+    storageKey: syncV2UnlockAttemptsKey(generationId!),
+    delayFor: syncV2UnlockDelay,
+  );
+
+  /// Clears the passcode retry delay. Development builds only: the caller must
+  /// gate this on `AppFlavor.development`.
+  Future<void> debugResetUnlockThrottle() => _run(() async {
+    if (generationId == null) return;
+    await _unlockThrottle.reset();
+  });
+
   Future<void> unlockAdminBiometric() => _run(() async {
     if (!biometricEnabled) {
       throw const SyncV2WorkspaceException('biometric_unavailable');
@@ -870,6 +883,7 @@ class SyncV2WorkspaceController extends ChangeNotifier {
       _admin?.destroy();
       _admin = admin;
       _adminFromSettings = false;
+      await _unlockThrottle.reset();
       await _reloadNotes();
     } catch (_) {
       admin.destroy();
