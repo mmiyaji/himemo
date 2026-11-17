@@ -4,22 +4,39 @@ import '../../home/presentation/home_providers.dart';
 
 /// Opens the V1-style search filter dialog and returns the selected filters.
 /// The caller owns persistence and applies the result to its own note list.
-Future<SearchFilters?> showSyncV2SearchFiltersDialog(
+Future<SyncV2SearchControlsResult?> showSyncV2SearchFiltersDialog(
   BuildContext context, {
   required SearchFilters initialFilters,
   required List<String> availableTags,
   required List<int> availableYears,
   required bool hasArchivedNotes,
+  required NotesListDensity initialDensity,
+  required NotesListSortField initialSort,
 }) {
-  return showDialog<SearchFilters>(
+  return showDialog<SyncV2SearchControlsResult>(
     context: context,
     builder: (context) => SyncV2SearchFiltersDialog(
       initialFilters: initialFilters,
       availableTags: availableTags,
       availableYears: availableYears,
       hasArchivedNotes: hasArchivedNotes,
+      initialDensity: initialDensity,
+      initialSort: initialSort,
     ),
   );
+}
+
+/// The complete set of search and list display options selected in the dialog.
+class SyncV2SearchControlsResult {
+  const SyncV2SearchControlsResult({
+    required this.filters,
+    required this.density,
+    required this.sort,
+  });
+
+  final SearchFilters filters;
+  final NotesListDensity density;
+  final NotesListSortField sort;
 }
 
 /// A self-contained filter editor. No storage or note-list state is accessed.
@@ -30,12 +47,16 @@ class SyncV2SearchFiltersDialog extends StatefulWidget {
     required this.availableTags,
     required this.availableYears,
     required this.hasArchivedNotes,
+    required this.initialDensity,
+    required this.initialSort,
   });
 
   final SearchFilters initialFilters;
   final List<String> availableTags;
   final List<int> availableYears;
   final bool hasArchivedNotes;
+  final NotesListDensity initialDensity;
+  final NotesListSortField initialSort;
 
   @override
   State<SyncV2SearchFiltersDialog> createState() =>
@@ -44,6 +65,8 @@ class SyncV2SearchFiltersDialog extends StatefulWidget {
 
 class _SyncV2SearchFiltersDialogState extends State<SyncV2SearchFiltersDialog> {
   late SearchFilters _filters;
+  late NotesListDensity _density;
+  late NotesListSortField _sort;
 
   bool get _ja => Localizations.localeOf(context).languageCode == 'ja';
   String tx(String en, String ja) => _ja ? ja : en;
@@ -52,6 +75,8 @@ class _SyncV2SearchFiltersDialogState extends State<SyncV2SearchFiltersDialog> {
   void initState() {
     super.initState();
     _filters = widget.initialFilters;
+    _density = widget.initialDensity;
+    _sort = widget.initialSort;
   }
 
   void _update(SearchFilters value) => setState(() => _filters = value);
@@ -63,12 +88,21 @@ class _SyncV2SearchFiltersDialogState extends State<SyncV2SearchFiltersDialog> {
     final years = widget.availableYears.toSet().toList()
       ..sort((a, b) => b.compareTo(a));
     return AlertDialog(
-      titlePadding: const EdgeInsets.fromLTRB(24, 20, 12, 8),
-      contentPadding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
-      actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      titlePadding: const EdgeInsets.fromLTRB(20, 16, 12, 12),
+      contentPadding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+      actionsPadding: const EdgeInsets.fromLTRB(16, 8, 20, 16),
       title: Row(
         children: [
-          Expanded(child: Text(tx('Filters', '詳細条件'))),
+          Expanded(
+            child: Text(
+              tx('Search options', '検索の詳細'),
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
           if (!_filters.isDefault)
             TextButton(
               onPressed: () => _update(const SearchFilters()),
@@ -82,7 +116,7 @@ class _SyncV2SearchFiltersDialogState extends State<SyncV2SearchFiltersDialog> {
         ],
       ),
       content: SizedBox(
-        width: 460,
+        width: (MediaQuery.sizeOf(context).width - 80).clamp(0.0, 460.0),
         child: ConstrainedBox(
           constraints: BoxConstraints(
             maxHeight: MediaQuery.sizeOf(context).height * .68,
@@ -91,6 +125,57 @@ class _SyncV2SearchFiltersDialogState extends State<SyncV2SearchFiltersDialog> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Text(
+                  tx('List display', '一覧表示'),
+                  style: theme.textTheme.titleSmall,
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<NotesListDensity>(
+                  initialValue: _density,
+                  isExpanded: true,
+                  decoration: InputDecoration(
+                    labelText: tx('Density', '密度'),
+                    border: const OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  items: [
+                    DropdownMenuItem(
+                      value: NotesListDensity.standard,
+                      child: Text(tx('Standard', '標準')),
+                    ),
+                    DropdownMenuItem(
+                      value: NotesListDensity.compact,
+                      child: Text(tx('Compact', 'コンパクト')),
+                    ),
+                  ],
+                  onChanged: (v) {
+                    if (v != null) setState(() => _density = v);
+                  },
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<NotesListSortField>(
+                  initialValue: _sort,
+                  isExpanded: true,
+                  decoration: InputDecoration(
+                    labelText: tx('Sort by', '並び順'),
+                    border: const OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  items: [
+                    DropdownMenuItem(
+                      value: NotesListSortField.createdAt,
+                      child: Text(tx('Created', '作成')),
+                    ),
+                    DropdownMenuItem(
+                      value: NotesListSortField.updatedAt,
+                      child: Text(tx('Updated', '更新')),
+                    ),
+                  ],
+                  onChanged: (v) {
+                    if (v != null) setState(() => _sort = v);
+                  },
+                ),
+                const Divider(height: 28),
                 CheckboxListTile(
                   contentPadding: EdgeInsets.zero,
                   dense: true,
@@ -100,13 +185,14 @@ class _SyncV2SearchFiltersDialogState extends State<SyncV2SearchFiltersDialog> {
                   onChanged: (v) =>
                       _update(_filters.copyWith(pinnedOnly: v ?? false)),
                 ),
-                const Divider(height: 12),
+                const Divider(height: 24),
                 Text(
                   tx('Attachments', '添付ファイル'),
                   style: theme.textTheme.titleSmall,
                 ),
                 Wrap(
-                  spacing: 4,
+                  spacing: 8,
+                  runSpacing: 4,
                   children: [
                     for (final entry
                         in <(SearchAttachmentFilter, String, String)>[
@@ -357,7 +443,13 @@ class _SyncV2SearchFiltersDialogState extends State<SyncV2SearchFiltersDialog> {
           child: Text(tx('Cancel', 'キャンセル')),
         ),
         FilledButton(
-          onPressed: () => Navigator.of(context).pop(_filters),
+          onPressed: () => Navigator.of(context).pop(
+            SyncV2SearchControlsResult(
+              filters: _filters,
+              density: _density,
+              sort: _sort,
+            ),
+          ),
           child: Text(tx('Apply', '適用')),
         ),
       ],

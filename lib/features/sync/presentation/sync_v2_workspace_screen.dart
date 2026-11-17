@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' show PointerDeviceKind;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show listEquals;
@@ -1605,6 +1606,37 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
     );
   }
 
+  Widget _mobileNoteSwipe(SyncV2WorkspaceController c, Widget child) {
+    if (MediaQuery.sizeOf(context).width >= 600) return child;
+    return _MobileNoteSwipeRegion(
+      onDismiss: () async {
+        if (!mounted || !_foreground || c.busy) return;
+        final wasEditing = _editorOpen;
+        final editing = _editing;
+        final preview = _selectedPreview;
+        final revision = c.privateSessionRevision;
+        if (wasEditing && !_archiveDraftIsClean()) {
+          final discard = await _confirm(
+            t('編集内容を破棄しますか？', 'Discard changes?'),
+            t('保存していない変更は失われます。', 'Unsaved changes will be lost.'),
+          );
+          if (!discard) return;
+        }
+        if (!mounted ||
+            !_foreground ||
+            c.busy ||
+            c.privateSessionRevision != revision ||
+            _editorOpen != wasEditing ||
+            !identical(_editing, editing) ||
+            !identical(_selectedPreview, preview)) {
+          return;
+        }
+        setState(() => _clearEditor(clearPreview: true));
+      },
+      child: child,
+    );
+  }
+
   Widget _previewPane(SyncV2WorkspaceController c, {required bool fullScreen}) {
     final preview = _selectedPreview;
     if (preview == null) {
@@ -2226,6 +2258,23 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
                     });
                   },
           ),
+          if (dismiss != null)
+            IconButton(
+              key: const ValueKey('sync-v2-profile-trash'),
+              tooltip: _trashView ? t('一覧', 'List') : t('ゴミ箱', 'Trash'),
+              icon: Icon(_trashView ? Icons.view_list : Icons.delete_outline),
+              onPressed: c.busy || _editorOpen
+                  ? null
+                  : () {
+                      dismiss();
+                      setState(() {
+                        _trashView = !_trashView;
+                        _archiveView = false;
+                        _calendarView = false;
+                        _insightsView = false;
+                      });
+                    },
+            ),
           PopupMenuButton<String>(
             routeSettings: const RouteSettings(name: _syncV2AdminMenuRoute),
             enabled: !c.busy,
@@ -2338,34 +2387,9 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
                   if (dialogContext.mounted) Navigator.of(dialogContext).pop();
                 },
               ),
-              Consumer(
-                builder: (_, ref, _) {
-                  final sort = ref.watch(notesListSortControllerProvider);
-                  return DropdownButton<NotesListSortField>(
-                    key: const ValueKey('sync-v2-sort'),
-                    value: sort,
-                    items: [
-                      DropdownMenuItem(
-                        value: NotesListSortField.createdAt,
-                        child: Text(t('作成日時', 'Created date')),
-                      ),
-                      DropdownMenuItem(
-                        value: NotesListSortField.updatedAt,
-                        child: Text(t('更新日時', 'Updated date')),
-                      ),
-                    ],
-                    onChanged: (value) {
-                      if (value != null) {
-                        unawaited(
-                          _run(
-                            () => ref
-                                .read(notesListSortControllerProvider.notifier)
-                                .setSortField(value),
-                          ),
-                        );
-                      }
-                    },
-                  );
+              _displayStyleMenu(
+                dismiss: () {
+                  if (dialogContext.mounted) Navigator.of(dialogContext).pop();
                 },
               ),
             ],
@@ -2382,6 +2406,38 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
     );
   }
 
+  Widget _displayStyleMenu({VoidCallback? dismiss}) =>
+      PopupMenuButton<SyncV2DisplayStyle>(
+        key: const ValueKey('sync-v2-display-style'),
+        tooltip: t('表示デザイン', 'Display design'),
+        icon: const Icon(Icons.view_agenda_outlined),
+        onSelected: (style) {
+          dismiss?.call();
+          _setDisplayStyle(style);
+        },
+        itemBuilder: (_) => [
+          for (final style in SyncV2DisplayStyle.values)
+            PopupMenuItem(
+              value: style,
+              child: Row(
+                children: [
+                  Icon(
+                    (_originalDesign == (style == SyncV2DisplayStyle.original))
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_off,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    style == SyncV2DisplayStyle.original
+                        ? t('従来のデザイン', 'Original design')
+                        : t('簡易表示', 'Simple view'),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      );
+
   @override
   Widget build(BuildContext context) {
     final c = ref.watch(syncV2WorkspaceProvider);
@@ -2391,37 +2447,8 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
       listenable: c,
       builder: (context, _) => Scaffold(
         appBar: AppBar(
-          toolbarHeight: _originalDesign && c.registered
-              ? (MediaQuery.textScalerOf(context).scale(22) +
-                        MediaQuery.textScalerOf(context).scale(12) +
-                        20)
-                    .clamp(kToolbarHeight, double.infinity)
-              : null,
           title: _originalDesign && c.registered
-              ? Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const HomeBrandTitle(),
-                    if (_foreground)
-                      Text(
-                        c.profiles
-                                    .where((p) => p.id == c.selectedProfileId)
-                                    .firstOrNull
-                                    ?.isNormal ==
-                                true
-                            ? t('通常', 'Normal')
-                            : c.profiles
-                                      .where((p) => p.id == c.selectedProfileId)
-                                      .firstOrNull
-                                      ?.name ??
-                                  '',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.labelSmall,
-                      ),
-                  ],
-                )
+              ? const HomeBrandTitle()
               : Text(
                   widget.localOnly
                       ? t('暗号化メモ（ローカル）', 'Encrypted notes (local)')
@@ -2430,10 +2457,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
                       : t('暗号化同期 v2', 'Encrypted sync v2'),
                 ),
           actions: [
-            if (_originalDesign &&
-                c.registered &&
-                _foreground &&
-                MediaQuery.sizeOf(context).width >= 1180)
+            if (_originalDesign && c.registered && _foreground)
               IconButton(
                 key: const ValueKey('sync-v2-profile-actions'),
                 tooltip: t('プロファイルと同期', 'Profile and sync'),
@@ -2442,18 +2466,14 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
                     ? null
                     : () => _showProfileControls(c),
               ),
-            if (!_isolatedPreview &&
-                !(_showV1Navigation(c) &&
-                    MediaQuery.sizeOf(context).width >= 840))
+            if (!_isolatedPreview && !(_originalDesign && c.registered))
               IconButton(
                 key: const ValueKey('sync-v2-open-settings'),
                 tooltip: t('設定', 'Settings'),
                 icon: const Icon(Icons.settings_outlined),
                 onPressed: _editorOpen ? null : () => context.go('/settings'),
               ),
-            if (c.registered &&
-                !(_showV1Navigation(c) &&
-                    MediaQuery.sizeOf(context).width >= 840))
+            if (c.registered && !_originalDesign)
               IconButton(
                 key: const ValueKey('sync-v2-trash-toggle'),
                 tooltip: _trashView ? t('一覧', 'List') : t('ごみ箱', 'Trash'),
@@ -2467,9 +2487,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
                         _archiveView = false;
                       }),
               ),
-            if (c.registered &&
-                !(_showV1Navigation(c) &&
-                    MediaQuery.sizeOf(context).width >= 840))
+            if (c.registered && !_originalDesign)
               IconButton(
                 key: const ValueKey('sync-v2-calendar-toggle'),
                 tooltip: _calendarView
@@ -2487,9 +2505,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
                         _archiveView = false;
                       }),
               ),
-            if (c.registered &&
-                !(_showV1Navigation(c) &&
-                    MediaQuery.sizeOf(context).width >= 840))
+            if (c.registered && !_originalDesign)
               IconButton(
                 key: const ValueKey('sync-v2-insights-toggle'),
                 tooltip: _insightsView
@@ -2507,35 +2523,8 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
                         _archiveView = false;
                       }),
               ),
-            if (c.registered)
-              PopupMenuButton<SyncV2DisplayStyle>(
-                key: const ValueKey('sync-v2-display-style'),
-                tooltip: t('表示デザイン', 'Display design'),
-                icon: const Icon(Icons.view_agenda_outlined),
-                onSelected: _setDisplayStyle,
-                itemBuilder: (_) => [
-                  for (final style in SyncV2DisplayStyle.values)
-                    PopupMenuItem(
-                      value: style,
-                      child: Row(
-                        children: [
-                          Icon(
-                            (_originalDesign ==
-                                    (style == SyncV2DisplayStyle.original))
-                                ? Icons.radio_button_checked
-                                : Icons.radio_button_off,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            style == SyncV2DisplayStyle.original
-                                ? t('従来のデザイン', 'Original design')
-                                : t('簡易表示', 'Simple view'),
-                          ),
-                        ],
-                      ),
-                    ),
-                ],
-              ),
+            if (c.registered && (!_originalDesign || _editorOpen))
+              _displayStyleMenu(),
             if (!widget.localOnly)
               IconButton(
                 onPressed: c.busy || !c.registered
@@ -2722,9 +2711,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
                             )
                           : LayoutBuilder(
                               builder: (context, constraints) {
-                                final profileControls =
-                                    _originalDesign &&
-                                        MediaQuery.sizeOf(context).width >= 1180
+                                final profileControls = _originalDesign
                                     ? const SizedBox.shrink()
                                     : _profileControls(c);
                                 final list = Column(
@@ -2770,7 +2757,6 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
                                                         _originalSearchToolbar(
                                                           c,
                                                           density: density,
-                                                          sortField: sortField,
                                                         ),
                                                       ],
                                                     )
@@ -2830,7 +2816,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
                                   ],
                                 );
                                 if (constraints.maxWidth >=
-                                    (_originalDesign ? 1180 : 800)) {
+                                    (_originalDesign ? 700 : 800)) {
                                   return Row(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.stretch,
@@ -2849,17 +2835,35 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
                                       Expanded(
                                         child: _editorOpen
                                             ? _editor(c)
-                                            : _previewPane(
-                                                c,
-                                                fullScreen: false,
+                                            : Padding(
+                                                key: const ValueKey(
+                                                  'sync-v2-wide-preview-pane',
+                                                ),
+                                                padding: _originalDesign
+                                                    ? const EdgeInsets.fromLTRB(
+                                                        16,
+                                                        12,
+                                                        16,
+                                                        12,
+                                                      )
+                                                    : EdgeInsets.zero,
+                                                child: _previewPane(
+                                                  c,
+                                                  fullScreen: false,
+                                                ),
                                               ),
                                       ),
                                     ],
                                   );
                                 }
-                                if (_editorOpen) return _editor(c);
+                                if (_editorOpen) {
+                                  return _mobileNoteSwipe(c, _editor(c));
+                                }
                                 if (_selectedPreview != null) {
-                                  return _previewPane(c, fullScreen: true);
+                                  return _mobileNoteSwipe(
+                                    c,
+                                    _previewPane(c, fullScreen: true),
+                                  );
                                 }
                                 return list;
                               },
@@ -2956,7 +2960,6 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
   Widget _originalSearchToolbar(
     SyncV2WorkspaceController c, {
     required NotesListDensity density,
-    required NotesListSortField sortField,
   }) {
     final compactButtons = MediaQuery.sizeOf(context).width < 560;
     final count =
@@ -2988,6 +2991,8 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
               detailsKey: const ValueKey('sync-v2-search-filters'),
               filterCountKey: const ValueKey('sync-v2-filter-count'),
               density: density,
+              showDensityControl: false,
+              alignSearchHeight: true,
               searchLabel: t('検索', 'Search'),
               searchHint: t(
                 'ノートや添付ファイル名を検索',
@@ -3027,49 +3032,6 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
                   icon: const Icon(Icons.filter_alt_off_outlined),
                   label: Text(t('絞り込みを解除', 'Clear filters')),
                 ),
-              ),
-            if (MediaQuery.sizeOf(context).width < 1180)
-              Wrap(
-                spacing: 12,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  Text(
-                    t(
-                      '${_visibleNotes(c, sortField: sortField).length}件',
-                      '${_visibleNotes(c, sortField: sortField).length} notes',
-                    ),
-                  ),
-                  DropdownButton<bool>(
-                    key: const ValueKey('sync-v2-sort'),
-                    value: sortField == NotesListSortField.createdAt,
-                    underline: const SizedBox.shrink(),
-                    onChanged: (value) {
-                      if (value != null) {
-                        unawaited(
-                          _run(
-                            () => ref
-                                .read(notesListSortControllerProvider.notifier)
-                                .setSortField(
-                                  value
-                                      ? NotesListSortField.createdAt
-                                      : NotesListSortField.updatedAt,
-                                ),
-                          ),
-                        );
-                      }
-                    },
-                    items: [
-                      DropdownMenuItem(
-                        value: true,
-                        child: Text(t('作成日時', 'Created date')),
-                      ),
-                      DropdownMenuItem(
-                        value: false,
-                        child: Text(t('更新日時', 'Updated date')),
-                      ),
-                    ],
-                  ),
-                ],
               ),
           ],
         ),
@@ -3199,13 +3161,18 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
             .toSet()
             .toList()
           ..sort((a, b) => b.compareTo(a));
-    final result = await _dialog<SearchFilters>(
+    final initialDensity = ref.read(notesListDensityControllerProvider);
+    final initialSort = ref.read(notesListSortControllerProvider);
+    final result = await _dialog<SyncV2SearchControlsResult>(
       (_) => SyncV2SearchFiltersDialog(
         initialFilters: _searchFilters,
         availableTags: tags,
         availableYears: years,
         hasArchivedNotes: entries.any((entry) => entry.note.archivedAt != null),
+        initialDensity: initialDensity,
+        initialSort: initialSort,
       ),
+      attachment: true,
     );
     if (!mounted ||
         !_foreground ||
@@ -3214,7 +3181,25 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
         c.privateSessionRevision != revision) {
       return;
     }
-    setState(() => _searchFilters = result);
+    setState(() => _searchFilters = result.filters);
+    await _run(() async {
+      if (result.density != initialDensity) {
+        await ref
+            .read(notesListDensityControllerProvider.notifier)
+            .setDensity(result.density);
+      }
+      if (!mounted ||
+          !_foreground ||
+          c.selectedProfileId != profile ||
+          c.privateSessionRevision != revision) {
+        return;
+      }
+      if (result.sort != initialSort) {
+        await ref
+            .read(notesListSortControllerProvider.notifier)
+            .setSortField(result.sort);
+      }
+    });
   }
 
   Widget _tagChips(SyncV2WorkspaceController c) {
@@ -4384,6 +4369,77 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
       ),
     );
   }
+}
+
+class _MobileNoteSwipeRegion extends StatefulWidget {
+  const _MobileNoteSwipeRegion({required this.child, required this.onDismiss});
+  final Widget child;
+  final VoidCallback onDismiss;
+
+  @override
+  State<_MobileNoteSwipeRegion> createState() => _MobileNoteSwipeRegionState();
+}
+
+class _MobileNoteSwipeRegionState extends State<_MobileNoteSwipeRegion> {
+  Offset? _start;
+  int? _pointer;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) => Listener(
+      key: const ValueKey('sync-v2-note-swipe-region'),
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (event) {
+        if (event.kind != PointerDeviceKind.touch) return;
+        if (_pointer != null) {
+          _pointer = null;
+          _start = null;
+          return;
+        }
+        _pointer = event.pointer;
+        _start = event.localPosition;
+      },
+      onPointerCancel: (event) {
+        if (event.pointer == _pointer) {
+          _pointer = null;
+          _start = null;
+        }
+      },
+      onPointerUp: (event) {
+        if (event.pointer != _pointer || _start == null) return;
+        final start = _start!;
+        final delta = event.localPosition - start;
+        _pointer = null;
+        _start = null;
+        final horizontal =
+            delta.dx.abs() >= 90 &&
+            delta.dx.abs() > delta.dy.abs() * 1.5 &&
+            ((start.dx >= constraints.maxWidth - 48 && delta.dx < 0) ||
+                (start.dx <= 48 && delta.dx > 0));
+        final downward =
+            start.dy <= 56 && delta.dy >= 90 && delta.dy > delta.dx.abs() * 1.5;
+        if (horizontal || downward) widget.onDismiss();
+      },
+      child: Column(
+        children: [
+          SizedBox(
+            height: 20,
+            child: Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).dividerColor,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+            ),
+          ),
+          Expanded(child: widget.child),
+        ],
+      ),
+    ),
+  );
 }
 
 class SyncV2ImportSelection {

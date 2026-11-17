@@ -676,41 +676,53 @@ class _NoteDayDivider extends StatelessWidget {
     final effectiveColor = weekendColor ?? _mutedTextColor(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(0, 14, 0, 10),
-      child: Row(
-        children: [
-          Expanded(
-            child: Container(height: 1, color: Theme.of(context).dividerColor),
-          ),
-          Flexible(
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 10),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color:
-                    weekendColor?.withValues(alpha: 0.08) ??
-                    Theme.of(context).colorScheme.surface,
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(
-                  color:
-                      weekendColor?.withValues(alpha: 0.45) ??
-                      Theme.of(context).dividerColor,
-                ),
+      child: LayoutBuilder(
+        builder: (context, constraints) => Row(
+          children: [
+            Expanded(
+              child: Container(
+                height: 1,
+                color: Theme.of(context).dividerColor,
               ),
-              child: Text(
-                suffix == null ? label : '$label  $suffix',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: effectiveColor,
-                  fontWeight: FontWeight.w700,
+            ),
+            ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: constraints.maxWidth * .7),
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color:
+                      weekendColor?.withValues(alpha: 0.08) ??
+                      Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color:
+                        weekendColor?.withValues(alpha: 0.45) ??
+                        Theme.of(context).dividerColor,
+                  ),
+                ),
+                child: Text(
+                  suffix == null ? label : '$label  $suffix',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: effectiveColor,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ),
-          ),
-          Expanded(
-            child: Container(height: 1, color: Theme.of(context).dividerColor),
-          ),
-        ],
+            Expanded(
+              child: Container(
+                height: 1,
+                color: Theme.of(context).dividerColor,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

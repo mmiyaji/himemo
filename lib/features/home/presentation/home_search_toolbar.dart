@@ -31,6 +31,8 @@ class HomeSearchToolbar extends StatelessWidget {
     this.compactButtons,
     this.activeDetailsMinWidth = 84,
     this.detailsTextStyle,
+    this.showDensityControl = true,
+    this.alignSearchHeight = false,
   });
 
   final TextEditingController controller;
@@ -56,6 +58,8 @@ class HomeSearchToolbar extends StatelessWidget {
   final bool? compactButtons;
   final double activeDetailsMinWidth;
   final TextStyle? detailsTextStyle;
+  final bool showDensityControl;
+  final bool alignSearchHeight;
 
   @override
   Widget build(BuildContext context) {
@@ -77,6 +81,9 @@ class HomeSearchToolbar extends StatelessWidget {
                   labelText: searchLabel,
                   hintText: searchHint,
                   prefixIcon: const Icon(Icons.search_rounded),
+                  prefixIconConstraints: alignSearchHeight
+                      ? const BoxConstraints(minWidth: 48, minHeight: 48)
+                      : null,
                   suffixIcon: value.text.isEmpty
                       ? null
                       : IconButton(
@@ -87,47 +94,52 @@ class HomeSearchToolbar extends StatelessWidget {
                         ),
                   border: const OutlineInputBorder(),
                   isDense: true,
+                  constraints: alignSearchHeight
+                      ? const BoxConstraints(minHeight: 48)
+                      : null,
                 ),
                 onChanged: onQueryChanged,
               ),
             ),
           ),
         ),
-        const SizedBox(width: 8),
-        PopupMenuButton<NotesListDensity>(
-          key: densityKey ?? const ValueKey('shared-notes-density'),
-          tooltip: layoutLabel,
-          onSelected: onDensityChanged,
-          itemBuilder: (context) => [
-            CheckedPopupMenuItem(
-              value: NotesListDensity.standard,
-              checked: !compact,
-              child: Text(standardLabel),
-            ),
-            CheckedPopupMenuItem(
-              value: NotesListDensity.compact,
-              checked: compact,
-              child: Text(compactLabel),
-            ),
-          ],
-          child: Semantics(
-            button: true,
-            label: layoutLabel,
-            child: Tooltip(
-              message: layoutLabel,
-              child: Container(
-                height: 48,
-                width: 48,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  border: border,
-                  borderRadius: BorderRadius.circular(12),
+        if (showDensityControl) ...[
+          const SizedBox(width: 8),
+          PopupMenuButton<NotesListDensity>(
+            key: densityKey ?? const ValueKey('shared-notes-density'),
+            tooltip: layoutLabel,
+            onSelected: onDensityChanged,
+            itemBuilder: (context) => [
+              CheckedPopupMenuItem(
+                value: NotesListDensity.standard,
+                checked: !compact,
+                child: Text(standardLabel),
+              ),
+              CheckedPopupMenuItem(
+                value: NotesListDensity.compact,
+                checked: compact,
+                child: Text(compactLabel),
+              ),
+            ],
+            child: Semantics(
+              button: true,
+              label: layoutLabel,
+              child: Tooltip(
+                message: layoutLabel,
+                child: Container(
+                  height: 48,
+                  width: 48,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    border: border,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.view_agenda_outlined, size: 20),
                 ),
-                child: const Icon(Icons.view_agenda_outlined, size: 20),
               ),
             ),
           ),
-        ),
+        ],
         const SizedBox(width: 8),
         Semantics(
           key: detailsKey,

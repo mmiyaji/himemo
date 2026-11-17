@@ -14,6 +14,8 @@ import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:himemo/features/security/data/secure_key_value_store.dart';
 import 'package:himemo/features/home/presentation/home_page.dart';
+import 'package:himemo/features/home/presentation/home_providers.dart'
+    show NotesListDensity, NotesListSortField;
 import 'package:himemo/features/sync/presentation/sync_v2_attachment_image.dart';
 import 'package:himemo/l10n/app_strings.dart';
 import 'package:himemo/features/sync/data/sync_v2_enrollment_store.dart';
@@ -680,6 +682,13 @@ void main() {
     WidgetTester tester,
     SyncV2DisplayStyle style,
   ) async {
+    if (find
+        .byKey(const ValueKey('sync-v2-display-style'))
+        .evaluate()
+        .isEmpty) {
+      await tester.tap(find.byKey(const ValueKey('sync-v2-profile-actions')));
+      await tester.pumpAndSettle();
+    }
     await tester.tap(find.byKey(const ValueKey('sync-v2-display-style')));
     await tester.pumpAndSettle();
     final label = style == SyncV2DisplayStyle.original
@@ -755,6 +764,189 @@ void main() {
     expect(find.byType(HomeBrandTitle), findsOneWidget);
     expect(find.byType(HomeNotePreviewList), findsOneWidget);
     expect(find.byKey(const ValueKey('sync-v2-search')), findsOneWidget);
+  });
+
+  testWidgets(
+    'original mobile header keeps profile actions and removes duplicate icons',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+      final c = _Controller()
+        ..registered = true
+        ..selectedProfileId = 'normal';
+      addTearDown(c.dispose);
+      await mount(tester, c, displayStyle: null);
+      expect(find.text('HiMemo'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('sync-v2-profile-actions')),
+        findsOneWidget,
+      );
+      for (final key in [
+        'sync-v2-open-settings',
+        'sync-v2-trash-toggle',
+        'sync-v2-calendar-toggle',
+        'sync-v2-insights-toggle',
+        'sync-v2-density',
+        'sync-v2-sort',
+      ]) {
+        expect(find.byKey(ValueKey(key)), findsNothing);
+      }
+      await tester.tap(find.byKey(const ValueKey('sync-v2-profile-actions')));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('Unlock private'), findsOneWidget);
+      expect(find.byTooltip('Lock'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('sync-v2-profile-trash')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('sync-v2-display-style')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('mobile note swipes close preview and protect unsaved edits', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    final c = _Controller()
+      ..registered = true
+      ..selectedProfileId = 'normal'
+      ..notes = [
+        _note(
+          'swipe',
+          title: 'Swipe note',
+          body: 'Saved',
+          createdAt: DateTime.now(),
+        ),
+      ];
+    addTearDown(c.dispose);
+    await mount(tester, c, displayStyle: null);
+    await tester.tap(find.text('Swipe note'));
+    await tester.pumpAndSettle();
+    final region = find.byKey(const ValueKey('sync-v2-note-swipe-region'));
+    final rect = tester.getRect(region);
+    await tester.dragFrom(
+      Offset(rect.right - 8, rect.center.dy),
+      const Offset(-140, 0),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('sync-v2-preview-back')), findsNothing);
+    await tester.tap(find.text('Swipe note'));
+    await tester.pumpAndSettle();
+    final top = tester.getRect(region).topCenter;
+    await tester.dragFrom(top + const Offset(0, 10), const Offset(0, 130));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('sync-v2-preview-back')), findsNothing);
+    await tester.tap(find.text('Swipe note'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Edit'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('sync-v2-title')), 'Unsaved');
+    await tester.pump();
+    final editorTop = tester.getRect(region).topCenter;
+    await tester.dragFrom(
+      editorTop + const Offset(0, 10),
+      const Offset(0, 130),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Discard changes?'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('sync-v2-title')))
+          .controller!
+          .text,
+      'Unsaved',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('external profile lock closes the V2 search details dialog', (
+    tester,
+  ) async {
+    final c = _Controller()
+      ..registered = true
+      ..selectedProfileId = 'normal'
+      ..notes = [
+        _note(
+          'private-search',
+          title: 'Private text',
+          body: '',
+          tags: ['private-tag'],
+          createdAt: DateTime.now(),
+        ),
+      ];
+    addTearDown(c.dispose);
+    await mount(tester, c, displayStyle: null);
+    await tester.tap(find.byKey(const ValueKey('sync-v2-search-filters')));
+    await tester.pumpAndSettle();
+    expect(find.text('#private-tag'), findsWidgets);
+    c.lockPrivate();
+    await tester.pumpAndSettle();
+    expect(find.text('#private-tag'), findsNothing);
+    expect(find.text('Density'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('tablet keeps the scrollable note list beside the preview', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1024, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    final c = _Controller()
+      ..registered = true
+      ..selectedProfileId = 'normal'
+      ..notes = [
+        for (var i = 0; i < 15; i++)
+          _note(
+            'tablet-$i',
+            title: 'Tablet note $i',
+            body: 'Preview body $i',
+            createdAt: DateTime(2025, 1, 30).subtract(Duration(days: i)),
+          ),
+      ];
+    addTearDown(c.dispose);
+    await mount(tester, c, displayStyle: null);
+    final list = find.byType(HomeNotePreviewList);
+    expect(list, findsOneWidget);
+    await tester.tap(find.text('Tablet note 0'));
+    await tester.pumpAndSettle();
+    expect(find.text('Preview body 0'), findsWidgets);
+    expect(list, findsOneWidget);
+    expect(find.byKey(const ValueKey('sync-v2-preview-back')), findsNothing);
+    final searchSection = find.ancestor(
+      of: find.byKey(const ValueKey('sync-v2-search')),
+      matching: find.byType(HomeNoteSection),
+    );
+    final previewPadding = find.byKey(
+      const ValueKey('sync-v2-wide-preview-pane'),
+    );
+    expect(
+      tester.getTopLeft(searchSection).dy,
+      tester.getTopLeft(previewPadding).dy + 12,
+    );
+    await tester.drag(list, const Offset(0, -600));
+    await tester.pumpAndSettle();
+    expect(find.text('Tablet note 0'), findsOneWidget);
+    expect(find.text('Preview body 0'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('wide navigation switches sections and reaches settings', (
@@ -855,33 +1047,51 @@ void main() {
     expect(find.text('Settings route reached'), findsOneWidget);
   });
 
-  testWidgets('wide original view moves V2 profile controls to app bar', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(1200, 900);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(() {
-      tester.view.resetPhysicalSize();
-      tester.view.resetDevicePixelRatio();
-    });
-    final c = _Controller()
-      ..registered = true
-      ..selectedProfileId = 'normal';
-    addTearDown(c.dispose);
-    await mount(tester, c, displayStyle: null);
-    expect(find.byKey(const ValueKey('sync-v2-archive-toggle')), findsNothing);
-    expect(find.byKey(const ValueKey('sync-v2-sort')), findsNothing);
-    await tester.tap(find.byKey(const ValueKey('sync-v2-profile-actions')));
-    await tester.pumpAndSettle();
-    expect(
-      find.byKey(const ValueKey('sync-v2-archive-toggle')),
-      findsOneWidget,
-    );
-    expect(find.byKey(const ValueKey('sync-v2-sort')), findsOneWidget);
-    c.lockPrivate();
-    await tester.pumpAndSettle();
-    expect(find.text('Profile and sync'), findsNothing);
-  });
+  testWidgets(
+    'wide original view moves profile controls to app bar and list options to details',
+    (tester) async {
+      tester.view.physicalSize = const Size(1200, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+      final c = _Controller()
+        ..registered = true
+        ..selectedProfileId = 'normal';
+      addTearDown(c.dispose);
+      await mount(tester, c, displayStyle: null);
+      expect(
+        find.byKey(const ValueKey('sync-v2-archive-toggle')),
+        findsNothing,
+      );
+      expect(find.byKey(const ValueKey('sync-v2-sort')), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('sync-v2-profile-actions')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('sync-v2-archive-toggle')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('sync-v2-sort')), findsNothing);
+      expect(
+        find.byKey(const ValueKey('sync-v2-display-style')),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Close'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('sync-v2-search-filters')));
+      await tester.pumpAndSettle();
+      expect(find.text('Density'), findsOneWidget);
+      expect(find.text('Sort by'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('sync-v2-profile-actions')));
+      await tester.pumpAndSettle();
+      c.lockPrivate();
+      await tester.pumpAndSettle();
+      expect(find.text('Profile and sync'), findsNothing);
+    },
+  );
 
   testWidgets('shared V1 sidebar filters only visible V2 profile tags', (
     tester,
@@ -1113,7 +1323,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(tile);
     await tester.pumpAndSettle();
-    expect(find.text('Missing or locked · read only'), findsOneWidget);
+    expect(find.text('Missing or locked · read only'), findsWidgets);
     for (final secret in [
       'SECRET cached title',
       'SECRET cached body',
@@ -1485,6 +1695,7 @@ void main() {
         ];
       addTearDown(c.dispose);
       await mount(tester, c, displayStyle: null);
+      await selectDisplayStyle(tester, SyncV2DisplayStyle.simple);
       await tester.tap(find.byKey(const ValueKey('sync-v2-calendar-toggle')));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('sync-v2-calendar')), findsOneWidget);
@@ -1819,7 +2030,7 @@ void main() {
     expect(
       tester
           .widget<IconButton>(
-            find.byKey(const ValueKey('sync-v2-open-settings')),
+            find.byKey(const ValueKey('sync-v2-profile-actions')),
           )
           .onPressed,
       isNull,
@@ -2059,9 +2270,17 @@ void main() {
       'Second title',
       'Needle title',
     ]);
-    await tester.tap(find.byKey(const ValueKey('sync-v2-sort')));
+    await tester.tap(find.byKey(const ValueKey('sync-v2-search-filters')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Updated date').last);
+    await tester.tap(find.byType(DropdownButtonFormField<NotesListSortField>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Updated').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(DropdownButtonFormField<NotesListDensity>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Compact').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Apply'));
     await tester.pumpAndSettle();
     expect(list().sortField.name, 'updatedAt');
     expect(list().notes.map((note) => note.title), [
@@ -2069,19 +2288,6 @@ void main() {
       'Second title',
       'Third title',
     ]);
-    await tester.tap(find.byKey(const ValueKey('sync-v2-density')));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find
-          .ancestor(
-            of: find.text('Compact list').last,
-            matching: find.byWidgetPredicate(
-              (widget) => widget is CheckedPopupMenuItem,
-            ),
-          )
-          .first,
-    );
-    await tester.pumpAndSettle();
     expect(list().density.name, 'compact');
   });
 
@@ -2272,6 +2478,8 @@ void main() {
     );
     addTearDown(c.dispose);
     await mount(tester, c, displayStyle: null);
+    await tester.tap(find.byKey(const ValueKey('sync-v2-profile-actions')));
+    await tester.pumpAndSettle();
     final profiles = find.byType(DropdownButton<String>).first;
     await tester.tap(profiles);
     await tester.pumpAndSettle();
@@ -2304,6 +2512,8 @@ void main() {
       ];
     addTearDown(c.dispose);
     await mount(tester, c, displayStyle: null);
+    await tester.tap(find.byKey(const ValueKey('sync-v2-profile-actions')));
+    await tester.pumpAndSettle();
     final screenContext = tester.element(find.byType(SyncV2WorkspaceScreen));
     final navigator = Navigator.of(screenContext, rootNavigator: true);
     unawaited(
@@ -3628,7 +3838,7 @@ void main() {
       ..registered = true
       ..selectedProfileId = 'normal';
     addTearDown(controller.dispose);
-    await mount(tester, controller, displayStyle: null);
+    await mount(tester, controller, displayStyle: 'simple');
     await tester.tap(find.byTooltip('New note'));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('Attach (up to 64 MiB)'));
