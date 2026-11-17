@@ -2470,4 +2470,34 @@ void main() {
     await a.workspace.leaveV2();
     expect(a.deactivations, 1);
   }, timeout: const Timeout(Duration(minutes: 2)));
+
+  test('five wrong passcodes delay the next unlock even when correct', () async {
+    final device = _Device(_Cloud());
+    addTearDown(device.workspace.dispose);
+    final c = device.workspace;
+    await c.initialize();
+    await c.prepareNew('1234');
+    await c.confirmSetup();
+    await c.createProfile('Work', '1234');
+    c.lockPrivate();
+    for (var i = 0; i < 5; i++) {
+      await expectLater(
+        c.unlockPrivate('000$i'),
+        throwsA(
+          isA<SyncV2WorkspaceException>().having(
+            (e) => e.code,
+            'code',
+            'wrong_password',
+          ),
+        ),
+      );
+    }
+    await expectLater(
+      c.unlockPrivate('1234'),
+      throwsA(
+        isA<SyncV2WorkspaceException>().having((e) => e.code, 'code', 'throttled'),
+      ),
+    );
+  });
+
 }
