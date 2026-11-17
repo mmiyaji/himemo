@@ -151,3 +151,12 @@ python -m http.server 8765 --directory build/web
 - この変更でiOS実機のCloudKit・生体認証を検証したわけではない。通常のv2 transportは現在iOSのみ対応、Webではv2-localで開発する。Android配布の確認はしていない。
 - 検証: 既定v2の共有テスト599件、明示v1の旧回帰244件成功。初期化共有の最終修正後に関連26件も成功。v1実アプリ起動拒否とproductionのv2-local拒否を別途確認。解析対象からローカルの `.claude/**` を除外（worktree自体は変更しない）。
 - 最終確認: 既定v2／v2-localのWebビルド成功、`flutter analyze --fatal-infos` 指摘なし、変更Dartファイルのフォーマット確認成功。Opus再レビューでも重大な問題なし。iOS実機・Androidのアプリ実行と配布は未実施。
+
+
+### 2026-11-18: フェーズ5・旧ワークスペース画面を削除
+- `sync_v2_workspace_screen.dart`（5,085行）と専用の画面テスト（4,515行）を削除。通常アプリ・開発ツール・テストに残存参照はない。統合画面のテスト、コントローラ、共有エディタ／ビューアのテストは維持。
+- `tools/v2_web_local_preview.dart` は通常のbootstrap＋v2-localで統合アプリを表示し、v2-local指定がない起動は拒否する。`v2_web_preview.dart` は同じ入口へ委譲する互換エントリに変更。既存のローカルsmoke分岐は維持。
+- 旧画面専用だったCloudKitサンドボックスUIツールを撤去。名前空間で分離する通信実装とテスト、独立した閲覧専用ツールは残す。Webはローカルプレビュー中心という既定方針に合わせる。
+- Opusレビューで重大な不整合なし。指摘された分離の前提は、bootstrapのv2-local override→専用DB名 `himemo_sync_v2_local_preview_wasm`、MemorySecureKeyValueStore、LocalPreviewRegistration、クラウドを呼ばないsyncOperationで確認。統合設定の同期操作も同じcontrollerを利用し、旧同期はv2モードで無効。
+- 検証: 残るv2共有テスト515件成功、静的解析指摘なし。互換プレビューエントリのWebビルド成功。ブラウザで通常のノート画面→設定→同期操作まで確認し、最終同期表示の更新とerrorログなしを確認。iOS・CloudKit実機の検証はしていない。
+- 旧ZIP処理はcontroller・添付アーカイブの下層テスト・ローカルsmokeから依存されている。次はこの依存を整理してZIP移行APIを削除し、その後に旧DB／旧同期／v1互換分岐を削除する。

@@ -1,7 +1,7 @@
 # CloudKit v2 Web isolation
 
-The read-only screen is available from Web settings and the standalone entry,
-`tools/v2_cloudkit_readonly.dart`. It requires an API token and an explicit
+The read-only screen is available only from the standalone development entry
+`tools/v2_cloudkit_readonly.dart`; it is not part of application settings. It requires an API token and an explicit
 Apple connection. It defaults to development and can read production after an
 explicit selection. It never enables writes; its database and recovery
 credentials are memory-only. It has not been tested against an Apple CloudKit
@@ -16,14 +16,18 @@ all experimental participants; different namespaces cannot discover one
 another. Keep the identifier non-secret and randomly generated to avoid
 accidental reuse.
 
-The separate development entry `tools/v2_cloudkit_sandbox.dart` enables V2
-editing only within such a named development sandbox. It requires an explicit
-user action, an API token, and Apple authentication before it connects. The
-application's production entry does not enable this screen. Its working
-database and credentials are memory-only; save the generated recovery codes
-and trigger sync before leaving if the test data needs to be reopened. Any
-unsent changes are lost when the session ends. Do not use real notes, recovery
-codes, or production data for this experiment.
+The retired V2 workspace screen and its standalone CloudKit sandbox UI entry
+have been removed. The namespaced sandbox transport and its automated tests
+remain for protocol experiments. No application route enables sandbox writes.
+Use the unified local preview for UI development:
+
+```sh
+flutter run -d chrome -t tools/v2_web_local_preview.dart --dart-define=HIMEMO_NOTE_BACKEND=v2-local
+```
+
+This preview uses an isolated browser database and in-memory credentials. It
+never contacts iCloud. Reloading cannot recover those in-memory keys; use only
+sample data.
 
 `disconnect` blocks new operations and invalidates pending responses. A
 CloudKit request already dispatched cannot be retracted, so sandbox separation
