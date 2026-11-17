@@ -23,6 +23,7 @@ import 'package:himemo/features/sync/data/sync_v2_payload_codec.dart';
 import 'package:himemo/features/sync/data/sync_v2_publisher.dart';
 import 'package:himemo/features/sync/data/sync_v2_receiver.dart';
 import 'package:himemo/features/sync/data/sync_v2_pairing_code.dart';
+import 'package:himemo/features/sync/data/sync_v2_device_transfer.dart';
 import 'package:himemo/features/sync/presentation/sync_v2_workspace.dart';
 
 class _Cloud
@@ -657,6 +658,15 @@ void main() {
     expect(c.adminUnlocked, isTrue);
     expect((await c.showRecoveryCodes()).adminCode, isNull);
     await expectLater(
+      c.configureAdminPassword('4321'),
+      throwsA(isA<SyncV2WorkspaceException>()),
+    );
+    expect(c.error, 'admin_required');
+    await expectLater(
+      c.deviceTransfer(),
+      throwsA(isA<SyncV2WorkspaceException>()),
+    );
+    await expectLater(
       c.enableAdminBiometrics(),
       throwsA(isA<SyncV2WorkspaceException>()),
     );
@@ -871,6 +881,153 @@ void main() {
     },
     timeout: const Timeout(Duration(minutes: 2)),
   );
+
+  test(
+    'device transfer grants both roles with a device-local passcode',
+    () async {
+      final cloud = _Cloud();
+      final first = _Device(cloud);
+      final second = _Device(cloud);
+      addTearDown(first.workspace.dispose);
+      addTearDown(second.workspace.dispose);
+      final a = first.workspace;
+      final b = second.workspace;
+      await a.initialize();
+      await a.prepareNew('1234');
+      await a.confirmSetup();
+      await a.createProfile('private', '5678');
+      await a.saveNote(title: 'private note', body: 'body');
+      await a.syncNow();
+      final transfer = await a.deviceTransfer();
+      await b.initialize();
+      await b.recoverDeviceTransfer(transfer, adminPassword: '4321');
+      expect(b.canManageAdminCredentials, isTrue);
+      await b.selectProfile(b.profiles.singleWhere((p) => !p.isNormal).id);
+      expect(b.notes.single.note.title, 'private note');
+      b.lockPrivate();
+      await expectLater(
+        b.unlockAdmin('1234'),
+        throwsA(isA<SyncV2WorkspaceException>()),
+      );
+      await b.unlockAdmin('4321');
+      expect(b.adminUnlocked, isTrue);
+      a.lockPrivate();
+      await a.unlockAdmin('1234');
+      expect(a.adminUnlocked, isTrue);
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
+
+  test('invalid combined ADMIN never persists enrollment or a device grant', () async {
+    final cloud = _Cloud();
+    final first = _Device(cloud);
+    final second = _Device(cloud);
+    addTearDown(first.workspace.dispose);
+    addTearDown(second.workspace.dispose);
+    await first.workspace.initialize();
+    await first.workspace.prepareNew('1234');
+    await first.workspace.confirmSetup();
+    final valid = await first.workspace.deviceTransfer();
+    final wrong =
+        'himemo-admin-v2:${base64Url.encode(utf8.encode(jsonEncode({'generation': valid.generationId, 'key': base64Encode(List.filled(32, 99))})))}';
+    await second.workspace.initialize();
+    await expectLater(
+      second.workspace.recoverDeviceTransfer(
+        SyncV2DeviceTransfer(syncCode: valid.syncCode, adminCode: wrong),
+        adminPassword: '4321',
+      ),
+      throwsA(isA<SyncV2WorkspaceException>()),
+    );
+    expect(second.workspace.registered, isFalse);
+    expect(await second.enrollment.readForAccount('account'), isNull);
+    expect(
+      await second.workspace.deviceAdminStore.read(
+        accountId: 'account',
+        generationId: valid.generationId,
+      ),
+      isNull,
+    );
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  test('SYNC-only transfer grants no ADMIN and switching local methods removes the old credential', () async {
+    final cloud = _Cloud();
+    final biometric = _Biometrics();
+    final first = _Device(cloud, biometrics: biometric);
+    final second = _Device(cloud);
+    addTearDown(first.workspace.dispose);
+    addTearDown(second.workspace.dispose);
+    final a = first.workspace;
+    await a.initialize();
+    await a.prepareNew('1234');
+    await a.confirmSetup();
+    await a.createProfile('private', '5678');
+    await a.syncNow();
+    final syncOnly = await a.deviceTransfer(includeAdministrator: false);
+    await second.workspace.initialize();
+    await second.workspace.recoverDeviceTransfer(syncOnly);
+    expect(second.workspace.adminUnlocked, isFalse);
+    expect(
+      await second.workspace.deviceAdminStore.read(
+        accountId: 'account',
+        generationId: syncOnly.generationId,
+      ),
+      isNull,
+    );
+    await expectLater(
+      second.workspace.deviceTransfer(),
+      throwsA(isA<SyncV2WorkspaceException>()),
+    );
+    await a.enableAdminBiometrics();
+    expect(await first.store.read('sync.v2.admin.${a.generationId}'), isNull);
+    expect(a.biometricEnabled, isTrue);
+    await expectLater(
+      a.configureAdminPassword('5678'),
+      throwsA(isA<SyncV2WorkspaceException>()),
+    );
+    expect(a.error, 'duplicate_passcode');
+    expect(a.biometricEnabled, isTrue);
+    await a.configureAdminPassword('4321');
+    expect(a.biometricEnabled, isFalse);
+    expect(biometric.keys, isEmpty);
+    a.lockPrivate();
+    await expectLater(
+      a.unlockAdminBiometric(),
+      throwsA(isA<SyncV2WorkspaceException>()),
+    );
+    await a.unlockAdmin('4321');
+    expect(a.adminUnlocked, isTrue);
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  test('combined transfer can select biometrics and a cancelled switch preserves the passcode', () async {
+    final cloud = _Cloud();
+    final biometric = _Biometrics();
+    final first = _Device(cloud, biometrics: biometric);
+    final receiverBiometric = _Biometrics();
+    final second = _Device(cloud, biometrics: receiverBiometric);
+    addTearDown(first.workspace.dispose);
+    addTearDown(second.workspace.dispose);
+    final a = first.workspace;
+    await a.initialize();
+    await a.prepareNew('1234');
+    await a.confirmSetup();
+    biometric.cancel = true;
+    await expectLater(
+      a.enableAdminBiometrics(),
+      throwsA(isA<SyncV2WorkspaceException>()),
+    );
+    expect(a.biometricEnabled, isFalse);
+    expect(a.adminPasswordConfigured, isTrue);
+    a.lockPrivate();
+    await a.unlockAdmin('1234');
+    final transfer = await a.deviceTransfer();
+    await second.workspace.initialize();
+    await second.workspace.recoverDeviceTransfer(transfer, useBiometrics: true);
+    expect(second.workspace.biometricEnabled, isTrue);
+    expect(second.workspace.adminPasswordConfigured, isFalse);
+    second.workspace.lockPrivate();
+    await second.workspace.unlockAdminBiometric();
+    expect(second.workspace.canManageAdminCredentials, isTrue);
+  }, timeout: const Timeout(Duration(minutes: 2)));
 
   test(
     'four character admin password is accepted and biometrics can be enabled',

@@ -1,6 +1,6 @@
 # 引き継ぎ指示書: v1 画面で Sync v2 を扱う統合作業
 
-作成日: 2026-11-18 / ブランチ: `feature/v2-on-v1-ui`（`feature/v2-attachment-viewer` から分岐。実装の基点 `bf765a2`、引き継ぎ資料 `a3eea96`。フェーズ2/3は本ブランチで実装済み）
+作成日: 2026-11-18 / ブランチ: `feature/v2-on-v1-ui`（`feature/v2-attachment-viewer` から分岐。実装の基点 `bf765a2`、引き継ぎ資料 `a3eea96`。フェーズ2/3は `699ffaa` にコミット済み）
 
 ## 0. 最初に読むもの
 
@@ -53,12 +53,17 @@
 - Opusで設計・実装レビューを実施し、領域分離、プレースホルダ保護、保存エラーの再試行等を修正。再レビューはClaude Codeの利用上限により未実施。
 - 大きい添付の読み込みがDBトランザクションを占有する点は、フェーズ6で性能評価・改善する。
 - Webの `v2-local` で画像・動画・音声の取り込み、保存後の画像表示、動画・音声の再生を手動確認済み（ブラウザerrorログなし）。完成したビルドで再確認し、画像表示・動画再生完了・音声再生を確認。
-- 次はフェーズ4。iOS実機のメディア再生・CloudKitは未確認。
+- フェーズ4も下記のとおり実装。iOS実機のメディア再生・CloudKitは未確認。
 
-### フェーズ 4: 管理者解除方式と端末追加
-- 端末ごとに「生体認証 / 管理パスコード」を選択可能に。
-- 端末追加 QR を 1 種類（SYNC + ADMIN）に。詳細設定に「管理者なしで追加（SYNC のみ）」。
-- 復元コード（SYNC / ADMIN）を 1 ファイルで出力。
+### フェーズ 4: 管理者解除方式と端末追加（実装済み）
+- v1設定の「同期とセキュリティ」に `SyncV2DeviceSecuritySettings` を追加。端末ごとに生体認証／管理パスコードを選択し、新しい方式の保存後に以前の方式を削除する。鍵管理はADMIN鍵を直接解除したセッションのみ。
+- 通常の端末追加QRはSYNC＋ADMINの1種類。詳細設定に管理者なしのSYNC-only QRを配置。SYNC-onlyでもプロファイルのパスコードを知っていればそのプロファイルは開ける（管理者権限を付けない）。
+- `SyncV2DeviceTransfer` はQRと復元ファイルの共通形式。SYNCとADMINの世代を照合し、受信時にはクラウド登録情報でADMINも検証してから端末登録を保存する。不正ADMINでは登録も端末管理者鍵も残さない。
+- 復元ファイルは `himemo-recovery.json` の1ファイル。受信端末で自分の解除方式を選び、管理パスコードは端末内だけに保存する。復元ファイルからの再登録は詳細設定でも可能。
+- QR等のダイアログはバックグラウンド移行時に閉じ、保護セッションを破棄する。管理者の解除状態はv1の一覧へも反映する。
+- 検証: 全体832件成功、v2専用1件も別途成功。静的解析・Webビルド成功。Webで設定表示・統合QR・復元ファイルの実出力を確認。iOSの生体認証・カメラ読み取りは未確認。
+- Opusへの相談は利用上限（2026-11-18 02:20 JST解除予定）により未実施。次回利用可能になったらこの差分を優先レビューする。
+- 次はフェーズ5。旧v2専用画面の別々のQR等の重複導線は、フェーズ5で整理・削除する。
 
 ### フェーズ 5: 整理と削除
 - v2 固有操作（QR ペアリング・復元コード・生体登録・プロファイル作成）を v1 設定画面の「同期とセキュリティ」に集約。
@@ -75,7 +80,7 @@
 ### テスト
 ```bash
 flutter analyze lib
-flutter test test/sync_v2_note_store_test.dart test/sync_v2_unlock_throttle_test.dart test/sync_v2_workspace_test.dart test/sync_v2_workspace_screen_test.dart test/sync_v2_profile_keys_test.dart test/sync_v2_admin_store_test.dart test/home_providers_logic_test.dart test/app_test.dart
+flutter test test/sync_v2_device_transfer_test.dart test/sync_v2_device_security_settings_test.dart test/sync_v2_note_store_test.dart test/sync_v2_unlock_throttle_test.dart test/sync_v2_workspace_test.dart test/sync_v2_workspace_screen_test.dart test/sync_v2_profile_keys_test.dart test/sync_v2_admin_store_test.dart test/home_providers_logic_test.dart test/app_test.dart
 ```
 - 2026-11-18 フェーズ2完了時: `flutter test` 全817件成功。`flutter analyze lib` と変更テストの解析は指摘なし。development / `v2-local` のWebビルド成功。iOS実機の生体認証・CloudKitは未確認。
 - フェーズ3: 全体823件成功（v2専用テスト1件は通常実行時スキップし、`--dart-define=HIMEMO_NOTE_BACKEND=v2-local` を付けて別途成功）。静的解析・Webビルド成功。

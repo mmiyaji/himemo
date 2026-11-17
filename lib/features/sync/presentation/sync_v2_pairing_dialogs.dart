@@ -6,16 +6,25 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../data/sync_v2_pairing_code.dart';
+import '../data/sync_v2_device_transfer.dart';
 
 class SyncV2PairingQrDialog extends StatelessWidget {
   const SyncV2PairingQrDialog({
     super.key,
     required this.code,
     required this.administrator,
-  });
+  }) : device = false;
+
+  SyncV2PairingQrDialog.device({
+    super.key,
+    required SyncV2DeviceTransfer transfer,
+  }) : code = transfer.toQr(),
+       administrator = transfer.includesAdministrator,
+       device = true;
 
   final String code;
   final bool administrator;
+  final bool device;
 
   String _text(BuildContext context, String japanese, String english) =>
       Localizations.localeOf(context).languageCode == 'ja' ? japanese : english;
@@ -28,17 +37,24 @@ class SyncV2PairingQrDialog extends StatelessWidget {
       320.0,
       math.max(40.0, math.min(contentWidth - 24, screen.height - 320)),
     );
-    final qrData = SyncV2PairingCode.encodeQr(
-      code,
-      administrator: administrator,
-    );
+    final qrData = device
+        ? code
+        : SyncV2PairingCode.encodeQr(code, administrator: administrator);
 
     return AlertDialog(
       title: Text(
         _text(
           context,
-          administrator ? '管理者用の参加 QR' : '同期用の参加 QR',
-          administrator ? 'Admin pairing QR' : 'Sync pairing QR',
+          device
+              ? '端末追加 QR'
+              : administrator
+              ? '管理者用の参加 QR'
+              : '同期用の参加 QR',
+          device
+              ? 'Add device QR'
+              : administrator
+              ? 'Admin pairing QR'
+              : 'Sync pairing QR',
         ),
       ),
       content: SizedBox(
@@ -49,7 +65,13 @@ class SyncV2PairingQrDialog extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                administrator
+                device && !administrator
+                    ? _text(
+                        context,
+                        'この QR は同期用の鍵を含みます。管理者権限は含みませんが、プロファイルのパスコードを知る人はそのプロファイルを開けます。有効期限はなく、再利用できます。',
+                        'This QR contains sync keys without administrator access. Anyone who knows a profile passcode can still open that profile. It does not expire and can be reused.',
+                      )
+                    : administrator
                     ? _text(
                         context,
                         'この QR を知る人（撮影・コピーを含む）は、同じ iCloud アカウントの v2 同期で全私用プロファイルにアクセスできます。有効期限はなく、再利用できます。信頼できる相手にだけ共有してください。',
@@ -112,9 +134,14 @@ class SyncV2PairingQrDialog extends StatelessWidget {
 }
 
 class SyncV2PairingScannerDialog extends StatefulWidget {
-  const SyncV2PairingScannerDialog({super.key, required this.administrator});
+  const SyncV2PairingScannerDialog({super.key, required this.administrator})
+    : device = false;
+  const SyncV2PairingScannerDialog.device({super.key})
+    : administrator = false,
+      device = true;
 
   final bool administrator;
+  final bool device;
 
   @override
   State<SyncV2PairingScannerDialog> createState() =>
@@ -206,10 +233,12 @@ class _SyncV2PairingScannerDialogState extends State<SyncV2PairingScannerDialog>
       final raw = barcode.rawValue?.trim();
       if (raw == null || raw.isEmpty) continue;
       try {
-        final code = SyncV2PairingCode.decodeQr(
-          raw,
-          administrator: widget.administrator,
-        );
+        final code = widget.device
+            ? SyncV2DeviceTransfer.fromQr(raw).toQr()
+            : SyncV2PairingCode.decodeQr(
+                raw,
+                administrator: widget.administrator,
+              );
         _completed = true;
         _syncCamera();
         Navigator.of(context).pop(code);
@@ -292,8 +321,16 @@ class _SyncV2PairingScannerDialogState extends State<SyncV2PairingScannerDialog>
       math.max(80.0, math.min(screen.width - 128, screen.height - 300)),
     );
     final title = _text(
-      widget.administrator ? '管理者用 QR を読み取り' : '同期用 QR を読み取り',
-      widget.administrator ? 'Scan admin pairing QR' : 'Scan sync pairing QR',
+      widget.device
+          ? '端末追加 QR を読み取り'
+          : widget.administrator
+          ? '管理者用 QR を読み取り'
+          : '同期用 QR を読み取り',
+      widget.device
+          ? 'Scan add device QR'
+          : widget.administrator
+          ? 'Scan admin pairing QR'
+          : 'Scan sync pairing QR',
     );
 
     return AlertDialog(

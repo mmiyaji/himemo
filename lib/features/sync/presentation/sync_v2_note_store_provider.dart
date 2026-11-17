@@ -72,7 +72,15 @@ final Provider<NoteStore> noteStoreProvider = Provider<NoteStore>((ref) {
   });
   // Reload v1 state when readable profiles change or a sync delivers notes.
   String? lastKey;
+  var adminWasUnlocked = false;
   void onChange() {
+    final adminIsUnlocked = workspace.adminUnlocked;
+    if (adminIsUnlocked || adminWasUnlocked) {
+      ref
+          .read(adminModeSessionControllerProvider.notifier)
+          .syncWorkspaceSession();
+    }
+    adminWasUnlocked = adminIsUnlocked;
     final session = workspace.noteStoreSession;
     final key = session == null
         ? null

@@ -39,6 +39,7 @@ import '../../../app/audit_log.dart';
 import '../../sync/presentation/sync_v2_note_store_provider.dart';
 import '../../security/data/authentication_throttle.dart';
 import '../../sync/presentation/sync_v2_workspace.dart';
+import '../../sync/presentation/sync_v2_device_security_settings.dart';
 import '../../../l10n/app_strings.dart';
 import 'marked_note_calendar.dart';
 import 'home_search_toolbar.dart';

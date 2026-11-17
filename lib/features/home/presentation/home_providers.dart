@@ -8524,6 +8524,12 @@ class AdminModeSessionController extends Notifier<bool> {
   @override
   bool build() => false;
 
+  void syncWorkspaceSession() {
+    if (usesSyncV2NoteBackend) {
+      state = ref.read(syncV2WorkspaceProvider).adminUnlocked;
+    }
+  }
+
   /// The caller must complete device authentication before entering admin mode.
   Future<List<String>> unlock() async {
     if (usesSyncV2NoteBackend) return _unlockSyncV2();
@@ -8915,6 +8921,7 @@ class PrivateMemoProfilesController extends Notifier<List<PrivateMemoProfile>> {
   Future<String?> _addSyncV2Profile(String name, String password) async {
     final workspace = ref.read(syncV2WorkspaceProvider);
     if (!workspace.adminUnlocked) {
+      if (!workspace.biometricEnabled) return syncV2AdminRequiredMessage;
       // Same gate as the settings screen: device authentication first. The
       // in-process stub (development only) runs on web without device auth.
       final authenticated =

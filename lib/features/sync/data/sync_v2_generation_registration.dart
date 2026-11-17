@@ -438,7 +438,10 @@ class SyncV2GenerationRegistration {
     return error is Exception ? 'operation_error' : 'unknown_error';
   }
 
-  Future<SyncV2RegisteredNormalProfile> recover(String code) async {
+  Future<SyncV2RegisteredNormalProfile> recover(
+    String code, {
+    SecretKey? adminKey,
+  }) async {
     if (utf8.encode(code).length > 4096 ||
         !RegExp(r'^[A-Za-z0-9_-]+={0,2}$').hasMatch(code)) {
       throw const FormatException('Invalid recovery code');
@@ -468,7 +471,13 @@ class SyncV2GenerationRegistration {
       await _checkLocal(account, generation, key);
       final proof = await transport.readRegistration();
       if (proof == null) throw StateError('No committed registration');
-      final result = await _verifyAndSave(account, generation, key, proof);
+      final result = await _verifyAndSave(
+        account,
+        generation,
+        key,
+        proof,
+        adminKey: adminKey,
+      );
       try {
         await enrollments.cleanupPendingAfterVerifiedRecovery((
           accountId: account,
@@ -489,8 +498,9 @@ class SyncV2GenerationRegistration {
     String account,
     String generation,
     SecretKey sync,
-    String proof,
-  ) async {
+    String proof, {
+    SecretKey? adminKey,
+  }) async {
     final manifest = await _openManifest(account, generation, sync, proof);
     final normal = await _unlockNormal((
       accountId: account,
@@ -498,6 +508,9 @@ class SyncV2GenerationRegistration {
       syncKey: sync,
     ), manifest);
     try {
+      if (adminKey != null) {
+        await _verifyAdminWrap(account, generation, manifest, normal, adminKey);
+      }
       await _checkAccount(account);
       await enrollments.saveVerified((
         accountId: account,
@@ -631,24 +644,44 @@ class SyncV2GenerationRegistration {
         proof,
       );
       normal = await _unlockNormal(enrolled, manifest);
-      final bytes = await _encryption.decryptBytes(
-        encodedPayload: manifest['normalAdminWrap'] as String,
-        secretKey: adminKey,
-        additionalData: _context(
-          accountId,
-          enrolled.generationId,
-          'normal-admin-wrap',
-          normal.profileId,
-          normal.keyId,
-        ),
+      await _verifyAdminWrap(
+        accountId,
+        enrolled.generationId,
+        manifest,
+        normal,
+        adminKey,
       );
+    } finally {
+      normal?.destroy();
+      enrolled.syncKey.destroy();
+    }
+  }
+
+  Future<void> _verifyAdminWrap(
+    String account,
+    String generation,
+    Map<String, dynamic> manifest,
+    SyncV2UnlockedProfileKey normal,
+    SecretKey adminKey,
+  ) async {
+    final bytes = await _encryption.decryptBytes(
+      encodedPayload: manifest['normalAdminWrap'] as String,
+      secretKey: adminKey,
+      additionalData: _context(
+        account,
+        generation,
+        'normal-admin-wrap',
+        normal.profileId,
+        normal.keyId,
+      ),
+    );
+    try {
       if (bytes.length != 32 ||
           !_equal(bytes, await normal.key.extractBytes())) {
         throw const HimemoDecryptionException();
       }
     } finally {
-      normal?.destroy();
-      enrolled.syncKey.destroy();
+      bytes.fillRange(0, bytes.length, 0);
     }
   }
 

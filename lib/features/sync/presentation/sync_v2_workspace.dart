@@ -22,6 +22,7 @@ import '../data/sync_v2_archive_service.dart';
 import '../data/sync_v2_capture_service.dart';
 import '../data/sync_v2_attachment_service.dart';
 import '../data/sync_v2_enrollment_store.dart';
+import '../data/sync_v2_device_transfer.dart';
 import '../data/sync_v2_generation_registration.dart';
 import '../data/sync_v2_header_codec.dart';
 import '../data/sync_v2_icloud_session.dart';
@@ -347,6 +348,7 @@ class SyncV2WorkspaceController extends ChangeNotifier {
     }
   });
   bool biometricsAvailable = false, biometricEnabled = false;
+  bool adminPasswordConfigured = false;
   bool biometricAuthenticating = false;
   bool _preparedBiometric = false;
   bool get preparedUsesBiometrics => _preparedBiometric;
@@ -569,6 +571,7 @@ class SyncV2WorkspaceController extends ChangeNotifier {
     generationId = enrollment.generationId;
     biometricEnabled =
         await store.read('sync.v2.biometric.$generationId') == 'enabled';
+    adminPasswordConfigured = await store.read(_adminStore.storageKey) != null;
     selectedProfileId = normal.profileId;
     registered = false;
     hasPending = false;
@@ -802,6 +805,7 @@ class SyncV2WorkspaceController extends ChangeNotifier {
     registered = false;
     hasPending = false;
     biometricEnabled = false;
+    adminPasswordConfigured = false;
     failures = [];
     _notify();
   }
@@ -904,8 +908,128 @@ class SyncV2WorkspaceController extends ChangeNotifier {
       }
       await store.write('sync.v2.biometric.$generationId', 'enabled');
       biometricEnabled = true;
+      await store.delete(_adminStore.storageKey);
+      adminPasswordConfigured = false;
     } finally {
       key.destroy();
+    }
+  });
+
+  Future<void> configureAdminPassword(String password) => _run(() async {
+    if (!canManageAdminCredentials) {
+      throw const SyncV2WorkspaceException('admin_required');
+    }
+    final epoch = _epoch;
+    if (await _catalog.matchesPassword(password)) {
+      throw const SyncV2WorkspaceException('duplicate_passcode');
+    }
+    if (epoch != _epoch || _admin == null) {
+      throw const SyncV2WorkspaceException('locked');
+    }
+    final key = SecretKey(await _admin!.extractBytes());
+    try {
+      await _adminStore.configure(adminKey: key, password: password);
+      adminPasswordConfigured = true;
+      if (epoch != _epoch || _paused || _disposed) {
+        throw const SyncV2WorkspaceException('locked');
+      }
+      if (biometricEnabled) await biometrics.delete(generationId!);
+      await store.delete('sync.v2.biometric.$generationId');
+      biometricEnabled = false;
+    } finally {
+      key.destroy();
+    }
+  });
+
+  Future<SyncV2DeviceTransfer> deviceTransfer({
+    bool includeAdministrator = true,
+  }) async {
+    final epoch = _epoch;
+    final codes = await showRecoveryCodes();
+    if (epoch != _epoch || _paused || _disposed) {
+      throw const SyncV2WorkspaceException('locked');
+    }
+    if (includeAdministrator &&
+        (!canManageAdminCredentials || codes.adminCode == null)) {
+      throw const SyncV2WorkspaceException('admin_required');
+    }
+    return SyncV2DeviceTransfer(
+      syncCode: codes.syncCode,
+      adminCode: includeAdministrator ? codes.adminCode : null,
+    );
+  }
+
+  Future<void> recoverDeviceTransfer(
+    SyncV2DeviceTransfer transfer, {
+    String? adminPassword,
+    bool useBiometrics = false,
+  }) => _run(() async {
+    final initialEpoch = _epoch;
+    final account = await registrationTransport.readCurrentAccountId();
+    _checkAccountIdentity(account);
+    final localAdmin = SyncV2AdminStore(
+      store,
+      _encryption,
+      generationId: transfer.generationId,
+    );
+    final admin = transfer.adminCode == null
+        ? null
+        : localAdmin.decodeRecoveryCode(transfer.adminCode!);
+    var installed = false;
+    try {
+      if (admin != null &&
+          !useBiometrics &&
+          (adminPassword == null ||
+              adminPassword.length < SyncV2AdminStore.minimumPasswordLength)) {
+        throw const SyncV2WorkspaceException('invalid_input');
+      }
+      // Verify ADMIN against the same manifest before persisting SYNC enrollment.
+      final normal = await registrationFactory(account)
+          .recover(transfer.syncCode, adminKey: admin);
+      if (initialEpoch != _epoch || _paused || _disposed) {
+        normal.destroy();
+        throw const SyncV2WorkspaceException('locked');
+      }
+      await _attach(normal, account: account);
+      final epoch = _epoch;
+      await _sync();
+      if (admin == null) return;
+      if (!useBiometrics && await _catalog.matchesPassword(adminPassword!)) {
+        throw const SyncV2WorkspaceException('duplicate_passcode');
+      }
+      if (epoch != _epoch || _paused || _disposed) {
+        throw const SyncV2WorkspaceException('locked');
+      }
+      if (useBiometrics) {
+        await _authenticateBiometric(
+          () => biometrics.save(generationId!, admin),
+        );
+        if (epoch != _epoch || _paused || _disposed) {
+          throw const SyncV2WorkspaceException('locked');
+        }
+        await store.write('sync.v2.biometric.$generationId', 'enabled');
+        biometricEnabled = true;
+        await store.delete(localAdmin.storageKey);
+        adminPasswordConfigured = false;
+      } else {
+        await localAdmin.configure(adminKey: admin, password: adminPassword!);
+        adminPasswordConfigured = true;
+        if (epoch != _epoch || _paused || _disposed) {
+          throw const SyncV2WorkspaceException('locked');
+        }
+        if (biometricEnabled) await biometrics.delete(generationId!);
+        await store.delete('sync.v2.biometric.$generationId');
+        biometricEnabled = false;
+      }
+      await _rememberDeviceAdmin(admin, epoch);
+      await _refreshAdminProfiles(admin, epoch);
+      _admin?.destroy();
+      _admin = admin;
+      _adminFromSettings = false;
+      installed = true;
+      await _reloadNotes();
+    } finally {
+      if (!installed) admin?.destroy();
     }
   });
 
@@ -923,6 +1047,8 @@ class SyncV2WorkspaceController extends ChangeNotifier {
       }
       await store.write('sync.v2.biometric.$generationId', 'enabled');
       biometricEnabled = true;
+      await store.delete(_adminStore.storageKey);
+      adminPasswordConfigured = false;
       await _rememberDeviceAdmin(admin, epoch);
       await _refreshAdminProfiles(admin, epoch);
       _admin?.destroy();
@@ -947,6 +1073,10 @@ class SyncV2WorkspaceController extends ChangeNotifier {
         throw const SyncV2WorkspaceException('duplicate_passcode');
       }
       await _adminStore.configure(adminKey: admin, password: newPassword);
+      adminPasswordConfigured = true;
+      if (biometricEnabled) await biometrics.delete(generationId!);
+      await store.delete('sync.v2.biometric.$generationId');
+      biometricEnabled = false;
       await _rememberDeviceAdmin(admin, epoch);
       await _refreshAdminProfiles(admin, epoch);
       _admin?.destroy();

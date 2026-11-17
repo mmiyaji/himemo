@@ -181,11 +181,13 @@ class _SettingsGroup extends StatelessWidget {
     required this.icon,
     required this.children,
     this.sectionKey,
+    this.visible = true,
     this.controller,
     this.semanticLabel,
     this.onExpansionChanged,
   });
 
+  final bool visible;
   final String title;
   final String summary;
   final IconData icon;
@@ -197,6 +199,7 @@ class _SettingsGroup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!visible) return const SizedBox.shrink();
     final theme = Theme.of(context);
     final compact = MediaQuery.sizeOf(context).width < 840;
     final borderRadius = BorderRadius.circular(6);

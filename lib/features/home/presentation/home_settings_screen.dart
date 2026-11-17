@@ -2776,7 +2776,22 @@ class SettingsScreen extends ConsumerWidget {
           ),
         if (kDebugMode && showLegacyPrivateVaultSettings)
           SizedBox(height: settingsGroupSpacing),
+        if (usesSyncV2NoteBackend)
+          _SettingsGroup(
+            title: strings.localized(en: 'Sync and security', ja: '同期とセキュリティ'),
+            summary: strings.localized(
+              en: 'Device access, pairing, and recovery',
+              ja: '端末の解除方式・端末追加・復元',
+            ),
+            icon: Icons.sync_outlined,
+            sectionKey: _syncSectionKey,
+            controller: _syncController,
+            onExpansionChanged: (expanded) =>
+                _handlePrimarySettingsExpansion(expanded, _syncController),
+            children: const [SyncV2DeviceSecuritySettings()],
+          ),
         _SettingsGroup(
+          visible: !usesSyncV2NoteBackend,
           title: strings.localized(
             en: 'Device sync',
             ja: '端末間の同期',
