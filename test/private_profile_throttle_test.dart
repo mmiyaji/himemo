@@ -1,3 +1,4 @@
+@Tags(['legacy'])
 @Timeout(Duration(minutes: 2))
 library;
 

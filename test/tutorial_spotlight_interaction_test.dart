@@ -18,6 +18,11 @@ import 'package:himemo/features/security/data/master_key_service.dart';
 import 'package:himemo/features/security/data/secure_key_value_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:himemo/features/sync/presentation/sync_v2_workspace.dart';
+import 'package:himemo/features/sync/presentation/sync_v2_note_store_provider.dart';
+
+import 'support/sync_v2_workspace_fixture.dart';
+
 void main() {
   testWidgets(
     'tutorial backdrop does not advance and highlighted create button opens editor',
@@ -40,8 +45,14 @@ void main() {
         keyFactory: encryptionService.generateKeyBytes,
       );
       final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+      final workspace = usesSyncV2NoteBackend
+          ? await tester.runAsync(createSyncV2TestWorkspace)
+          : null;
+      if (workspace != null) addTearDown(workspace.dispose);
       final container = ProviderContainer(
         overrides: [
+          if (workspace != null)
+            syncV2WorkspaceProvider.overrideWithValue(workspace),
           unseenReleaseNoteProvider.overrideWith((ref) async => null),
           packageInfoProvider.overrideWith(
             (ref) async => const AppPackageDetails(

@@ -1407,43 +1407,6 @@ class SettingsScreen extends ConsumerWidget {
         vertical: compactSettingsLayout ? 8 : 16,
       ),
       children: [
-        if (kIsWeb && !usesSyncV2NoteBackend)
-          ListTile(
-            key: const Key('open-sync-v2-web-readonly'),
-            leading: const Icon(Icons.cloud_outlined),
-            title: Text(
-              strings.localized(
-                ja: 'iCloud 同期 v2 を閲覧',
-                en: 'View iCloud sync v2',
-              ),
-            ),
-            subtitle: Text(
-              strings.localized(
-                ja: '読み取り専用・CloudKit の設定が必要です',
-                en: 'Read-only; CloudKit configuration is required',
-              ),
-            ),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => context.go('/sync-v2-web-readonly'),
-          ),
-        if (!usesSyncV2NoteBackend &&
-            !kIsWeb &&
-            defaultTargetPlatform == TargetPlatform.iOS)
-          ListTile(
-            key: const Key('open-sync-v2-workspace'),
-            leading: const Icon(Icons.cloud_sync_outlined),
-            title: Text(
-              strings.localized(ja: 'iCloud 同期 v2', en: 'iCloud sync v2'),
-            ),
-            subtitle: Text(
-              strings.localized(
-                ja: '暗号化メモの作成・同期・復旧と旧ZIPの移行',
-                en: 'Create, sync and recover encrypted notes, or import an older ZIP',
-              ),
-            ),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => context.go('/sync-v2'),
-          ),
         _SettingsOverviewCard(
           key: overviewKey,
           title: strings.localized(

@@ -6,6 +6,13 @@ Future<void> showNoteEditorSheet(
   NoteEntry? note,
   DateTime? initialCreatedAt,
 }) async {
+  if (usesSyncV2NoteBackend && !ref.read(syncV2WorkspaceProvider).registered) {
+    // A profile key is required to save notes. Start setup before accepting
+    // editor input, instead of letting the user's first save fail.
+    context.go('/settings');
+    SettingsScreen._syncController.expand();
+    return;
+  }
   _pushNoteOverlaySheet();
   final scaffoldMessenger = ScaffoldMessenger.maybeOf(context);
   final initialTags = note == null

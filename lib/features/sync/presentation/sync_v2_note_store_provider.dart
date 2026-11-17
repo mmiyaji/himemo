@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
 
+import '../../../app/app_flavor.dart';
 import '../../home/data/note_store.dart';
 import '../../home/presentation/home_providers.dart';
 import '../data/sync_v2_note_store.dart';
@@ -12,28 +13,43 @@ import 'sync_v2_workspace.dart';
 
 /// Selects where `NotesController` persists notes.
 ///
-/// - `v1` (default): local encrypted database.
-/// - `v2`: Sync v2 history through the iCloud workspace.
+/// - `v1`: legacy compatibility tests only.
+/// - `v2` (default): Sync v2 history through the iCloud workspace.
 /// - `v2-local`: Sync v2 history with an in-process stub instead of iCloud,
 ///   registered automatically. Development only; keys are kept in memory.
 const noteBackend = String.fromEnvironment(
   'HIMEMO_NOTE_BACKEND',
-  defaultValue: 'v1',
+  defaultValue: 'v2',
 );
 
 bool get usesSyncV2NoteBackend =>
     noteBackend == 'v2' || noteBackend == 'v2-local';
 
 /// Provider overrides needed for [noteBackend]; pass to the root ProviderScope.
-List<Override> noteBackendOverrides() => [
-  if (noteBackend == 'v2-local')
-    syncV2WorkspaceProvider.overrideWith((ref) {
-      final workspace = createLocalPreviewController();
-      ref.onDispose(workspace.dispose);
-      unawaited(_registerLocalPreview(workspace));
-      return workspace;
-    }),
-];
+List<Override> noteBackendOverrides() {
+  if (noteBackend == 'v1') {
+    throw StateError(
+      'The legacy backend is available only in compatibility tests.',
+    );
+  }
+  if (noteBackend == 'v2-local' && !isDevelopmentFlavor) {
+    throw StateError(
+      'The local sync preview is available only in development.',
+    );
+  }
+  if (!const ['v1', 'v2', 'v2-local'].contains(noteBackend)) {
+    throw StateError('Unknown note backend: $noteBackend');
+  }
+  return [
+    if (noteBackend == 'v2-local')
+      syncV2WorkspaceProvider.overrideWith((ref) {
+        final workspace = createLocalPreviewController();
+        ref.onDispose(workspace.dispose);
+        unawaited(_registerLocalPreview(workspace));
+        return workspace;
+      }),
+  ];
+}
 
 Future<void> _registerLocalPreview(SyncV2WorkspaceController workspace) async {
   await workspace.initialize();
@@ -52,10 +68,19 @@ class SyncV2AttachmentLookup {
   SyncV2NoteStore? store;
 }
 
+// Share initialization across note-store rebuilds without reattaching an active
+// session. The controller keeps any startup error for the settings UI.
+final syncV2WorkspaceInitializationProvider = Provider<Future<void>>((ref) {
+  final workspace = ref.watch(syncV2WorkspaceProvider);
+  return workspace.registered
+      ? Future<void>.value()
+      : workspace.initialize().catchError((Object _) {});
+});
+
 final Provider<NoteStore> noteStoreProvider = Provider<NoteStore>((ref) {
   if (!usesSyncV2NoteBackend) return ref.watch(encryptedNoteStoreProvider);
   final workspace = ref.watch(syncV2WorkspaceProvider);
-  if (noteBackend == 'v2') unawaited(workspace.initialize());
+  if (noteBackend == 'v2') ref.watch(syncV2WorkspaceInitializationProvider);
   final store = SyncV2NoteStore(
     repository: workspace.repository,
     session: () => workspace.noteStoreSession,

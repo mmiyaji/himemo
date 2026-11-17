@@ -1,3 +1,6 @@
+@Tags(['legacy'])
+library;
+
 import 'dart:io';
 import 'dart:math';
 

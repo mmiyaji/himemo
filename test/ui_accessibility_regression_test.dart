@@ -24,6 +24,11 @@ import 'package:himemo/l10n/app_localizations.dart';
 import 'package:himemo/l10n/app_strings.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:himemo/features/sync/presentation/sync_v2_workspace.dart';
+import 'package:himemo/features/sync/presentation/sync_v2_note_store_provider.dart';
+
+import 'support/sync_v2_workspace_fixture.dart';
+
 void main() {
   testWidgets('settings adapts across repeated fold and unfold sizes', (
     tester,
@@ -281,13 +286,13 @@ void main() {
 
     expect(find.byKey(SettingsScreen.overviewKey), findsNothing);
     expect(find.text('Current status'), findsNothing);
-    for (final title in const [
+    for (final title in [
       'Appearance and language',
       'Notes and organization',
       'Private profiles',
       'App security',
-      'Device sync',
-      'File backup',
+      if (usesSyncV2NoteBackend) 'Sync and security' else 'Device sync',
+      if (!usesSyncV2NoteBackend) 'File backup',
       'Storage',
       'About',
     ]) {
@@ -343,7 +348,7 @@ void main() {
     expect(find.byKey(SettingsScreen.syncConnectKey), findsOneWidget);
     expect(find.byKey(SettingsScreen.syncNowKey), findsNothing);
     expect(tester.takeException(), isNull);
-  });
+  }, tags: ['legacy']);
 
   testWidgets('sync button stays in place through a transfer', (tester) async {
     final transfer = _TestSyncTransferController();
@@ -410,7 +415,7 @@ void main() {
           .value,
       0.18,
     );
-  });
+  }, tags: ['legacy']);
 
   testWidgets('bottom-navigation widths keep the compact settings layout', (
     tester,
@@ -889,8 +894,16 @@ Future<_TestHarness> _createHarness({
     keyFactory: encryptionService.generateKeyBytes,
   );
   final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+  final workspace = usesSyncV2NoteBackend
+      ? await TestWidgetsFlutterBinding.instance.runAsync(
+          createSyncV2TestWorkspace,
+        )
+      : null;
+  if (workspace != null) addTearDown(workspace.dispose);
   final container = ProviderContainer(
     overrides: [
+      if (workspace != null)
+        syncV2WorkspaceProvider.overrideWithValue(workspace),
       ...overrides,
       packageInfoProvider.overrideWith(
         (ref) async => const AppPackageDetails(

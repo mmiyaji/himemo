@@ -31,7 +31,7 @@
 
 - `lib/features/home/data/note_store.dart` — `NoteStore` インターフェース。`NotesController` は `noteStoreProvider` 経由で保存。
 - `lib/features/sync/data/sync_v2_note_store.dart` — v2 実装。ID 変換: v1 `X` ⇔ v2 `note_X`、`everyday` ⇔ v2 通常プロファイル、プライベートは `private_profile:...` のまま。競合中・本文未着のノートは保存・削除を拒否（`SyncV2StaleNote`）。添付はv2チャンク参照としてノートと同じトランザクションで保存。
-- `lib/features/sync/presentation/sync_v2_note_store_provider.dart` — `HIMEMO_NOTE_BACKEND`（`v1` 既定 / `v2` / `v2-local`）で切替。ワークスペースの変化（プロファイル解除・同期受信）で `NotesController.reloadFromStorage()`。
+- `lib/features/sync/presentation/sync_v2_note_store_provider.dart` — `HIMEMO_NOTE_BACKEND`（`v2` 既定 / 開発用 `v2-local`（`v1` は旧互換テストのみ））で切替。ワークスペースの変化（プロファイル解除・同期受信）で `NotesController.reloadFromStorage()`。
 - `SyncV2WorkspaceController.noteStoreSession`、`debugResetUnlockThrottle()` を追加。
 - `home_providers.dart`: v2 モード時、`PrivateProfileUnlockController` / `AdminModeSessionController` / `UnlockedPrivateProfileVaultIdController` / `PrivateMemoProfilesController` が v2 ワークスペースに委譲（関数 `_unlockSyncV2`、`_addSyncV2Profile` など）。プロファイル作成は端末認証 → 管理者モード → `createProfile`。
 - `app_router.dart`: v2 バックエンド時は iOS の `/notes` → `/sync-v2` 転送をしない。
@@ -68,7 +68,7 @@
 ### フェーズ 5: 整理と削除
 - v2 固有操作（QR ペアリング・復元コード・生体登録・プロファイル作成）を v1 設定画面の「同期とセキュリティ」に集約。
 - v1 ローカルノート DB、Google Drive 同期、旧 iCloud 同期、`sync_v2_legacy_import.dart`、v1 アーカイブ取り込み、v2 専用画面の重複部分を削除。
-- v2 を既定にし、`HIMEMO_NOTE_BACKEND` の切替を撤去。
+- v2既定化と旧画面の通常ルート撤去は実装済み。`HIMEMO_NOTE_BACKEND=v1` は旧回帰テストのみで使用し、実アプリ起動では拒否する。旧実装・旧テストの削除後にv1分岐も撤去する。
 
 ### フェーズ 6: 性能と実機
 - `SyncV2NoteRepository.readProfile` が毎回全履歴を走査している → プロファイル別の最新状態テーブル＋インデックス。
@@ -79,8 +79,11 @@
 
 ### テスト
 ```bash
-flutter analyze lib
-flutter test test/sync_v2_device_transfer_test.dart test/sync_v2_device_security_settings_test.dart test/sync_v2_note_store_test.dart test/sync_v2_unlock_throttle_test.dart test/sync_v2_workspace_test.dart test/sync_v2_workspace_screen_test.dart test/sync_v2_profile_keys_test.dart test/sync_v2_admin_store_test.dart test/home_providers_logic_test.dart test/app_test.dart
+flutter analyze --fatal-infos
+flutter test --exclude-tags legacy
+flutter test --tags legacy --dart-define=HIMEMO_NOTE_BACKEND=v1
+flutter test test/sync_v2_default_configuration_test.dart --dart-define=HIMEMO_NOTE_BACKEND=v2-local
+flutter test test/sync_v2_default_configuration_test.dart --dart-define=HIMEMO_NOTE_BACKEND=v1
 ```
 - 2026-11-18 フェーズ2完了時: `flutter test` 全817件成功。`flutter analyze lib` と変更テストの解析は指摘なし。development / `v2-local` のWebビルド成功。iOS実機の生体認証・CloudKitは未確認。
 - フェーズ3: 全体823件成功（v2専用テスト1件は通常実行時スキップし、`--dart-define=HIMEMO_NOTE_BACKEND=v2-local` を付けて別途成功）。静的解析・Webビルド成功。
@@ -135,3 +138,16 @@ python -m http.server 8765 --directory build/web
 - 永続化領域の読み込みや削除に失敗した場合も、finallyで読み込んだSYNC鍵とメモリ上の準備鍵を破棄し、通常のエラー経路で失敗を知らせる。永続化領域の失敗によって古い資格情報が残る可能性はある。
 - Opusレビュー実施。読み込み途中の失敗による鍵の破棄漏れと、削除失敗時に準備状態が残る点を反映。
 - ルーターから旧画面を全面撤去する差分は見送った。既定がv1のまま撤去すると、v2専用画面を使っていた端末のデータへの入口を失う（Opus指摘）。旧画面の入口撤去はv2既定化と同じ変更単位で行う。
+
+
+### 2026-11-18: フェーズ5・v2既定化と旧画面のルート撤去
+- 通常ビルドの既定はv2。旧 `/sync-v2`、`/sync-v2-web-readonly` は常に統合設定へ転送し、ルーターから旧画面・閲覧専用画面のimportを削除。旧設定フラグによるiOS一覧からの自動転送も撤去。
+- 設定内の旧専用画面への入口を削除。未登録の端末でメモ作成を押した場合は、入力前に同期設定を開く。
+- v1は旧回帰テストの指定としてのみ保持。bootstrapの `noteBackendOverrides()` はv1指定の実アプリ起動を拒否する。v2-localはdevelopmentフレーバーのみ。productionではプレビュー用の固定パスコード・メモリ鍵を使わない。
+- noteStoreの再生成で登録済みセッションを再度attachしてロックしない。未登録時の初期化Futureを共有し、初期化エラーはcontrollerに保持して未処理の非同期例外を避ける。
+- CIは legacyタグの旧DB／旧同期テストを明示v1で実行し、それ以外の全テストを既定v2で実行。UIレイアウト・チュートリアルの共通ハーネスもv2のインメモリ登録へ移した。Google Drive固有のUIテストだけlegacyタグ。
+- Opusレビュー反映: 共有テストを既定v2で回す構成、productionフレーバーのテスト前提の明示、初期化Futureの共有。通常のビルド設定にv1指定が残っていないことを確認。
+- 旧DB・Google Drive・旧iCloud・ZIP移行・開発用旧ワークスペースのソースと旧テストの削除は残作業。互換テストを退役させた段階で `HIMEMO_NOTE_BACKEND` のv1分岐も完全撤去する。
+- この変更でiOS実機のCloudKit・生体認証を検証したわけではない。通常のv2 transportは現在iOSのみ対応、Webではv2-localで開発する。Android配布の確認はしていない。
+- 検証: 既定v2の共有テスト599件、明示v1の旧回帰244件成功。初期化共有の最終修正後に関連26件も成功。v1実アプリ起動拒否とproductionのv2-local拒否を別途確認。解析対象からローカルの `.claude/**` を除外（worktree自体は変更しない）。
+- 最終確認: 既定v2／v2-localのWebビルド成功、`flutter analyze --fatal-infos` 指摘なし、変更Dartファイルのフォーマット確認成功。Opus再レビューでも重大な問題なし。iOS実機・Androidのアプリ実行と配布は未実施。
