@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:archive/archive.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/services.dart';
 import 'package:himemo/features/security/data/sync_v2_biometric_key_store.dart';
@@ -14,6 +15,7 @@ import 'package:himemo/features/security/data/sync_v2_profile_keys.dart';
 import 'package:himemo/features/sync/data/sync_v2_enrollment_store.dart';
 import 'package:himemo/features/sync/data/sync_v2_generation_registration.dart';
 import 'package:himemo/features/sync/data/sync_v2_header_codec.dart';
+import 'package:himemo/features/sync/data/sync_v2_history.dart';
 import 'package:himemo/features/sync/data/sync_v2_icloud_session.dart';
 import 'package:himemo/features/sync/data/sync_v2_inbox.dart';
 import 'package:himemo/features/sync/data/sync_v2_note_repository.dart';
@@ -221,6 +223,32 @@ class _HeldBatchRepository extends SyncV2NoteRepository {
   }
 }
 
+class _ProjectedNotesRepository extends SyncV2NoteRepository {
+  _ProjectedNotesRepository(super.inbox, super.headers, super.payloads);
+
+  Map<String, SyncV2NoteSnapshot>? projection;
+  bool failRead = false;
+
+  @override
+  Future<Map<String, SyncV2NoteSnapshot>> readProfile({
+    required String generationId,
+    required String profileId,
+    required SecretKey syncKey,
+    SyncV2UnlockedProfileKey? profileKey,
+    String? noteIdPrefix,
+  }) async {
+    if (failRead) throw StateError('profile read failed');
+    return projection ??
+        super.readProfile(
+          generationId: generationId,
+          profileId: profileId,
+          syncKey: syncKey,
+          profileKey: profileKey,
+          noteIdPrefix: noteIdPrefix,
+        );
+  }
+}
+
 class _Device {
   _Device(
     this.cloud, {
@@ -317,6 +345,144 @@ class _UnavailableWorkspaceNote extends SyncV2WorkspaceNote {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test(
+    'activation preserves persisted selection after interrupted suspension',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        'settings.sync_provider': 'googleDrive',
+      });
+      final prefs = await SharedPreferences.getInstance();
+      await expectLater(
+        activateSyncV2Preference(prefs, () async {
+          await prefs.setString('settings.sync_provider', 'off');
+          throw StateError('interrupted');
+        }),
+        throwsStateError,
+      );
+      await activateSyncV2Preference(prefs, () async {});
+      expect(
+        prefs.getString('settings.sync_v2.previous_provider'),
+        'googleDrive',
+      );
+      expect(prefs.getBool(syncV2EnabledPreference), true);
+      expect(prefs.getBool('settings.sync_v2.activation_pending'), isNull);
+    },
+  );
+  TestWidgetsFlutterBinding.ensureInitialized();
+  test('quarantines one corrupt note without exposing its plaintext or failing the profile', () async {
+    final cloud = _Cloud();
+    _ProjectedNotesRepository? repository;
+    final device = _Device(
+      cloud,
+      repositoryFactory: (inbox, headers, payloads) =>
+          repository = _ProjectedNotesRepository(inbox, headers, payloads),
+    );
+    addTearDown(device.workspace.dispose);
+    final c = device.workspace;
+    await c.initialize();
+    await c.prepareNewBiometric();
+    await c.confirmSetup();
+    final profileId = c.selectedProfileId!;
+
+    SyncV2NoteSnapshot snapshot(String noteId, Map<String, Object?> body) {
+      final change = SyncV2Change(
+        id: 'change-$noteId',
+        profileId: profileId,
+        noteId: noteId,
+        operation: SyncV2Operation.upsert,
+        parentIds: const {},
+        payloadDigest: 'digest-$noteId',
+      );
+      return SyncV2NoteSnapshot(
+        versions: [
+          SyncV2NoteVersion(change: change, payloadAvailable: true, body: body),
+        ],
+        pendingIds: const {},
+      );
+    }
+
+    final corruptId = 'note_corrupt';
+    final corruptNote = NoteEntry(
+      id: corruptId,
+      vaultId: profileId,
+      title: 'private title must be hidden',
+      body: 'private body must be hidden',
+      createdAt: DateTime.utc(2025),
+    );
+    final corruptBody = <String, Object?>{
+      'type': 'note',
+      'note': corruptNote.toJson(),
+      'attachments': ['malformed reference must be hidden'],
+    };
+    final goodId = 'note_good';
+    final goodNote = NoteEntry(
+      id: goodId,
+      vaultId: profileId,
+      title: 'Healthy note',
+      body: 'Healthy body',
+      createdAt: DateTime.utc(2026),
+    );
+    final corruptSnapshot = snapshot(corruptId, corruptBody);
+    repository!.projection = {
+      corruptId: corruptSnapshot,
+      goodId: snapshot(goodId, {'type': 'note', 'note': goodNote.toJson()}),
+    };
+
+    await c.selectProfile(profileId);
+
+    expect(c.notes, hasLength(2));
+    final quarantined = c.notes.singleWhere(
+      (note) => note.note.id == corruptId,
+    );
+    expect(quarantined.isCorrupt, isTrue);
+    expect(quarantined.readOnly, isTrue);
+    expect(quarantined.ready, isFalse);
+    expect(quarantined.note.title, isEmpty);
+    expect(quarantined.note.body, isEmpty);
+    expect(quarantined.attachments, isEmpty);
+    expect(quarantined.snapshot.versions.single.body, isNull);
+    expect(quarantined.snapshot.headIds, {'change-$corruptId'});
+    expect(
+      c.notes.singleWhere((note) => note.note.id == goodId).note.title,
+      'Healthy note',
+    );
+    expect(corruptSnapshot.versions.single.body, same(corruptBody));
+    expect(corruptBody['note'], equals(corruptNote.toJson()));
+    await expectLater(
+      c.updateTag('work'),
+      throwsA(
+        isA<SyncV2WorkspaceException>().having(
+          (e) => e.code,
+          'code',
+          'tag_corrupt',
+        ),
+      ),
+    );
+    await expectLater(
+      c.deleteNote(quarantined),
+      throwsA(
+        isA<SyncV2WorkspaceException>().having(
+          (error) => error.code,
+          'code',
+          'conflict',
+        ),
+      ),
+    );
+    expect(corruptSnapshot.versions.single.body, same(corruptBody));
+
+    repository!.failRead = true;
+    await expectLater(
+      c.selectProfile(profileId),
+      throwsA(
+        isA<SyncV2WorkspaceException>().having(
+          (failure) => failure.code,
+          'code',
+          'operation_failed',
+        ),
+      ),
+    );
+  });
+
   test(
     'generated recovery codes pair devices through role-specific QR codes',
     () async {
@@ -824,7 +990,19 @@ void main() {
       )).length,
       queued,
     );
-    await c.saveNote(title: 'Unrelated note', body: 'Keep this note');
+    final selectedDate = DateTime.utc(2024, 5, 6, 12);
+    await c.saveNote(
+      title: 'Unrelated note',
+      body: 'Keep this note',
+      createdAt: selectedDate,
+    );
+    expect(
+      c.notes
+          .singleWhere((entry) => entry.note.title == 'Unrelated note')
+          .note
+          .createdAt,
+      selectedDate,
+    );
     await c.adminImportArchive(bytes: zip('Changed ZIP'));
     expect(c.profiles.map((p) => p.id).toSet(), profileIds);
     expect(c.notes.map((n) => n.note.title).toSet(), {

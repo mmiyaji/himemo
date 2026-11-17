@@ -6672,11 +6672,10 @@ class SyncProviderController extends Notifier<SyncProvider> {
   }
 
   Future<void> setProvider(SyncProvider provider) async {
-    if (provider != SyncProvider.off &&
-        (await SharedPreferences.getInstance()).getBool(
-              'settings.sync_v2.enabled',
-            ) ==
-            true) {
+    if ((await SharedPreferences.getInstance()).getBool(
+          'settings.sync_v2.enabled',
+        ) ==
+        true) {
       return;
     }
     if (provider == SyncProvider.iCloud && !isICloudSyncSupported) {

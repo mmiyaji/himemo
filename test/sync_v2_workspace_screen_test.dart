@@ -241,6 +241,7 @@ class _Controller extends SyncV2WorkspaceController {
   bool get hasPreparedSetup => prepared;
   String? chosenVersion;
   SyncV2WorkspaceNote? savedOriginal;
+  DateTime? savedCreatedAt;
   List<String>? savedTags;
   List<NoteBlock>? savedBlocks;
   List<String>? savedRemovedAttachmentIds;
@@ -278,6 +279,7 @@ class _Controller extends SyncV2WorkspaceController {
   @override
   Future<void> saveNote({
     SyncV2WorkspaceNote? original,
+    DateTime? createdAt,
     String? selectedVersionId,
     required String title,
     required String body,
@@ -289,6 +291,7 @@ class _Controller extends SyncV2WorkspaceController {
   }) async {
     chosenVersion = selectedVersionId;
     savedOriginal = original;
+    savedCreatedAt = createdAt;
     savedTags = tags;
     savedBlocks = blocks;
     savedAddedFiles = List.of(addedFiles);
@@ -1741,6 +1744,43 @@ void main() {
       expect(find.text('Calendar visible note'), findsNothing);
     },
   );
+
+  testWidgets('calendar creates a note on the selected note day', (
+    tester,
+  ) async {
+    final today = DateTime.now();
+    final previous = DateTime(today.year, today.month, today.day - 2, 12);
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final c = _Controller()
+      ..registered = true
+      ..selectedProfileId = 'normal'
+      ..notes = [
+        _note('previous', title: 'Older', body: '', createdAt: previous),
+      ];
+    addTearDown(c.dispose);
+    await mount(tester, c, displayStyle: null);
+    await selectDisplayStyle(tester, SyncV2DisplayStyle.simple);
+    await tester.tap(find.byKey(const ValueKey('sync-v2-calendar-toggle')));
+    await tester.pumpAndSettle();
+    final previousButton = find.byKey(
+      const ValueKey('sync-v2-calendar-previous-day'),
+    );
+    await tester.ensureVisible(previousButton);
+    await tester.tap(previousButton);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('sync-v2-calendar-new-note')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('sync-v2-title')),
+      'Calendar new',
+    );
+    await tester.ensureVisible(find.text('Save'));
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(c.savedCreatedAt, isNotNull);
+    expect(DateUtils.isSameDay(c.savedCreatedAt, previous), isTrue);
+  });
 
   testWidgets('tags filter the current profile and are saved with the note', (
     tester,

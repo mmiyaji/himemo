@@ -937,7 +937,7 @@ class _ThemeOptionTile extends StatelessWidget {
   final String subtitle;
   final Color? sampleColor;
   final bool selected;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {

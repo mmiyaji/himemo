@@ -36,6 +36,31 @@ export '../data/sync_v2_attachment_service.dart' show SyncV2AttachmentReference;
 
 const syncV2EnabledPreference = 'settings.sync_v2.enabled';
 
+/// Preserve the persisted legacy selection across interrupted activation.
+Future<void> activateSyncV2Preference(
+  SharedPreferences prefs,
+  Future<void> Function() suspendLegacy,
+) async {
+  const previousKey = 'settings.sync_v2.previous_provider';
+  const pendingKey = 'settings.sync_v2.activation_pending';
+  if (prefs.getBool(syncV2EnabledPreference) != true &&
+      prefs.getBool(pendingKey) != true) {
+    final previous =
+        prefs.getString('settings.sync_provider') ?? SyncProvider.off.name;
+    if (!await prefs.setString(previousKey, previous) ||
+        !await prefs.setBool(pendingKey, true)) {
+      throw StateError('Could not preserve legacy sync selection');
+    }
+  }
+  await suspendLegacy();
+  if (!await prefs.setBool(syncV2EnabledPreference, true)) {
+    throw StateError('Could not select v2');
+  }
+  await prefs.remove(pendingKey);
+}
+
+const syncV2MaxPendingAttachmentBytes = 128 * 1024 * 1024;
+
 String syncV2EditableBody(NoteEntry note) {
   final paragraphs = note.blocks
       .where(
@@ -78,22 +103,18 @@ final syncV2WorkspaceProvider = Provider<SyncV2WorkspaceController>((ref) {
     ).syncOnce(),
     activate: () async {
       final prefs = await SharedPreferences.getInstance();
-      if (prefs.getBool(syncV2EnabledPreference) != true &&
-          !await prefs.setString(
-            'settings.sync_v2.previous_provider',
-            ref.read(syncProviderControllerProvider).name,
-          )) {
-        throw StateError('Could not preserve legacy sync selection');
-      }
-      await ref
-          .read(syncTransferControllerProvider.notifier)
-          .suspendLegacyForV2();
-      if (!await prefs.setBool(syncV2EnabledPreference, true)) {
-        throw StateError('Could not select v2');
-      }
+      await activateSyncV2Preference(
+        prefs,
+        () => ref
+            .read(syncTransferControllerProvider.notifier)
+            .suspendLegacyForV2(),
+      );
     },
     deactivate: () async {
       final prefs = await SharedPreferences.getInstance();
+      if (!await prefs.remove('settings.sync_v2.activation_pending')) {
+        throw StateError('Could not clear pending v2 activation');
+      }
       if (!await prefs.setBool(syncV2EnabledPreference, false)) {
         throw StateError('Could not select legacy workspace');
       }
@@ -169,16 +190,23 @@ class SyncV2PendingAttachment {
 }
 
 class SyncV2WorkspaceNote {
-  SyncV2WorkspaceNote(this.note, this.snapshot, this.attachments);
+  SyncV2WorkspaceNote(
+    this.note,
+    this.snapshot,
+    this.attachments, {
+    this.isCorrupt = false,
+  });
   final NoteEntry note;
   final SyncV2NoteSnapshot snapshot;
   final List<SyncV2AttachmentReference> attachments;
+  final bool isCorrupt;
+  bool get readOnly => isCorrupt;
   Set<String> get headIds => snapshot.headIds;
   List<SyncV2NoteVersion> get versions => snapshot.versions;
   bool get isConflict => snapshot.hasConflict;
   bool get isDeleted =>
       versions.isNotEmpty && versions.every((v) => v.isDeleted);
-  bool get ready => snapshot.canCompareVersions;
+  bool get ready => !isCorrupt && snapshot.canCompareVersions;
 }
 
 class SyncV2WorkspaceException implements Exception {
@@ -972,37 +1000,70 @@ class SyncV2WorkspaceController extends ChangeNotifier {
       if (entry.key.startsWith('profile_') || entry.key.startsWith('blob_')) {
         continue;
       }
-      NoteEntry? note;
-      final refs = <String, SyncV2AttachmentReference>{};
-      for (final version in snapshot.versions) {
-        final body = version.body;
-        if (body == null || body['type'] != 'note' || body['note'] is! Map) {
-          continue;
-        }
-        final parsed = NoteEntry.fromJson(
-          Map<String, dynamic>.from(body['note'] as Map),
-        );
-        if (parsed.id != entry.key || parsed.vaultId != access.profileId) {
-          throw const FormatException('Invalid note identity');
-        }
-        note ??= parsed.copyWith(body: syncV2EditableBody(parsed));
-        for (final ref in _references(body)) {
-          final previous = refs[ref.id];
-          if (previous != null &&
-              jsonEncode(previous.toJson()) != jsonEncode(ref.toJson())) {
-            throw const FormatException('Conflicting attachment reference');
+      try {
+        NoteEntry? note;
+        final refs = <String, SyncV2AttachmentReference>{};
+        for (final version in snapshot.versions) {
+          final body = version.body;
+          if (body == null) {
+            continue;
           }
-          refs[ref.id] = ref;
+          if (body['type'] != 'note' || body['note'] is! Map) {
+            throw const FormatException('Invalid note payload');
+          }
+          final parsed = NoteEntry.fromJson(
+            Map<String, dynamic>.from(body['note'] as Map),
+          );
+          if (parsed.id != entry.key || parsed.vaultId != access.profileId) {
+            throw const FormatException('Invalid note identity');
+          }
+          note ??= parsed.copyWith(body: syncV2EditableBody(parsed));
+          for (final ref in _references(body)) {
+            final previous = refs[ref.id];
+            if (previous != null &&
+                jsonEncode(previous.toJson()) != jsonEncode(ref.toJson())) {
+              throw const FormatException('Conflicting attachment reference');
+            }
+            refs[ref.id] = ref;
+          }
         }
+        note ??= NoteEntry(
+          id: entry.key,
+          vaultId: access.profileId,
+          title: '',
+          body: '',
+          createdAt: DateTime.fromMillisecondsSinceEpoch(0),
+        );
+        loaded.add(SyncV2WorkspaceNote(note, snapshot, refs.values.toList()));
+      } catch (_) {
+        // Quarantine only this projection. Keep the encrypted source records
+        // untouched, while preventing malformed plaintext from reaching views.
+        final redactedSnapshot = SyncV2NoteSnapshot(
+          versions: [
+            for (final version in snapshot.versions)
+              SyncV2NoteVersion(
+                change: version.change,
+                payloadAvailable: version.payloadAvailable,
+                body: null,
+              ),
+          ],
+          pendingIds: snapshot.pendingIds,
+        );
+        loaded.add(
+          SyncV2WorkspaceNote(
+            NoteEntry(
+              id: entry.key,
+              vaultId: access.profileId,
+              title: '',
+              body: '',
+              createdAt: DateTime.fromMillisecondsSinceEpoch(0),
+            ),
+            redactedSnapshot,
+            const [],
+            isCorrupt: true,
+          ),
+        );
       }
-      note ??= NoteEntry(
-        id: entry.key,
-        vaultId: access.profileId,
-        title: '',
-        body: '',
-        createdAt: DateTime.fromMillisecondsSinceEpoch(0),
-      );
-      loaded.add(SyncV2WorkspaceNote(note, snapshot, refs.values.toList()));
     }
     loaded.sort((a, b) => b.note.createdAt.compareTo(a.note.createdAt));
     final failures = await inbox.readFailures(generationId!);
@@ -1018,6 +1079,7 @@ class SyncV2WorkspaceController extends ChangeNotifier {
   ];
   Future<void> saveNote({
     SyncV2WorkspaceNote? original,
+    DateTime? createdAt,
     required String title,
     required String body,
     List<NoteBlock>? blocks,
@@ -1027,6 +1089,10 @@ class SyncV2WorkspaceController extends ChangeNotifier {
     List<SyncV2PendingAttachment> addedFiles = const [],
     List<String> removedAttachmentIds = const [],
   }) {
+    if (addedFiles.fold<int>(0, (sum, file) => sum + file.bytes.length) >
+        syncV2MaxPendingAttachmentBytes) {
+      return Future<void>.error(const SyncV2WorkspaceException('too_large'));
+    }
     // The operation is queued by _run. Own a snapshot synchronously so a
     // screen lock can wipe its draft buffers without racing an active save.
     final ownedAddedFiles = [
@@ -1152,7 +1218,7 @@ class SyncV2WorkspaceController extends ChangeNotifier {
               vaultId: access.profileId,
               title: '',
               body: '',
-              createdAt: DateTime.now(),
+              createdAt: createdAt ?? DateTime.now(),
             );
         final baseBody = syncV2EditableBody(base);
         if (blocks == null && base.blocks.isNotEmpty && body != baseBody) {
@@ -1459,6 +1525,9 @@ class SyncV2WorkspaceController extends ChangeNotifier {
       final selectedNotes = notes
           .where((entry) => entry.note.vaultId == profile)
           .toList();
+      if (selectedNotes.any((entry) => entry.isCorrupt)) {
+        throw const SyncV2WorkspaceException('tag_corrupt');
+      }
       if (selectedNotes.any((entry) => !entry.ready || entry.isConflict)) {
         throw const SyncV2WorkspaceException('tag_conflict');
       }
@@ -1578,6 +1647,7 @@ class SyncV2WorkspaceController extends ChangeNotifier {
     if (note.note.vaultId != _selected.profileId) {
       throw const SyncV2WorkspaceException('locked');
     }
+    if (!note.ready) throw const SyncV2StaleNote();
     await repository.delete(
       generationId: generationId!,
       profileId: _selected.profileId,

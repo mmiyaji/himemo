@@ -199,6 +199,13 @@ enum NotesListSortField { updatedAt, createdAt }
 
 enum SyncProvider { off, iCloud, googleDrive }
 
+final legacySettingsBlockedProvider = FutureProvider.autoDispose<bool>((
+  ref,
+) async {
+  final prefs = await SharedPreferences.getInstance();
+  return prefs.getBool('settings.sync_v2.enabled') == true;
+});
+
 bool get isICloudSyncSupported =>
     !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
@@ -6799,8 +6806,19 @@ class NotesController extends _$NotesController {
   }
 
   Future<int> resetLocalStorage() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool('settings.sync_v2.enabled') == true) {
+      throw StateError(
+        'Legacy storage reset is unavailable while sync v2 is active',
+      );
+    }
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
+    if (prefs.getBool('settings.sync_v2.enabled') == true) {
+      throw StateError(
+        'Legacy storage reset is unavailable while sync v2 is active',
+      );
+    }
     final removedNotes = state
         .where((note) => note.deletedAt == null)
         .toList(growable: false);

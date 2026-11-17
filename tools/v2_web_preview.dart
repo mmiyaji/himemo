@@ -110,6 +110,7 @@ class _PreviewController extends SyncV2WorkspaceController {
   @override
   Future<void> saveNote({
     SyncV2WorkspaceNote? original,
+    DateTime? createdAt,
     required String title,
     required String body,
     List<NoteBlock>? blocks,
@@ -130,7 +131,7 @@ class _PreviewController extends SyncV2WorkspaceController {
           vaultId: 'normal',
           title: '',
           body: '',
-          createdAt: now,
+          createdAt: createdAt ?? now,
         );
     final updated = _previewNote(
       base.copyWith(

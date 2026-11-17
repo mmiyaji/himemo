@@ -974,6 +974,9 @@ class SettingsScreen extends ConsumerWidget {
       privateVaultLockOnAppLockControllerProvider,
     );
     final syncProvider = ref.watch(syncProviderControllerProvider);
+    // Fail closed while the persisted workspace selection is loading.
+    final legacySettingsBlocked =
+        ref.watch(legacySettingsBlockedProvider).value != false;
     final syncAuthState = ref.watch(selectedSyncAuthStateProvider);
     final syncQueueSummary = ref.watch(syncQueueSummaryProvider);
     final syncHistory = ref.watch(syncHistoryProvider);
@@ -1193,6 +1196,7 @@ class SettingsScreen extends ConsumerWidget {
     };
 
     Future<void> resetStorage() async {
+      if (legacySettingsBlocked) return;
       final confirmed = await _confirmStorageReset(context, noteCount);
       if (confirmed != true) {
         return;
@@ -1221,6 +1225,13 @@ class SettingsScreen extends ConsumerWidget {
     }
 
     final syncProviderChoices = <Widget>[
+      if (legacySettingsBlocked)
+        Text(
+          strings.localized(
+            en: 'Legacy sync settings are unavailable while sync v2 is active.',
+            ja: '同期 v2 の使用中は従来の同期設定を変更できません。',
+          ),
+        ),
       _SettingsSectionLabel(
         label: strings.localized(
           en: 'Sync with',
@@ -1250,9 +1261,11 @@ class SettingsScreen extends ConsumerWidget {
           de: 'Keine Synchronisierung mit anderen Geräten.',
         ),
         selected: syncProvider == SyncProvider.off,
-        onTap: () => ref
-            .read(syncProviderControllerProvider.notifier)
-            .setProvider(SyncProvider.off),
+        onTap: legacySettingsBlocked
+            ? null
+            : () => ref
+                  .read(syncProviderControllerProvider.notifier)
+                  .setProvider(SyncProvider.off),
       ),
       if (isICloudSyncSupported)
         _ThemeOptionTile(
@@ -1267,9 +1280,11 @@ class SettingsScreen extends ConsumerWidget {
             de: 'iCloud auf diesem iPhone oder iPad verwenden.',
           ),
           selected: syncProvider == SyncProvider.iCloud,
-          onTap: () => ref
-              .read(syncProviderControllerProvider.notifier)
-              .setProvider(SyncProvider.iCloud),
+          onTap: legacySettingsBlocked
+              ? null
+              : () => ref
+                    .read(syncProviderControllerProvider.notifier)
+                    .setProvider(SyncProvider.iCloud),
         ),
       _ThemeOptionTile(
         tileKey: syncGoogleDriveKey,
@@ -1283,9 +1298,11 @@ class SettingsScreen extends ConsumerWidget {
           de: 'Ihr Google-Konto verwenden.',
         ),
         selected: syncProvider == SyncProvider.googleDrive,
-        onTap: () => ref
-            .read(syncProviderControllerProvider.notifier)
-            .setProvider(SyncProvider.googleDrive),
+        onTap: legacySettingsBlocked
+            ? null
+            : () => ref
+                  .read(syncProviderControllerProvider.notifier)
+                  .setProvider(SyncProvider.googleDrive),
       ),
     ];
 
@@ -4220,20 +4237,27 @@ class SettingsScreen extends ConsumerWidget {
                 es: 'Zona de peligro',
                 de: 'Gefahrenbereich',
               ),
-              description: strings.localized(
-                en: 'Initialization permanently deletes every local note and attachment on this device.',
-                ja: '初期化すると、この端末のすべてのノートと添付ファイルが完全に削除されます。',
-                zh: '初始化会永久删除此设备上的所有本地笔记和附件。',
-                ko: '초기화하면 이 기기의 모든 로컬 메모와 첨부 파일이 영구적으로 삭제됩니다.',
-                es: 'La inicialización elimina permanentemente todas las notas y adjuntos locales de este dispositivo.',
-                de: 'Die Initialisierung löscht alle lokalen Notizen und Anhänge auf diesem Gerät dauerhaft.',
-              ),
+              description: legacySettingsBlocked
+                  ? strings.localized(
+                      en: 'Legacy storage initialization is unavailable while sync v2 is active.',
+                      ja: '同期 v2 の使用中は従来のストレージを初期化できません。',
+                    )
+                  : strings.localized(
+                      en: 'Initialization permanently deletes every local note and attachment on this device.',
+                      ja: '初期化すると、この端末のすべてのノートと添付ファイルが完全に削除されます。',
+                      zh: '初始化会永久删除此设备上的所有本地笔记和附件。',
+                      ko: '초기화하면 이 기기의 모든 로컬 메모와 첨부 파일이 영구적으로 삭제됩니다.',
+                      es: 'La inicialización elimina permanentemente todas las notas y adjuntos locales de este dispositivo.',
+                      de: 'Die Initialisierung löscht alle lokalen Notizen und Anhänge auf diesem Gerät dauerhaft.',
+                    ),
               action: OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(
                   foregroundColor: Theme.of(context).colorScheme.error,
                   side: BorderSide(color: Theme.of(context).colorScheme.error),
                 ),
-                onPressed: noteCount == 0 ? null : resetStorage,
+                onPressed: legacySettingsBlocked || noteCount == 0
+                    ? null
+                    : resetStorage,
                 icon: const Icon(Icons.restart_alt_rounded),
                 label: Text(
                   strings.localized(

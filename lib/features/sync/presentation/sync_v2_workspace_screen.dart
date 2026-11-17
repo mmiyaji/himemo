@@ -3,10 +3,12 @@ import 'dart:math' as math;
 import 'dart:ui' show PointerDeviceKind;
 
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart' show listEquals;
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, kIsWeb, listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart' show ImageSource;
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -44,6 +46,12 @@ import 'sync_v2_rich_blocks_editor.dart';
 import 'sync_v2_pairing_dialogs.dart';
 import 'sync_v2_original_editor.dart';
 import 'sync_v2_attachment_image.dart';
+import 'sync_v2_attachment_type.dart';
+import 'sync_v2_media_picker.dart';
+import 'sync_v2_audio_recorder.dart';
+
+import 'sync_v2_web_media_viewer.dart';
+import 'sync_v2_help.dart';
 import 'sync_v2_attachment_viewer.dart';
 import 'sync_v2_responsive_navigation.dart';
 import 'sync_v2_note_search.dart';
@@ -52,6 +60,15 @@ import 'sync_v2_search_controls.dart';
 import 'sync_v2_insights_view.dart';
 import 'sync_v2_note_read_only_pane.dart';
 import 'sync_v2_auto_tag_rules.dart';
+
+enum _SyncV2AttachmentAction {
+  files,
+  photoGallery,
+  videoGallery,
+  photoCamera,
+  videoCamera,
+  recordAudio,
+}
 
 class _SyncV2SelectedPreview {
   const _SyncV2SelectedPreview({
@@ -152,7 +169,8 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
   bool _insightsView = false;
   bool _trashView = false;
   bool _archiveView = false;
-  DateTime _calendarDay = DateTime.now();
+  DateTime _calendarDay = DateUtils.dateOnly(DateTime.now());
+  bool _calendarDayNotesExpanded = false;
   late DateTime _calendarMonth = DateTime(
     _calendarDay.year,
     _calendarDay.month,
@@ -169,6 +187,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
   bool _draftPinned = false;
   NoteLocation? _draftLocation;
   bool _editorOpen = false;
+  DateTime? _draftCreatedAt;
   int _draftSearchMatchIndex = 0;
   int _draftSearchRequest = 0;
   bool _foreground = true;
@@ -451,6 +470,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
     _tagInput.clear();
     _draftTags = [];
     _editing = null;
+    _draftCreatedAt = null;
     _selectedVersionId = null;
     _editingAttachments = [];
     _draftBlocks = [];
@@ -554,6 +574,10 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
     'tag_conflict' => t(
       '未取得または競合中のメモがあります。同期または競合の解決後にもう一度操作してください。',
       'Sync missing notes and resolve conflicts before managing tags.',
+    ),
+    'tag_corrupt' => t(
+      '読み取れないメモがあるためタグを変更できません。データの修復後に再試行してください。',
+      'Tags cannot be changed while a note is unreadable. Repair the data and try again.',
     ),
     'invalid_tag' => t('タグ名を入力してください。', 'Enter a tag name.'),
     'sync_required' => t(
@@ -1143,6 +1167,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
   Future<void> _open(
     SyncV2WorkspaceNote? note, {
     String? selectedVersionId,
+    DateTime? initialCreatedAt,
   }) async {
     _attachmentViewRevision++;
     unawaited(_attachmentViewer.close());
@@ -1205,6 +1230,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
     _tagInput.clear();
     setState(() {
       _editing = note;
+      _draftCreatedAt = note == null ? initialCreatedAt : null;
       _selectedVersionId = selectedVersionId;
       _editingAttachments = attachments;
       _draftBlocks = List.of(blocks);
@@ -1365,6 +1391,18 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
           ),
           attachment: true,
         );
+      } else if (kIsWeb &&
+          (attachment.type == 'video' || attachment.type == 'audio')) {
+        await _dialog<void>(
+          (_) => SyncV2WebMediaViewer(
+            label: syncV2AttachmentFileName(attachment.label),
+            video: attachment.type == 'video',
+            isActive: active,
+            loadBytes: () =>
+                _controller.readAttachmentPreview(attachment, isActive: active),
+          ),
+          attachment: true,
+        );
       } else {
         await _nativeAttachment(attachment, active);
       }
@@ -1467,7 +1505,9 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
     );
   }
 
-  Future<void> _pickAttachments() async {
+  Future<void> _pickAttachments({
+    _SyncV2AttachmentAction action = _SyncV2AttachmentAction.files,
+  }) async {
     if (_pickingAttachments) return;
     final active = _attachmentSessionIsActive(bindView: true);
     final noteId = _editing?.note.id;
@@ -1486,15 +1526,76 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
         _draftEditorMode == editorMode;
     if (mounted) setState(() => _pickingAttachments = true);
     final staged = <SyncV2PendingAttachment>[];
+    var stagedBytes = _added.fold<int>(
+      0,
+      (sum, file) => sum + file.bytes.length,
+    );
     var accepted = false;
     try {
-      final files = await FilePicker.pickFiles();
-      if (!stillEditing() || files.isEmpty) return;
-      for (final file in files) {
+      void stageBytes(String label, AttachmentType type, Uint8List bytes) {
+        if (bytes.length > 64 * 1024 * 1024 ||
+            stagedBytes + bytes.length > syncV2MaxPendingAttachmentBytes) {
+          bytes.fillRange(0, bytes.length, 0);
+          if (mounted && _foreground) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  bytes.length > 64 * 1024 * 1024
+                      ? t(
+                          '添付ファイルは64 MiB以下にしてください。',
+                          'Each attachment must be at most 64 MiB.',
+                        )
+                      : t(
+                          '一度に追加できる添付の合計は128 MiBまでです。',
+                          'Attachments added at once must total at most 128 MiB.',
+                        ),
+                ),
+              ),
+            );
+          }
+          return;
+        }
+        staged.add(
+          SyncV2PendingAttachment(
+            label: label,
+            type: type,
+            bytes: bytes,
+            draftId: rich ? _newPendingAttachmentId() : null,
+          ),
+        );
+        stagedBytes += bytes.length;
+      }
+
+      if (action == _SyncV2AttachmentAction.recordAudio) {
+        final recording = await _dialog<SyncV2RecordedAudio>(
+          (_) => const SyncV2AudioRecorderDialog(),
+          attachment: true,
+        );
+        if (recording == null) return;
+        if (!stillEditing()) {
+          recording.bytes.fillRange(0, recording.bytes.length, 0);
+          return;
+        }
+        stageBytes(recording.label, AttachmentType.audio, recording.bytes);
+      } else if (action == _SyncV2AttachmentAction.photoGallery ||
+          action == _SyncV2AttachmentAction.videoGallery ||
+          action == _SyncV2AttachmentAction.photoCamera ||
+          action == _SyncV2AttachmentAction.videoCamera) {
+        final source = switch (action) {
+          _SyncV2AttachmentAction.photoCamera ||
+          _SyncV2AttachmentAction.videoCamera => ImageSource.camera,
+          _ => ImageSource.gallery,
+        };
+        final isPhoto =
+            action == _SyncV2AttachmentAction.photoGallery ||
+            action == _SyncV2AttachmentAction.photoCamera;
+        final selection = isPhoto
+            ? await SyncV2MediaPicker().pickPhoto(source: source)
+            : await SyncV2MediaPicker().pickVideo(source: source);
+        if (selection == null || !stillEditing()) return;
+        final length = await selection.file.length();
         if (!stillEditing()) return;
-        final length = await file.length();
-        if (!stillEditing()) return;
-        if ((length ?? 64 * 1024 * 1024 + 1) > 64 * 1024 * 1024) {
+        if (length > 64 * 1024 * 1024) {
           if (mounted && _foreground) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -1507,23 +1608,75 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
               ),
             );
           }
-          continue;
+        } else if (stagedBytes + length > syncV2MaxPendingAttachmentBytes) {
+          if (mounted && _foreground) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  t(
+                    '一度に追加できる添付の合計は128 MiBまでです。',
+                    'Attachments added at once must total at most 128 MiB.',
+                  ),
+                ),
+              ),
+            );
+          }
+        } else {
+          final bytes = await selection.file.readAsBytes();
+          if (!stillEditing()) {
+            bytes.fillRange(0, bytes.length, 0);
+            return;
+          }
+          stageBytes(selection.file.name, selection.type, bytes);
         }
-        final bytes = await file.readAsBytes();
-        if (!stillEditing() || bytes.length > 64 * 1024 * 1024) {
-          bytes.fillRange(0, bytes.length, 0);
+      } else {
+        final files = await FilePicker.pickFiles();
+        if (!stillEditing() || files.isEmpty) return;
+        for (final file in files) {
           if (!stillEditing()) return;
-          continue;
+          final length = await file.length();
+          if (!stillEditing()) return;
+          if ((length ?? 64 * 1024 * 1024 + 1) > 64 * 1024 * 1024) {
+            if (mounted && _foreground) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    t(
+                      '添付ファイルは64 MiB以下にしてください。',
+                      'Each attachment must be at most 64 MiB.',
+                    ),
+                  ),
+                ),
+              );
+            }
+            continue;
+          }
+          if (stagedBytes + length! > syncV2MaxPendingAttachmentBytes) {
+            if (mounted && _foreground) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    t(
+                      '一度に追加できる添付の合計は128 MiBまでです。',
+                      'Attachments added at once must total at most 128 MiB.',
+                    ),
+                  ),
+                ),
+              );
+            }
+            continue;
+          }
+          final bytes = await file.readAsBytes();
+          if (!stillEditing()) {
+            bytes.fillRange(0, bytes.length, 0);
+            return;
+          }
+          stageBytes(
+            file.name,
+            syncV2AttachmentTypeForFilename(file.name),
+            bytes,
+          );
         }
-        final draftId = rich ? _newPendingAttachmentId() : null;
-        staged.add(
-          SyncV2PendingAttachment(
-            label: file.name,
-            type: AttachmentType.file,
-            bytes: bytes,
-            draftId: draftId,
-          ),
-        );
       }
       if (!stillEditing() || staged.isEmpty) return;
       if (rich) {
@@ -1649,7 +1802,14 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
           children: [
             const Icon(Icons.lock_outline_rounded),
             const SizedBox(height: 8),
-            Text(t('未取得またはロック中 · 読み取り専用', 'Missing or locked · read only')),
+            Text(
+              preview.entry.isCorrupt
+                  ? t(
+                      'メモを読み取れません。元のデータは保持されています。',
+                      'This note is unreadable. Its original data is retained.',
+                    )
+                  : t('未取得またはロック中 · 読み取り専用', 'Missing or locked · read only'),
+            ),
           ],
         ),
       );
@@ -2392,6 +2552,14 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
                   if (dialogContext.mounted) Navigator.of(dialogContext).pop();
                 },
               ),
+              if (!_isolatedPreview)
+                TextButton.icon(
+                  key: const ValueKey('sync-v2-help'),
+                  onPressed: () =>
+                      _dialog<void>((_) => const SyncV2HelpDialog()),
+                  icon: const Icon(Icons.help_outline),
+                  label: Text(t('使い方', 'Guide')),
+                ),
             ],
           ),
         ),
@@ -2680,6 +2848,16 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
                                           ),
                                         ),
                                       ),
+                                      if (!_isolatedPreview)
+                                        TextButton(
+                                          key: const ValueKey(
+                                            'sync-v2-setup-help',
+                                          ),
+                                          onPressed: () => _dialog<void>(
+                                            (_) => const SyncV2HelpDialog(),
+                                          ),
+                                          child: Text(t('使い方', 'Guide')),
+                                        ),
                                       if (c.hasPreparedSetup)
                                         TextButton(
                                           onPressed: c.busy
@@ -3275,6 +3453,12 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
             'Notes can be restored when their prior history is available.',
           ),
         ),
+        Text(
+          t(
+            '削除したメモの暗号化された履歴と添付は、端末と同期先に残ります。',
+            'Encrypted history and attachments of deleted notes remain on this device and in sync storage.',
+          ),
+        ),
         if (deleted.isEmpty) Text(t('削除済みのメモはありません', 'No deleted notes')),
         for (final note in deleted)
           ListTile(
@@ -3361,11 +3545,34 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
         )
         .toList();
     final dayNotes = entries.where((entry) {
-      final date = entry.note.createdAt;
+      final date = entry.note.createdAt.toLocal();
       return date.year == _calendarDay.year &&
           date.month == _calendarDay.month &&
           date.day == _calendarDay.day;
     }).toList();
+    final noteDays =
+        entries
+            .map((entry) {
+              final date = entry.note.createdAt.toLocal();
+              return DateTime(date.year, date.month, date.day);
+            })
+            .toSet()
+            .toList()
+          ..sort();
+    DateTime? adjacentDay(bool backwards) {
+      for (final day in backwards ? noteDays.reversed : noteDays) {
+        if (backwards
+            ? day.isBefore(_calendarDay)
+            : day.isAfter(_calendarDay)) {
+          return day;
+        }
+      }
+      return null;
+    }
+
+    final previousDay = adjacentDay(true);
+    final nextDay = adjacentDay(false);
+    const collapsedDayNoteLimit = 24;
     return ListView(
       key: const ValueKey('sync-v2-calendar'),
       padding: const EdgeInsets.all(16),
@@ -3389,11 +3596,13 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
               ),
             ),
             onTodaySelected: () => setState(() {
-              _calendarDay = DateTime.now();
+              _calendarDay = DateUtils.dateOnly(DateTime.now());
+              _calendarDayNotesExpanded = false;
               _calendarMonth = DateTime(_calendarDay.year, _calendarDay.month);
             }),
             onDateSelected: (day) => setState(() {
-              _calendarDay = day;
+              _calendarDay = DateUtils.dateOnly(day);
+              _calendarDayNotesExpanded = false;
               _calendarMonth = DateTime(day.year, day.month);
             }),
           ),
@@ -3403,26 +3612,127 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                '${_calendarDay.year}/${_calendarDay.month.toString().padLeft(2, '0')}/${_calendarDay.day.toString().padLeft(2, '0')}',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              if (dayNotes.isEmpty)
-                Text(t('この日のメモはありません', 'No notes on this day')),
-              for (final entry in dayNotes)
-                Material(
-                  color: Colors.transparent,
-                  child: ListTile(
-                    key: ValueKey('sync-v2-calendar-note-${entry.note.id}'),
-                    title: Text(entry.note.title),
-                    subtitle: Text(
-                      entry.note.body,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    onTap: c.busy ? null : () => _showPreview(entry),
+              Row(
+                children: [
+                  IconButton(
+                    key: const ValueKey('sync-v2-calendar-previous-day'),
+                    onPressed: previousDay == null
+                        ? null
+                        : () => setState(() {
+                            _calendarDay = previousDay;
+                            _calendarDayNotesExpanded = false;
+                            _calendarMonth = DateTime(
+                              previousDay.year,
+                              previousDay.month,
+                            );
+                          }),
+                    icon: const Icon(Icons.chevron_left_rounded),
+                    tooltip: t('前の日のメモ', 'Previous day with notes'),
+                    visualDensity: VisualDensity.compact,
                   ),
+                  Expanded(
+                    child: Text(
+                      '${_calendarDay.year}/${_calendarDay.month.toString().padLeft(2, '0')}/${_calendarDay.day.toString().padLeft(2, '0')}',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                  IconButton.filledTonal(
+                    key: const ValueKey('sync-v2-calendar-new-note'),
+                    onPressed: c.busy || c.selectedProfileId == null
+                        ? null
+                        : () {
+                            final now = DateTime.now();
+                            _open(
+                              null,
+                              initialCreatedAt: DateTime(
+                                _calendarDay.year,
+                                _calendarDay.month,
+                                _calendarDay.day,
+                                now.hour,
+                                now.minute,
+                                now.second,
+                              ),
+                            );
+                          },
+                    icon: const Icon(Icons.add_rounded),
+                    tooltip: t('新しいメモ', 'New note'),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  IconButton(
+                    key: const ValueKey('sync-v2-calendar-next-day'),
+                    onPressed: nextDay == null
+                        ? null
+                        : () => setState(() {
+                            _calendarDay = nextDay;
+                            _calendarDayNotesExpanded = false;
+                            _calendarMonth = DateTime(
+                              nextDay.year,
+                              nextDay.month,
+                            );
+                          }),
+                    icon: const Icon(Icons.chevron_right_rounded),
+                    tooltip: t('次の日のメモ', 'Next day with notes'),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ],
+              ),
+              StatefulBuilder(
+                key: ValueKey(
+                  'sync-v2-calendar-day-${_calendarDay.year}-${_calendarDay.month}-${_calendarDay.day}',
                 ),
+                builder: (context, setDayState) {
+                  final expanded = _calendarDayNotesExpanded;
+                  final visibleCount =
+                      dayNotes.length > collapsedDayNoteLimit && !expanded
+                      ? collapsedDayNoteLimit
+                      : dayNotes.length;
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (dayNotes.isEmpty)
+                        Text(t('この日のメモはありません', 'No notes on this day')),
+                      for (final entry in dayNotes.take(visibleCount))
+                        Material(
+                          color: Colors.transparent,
+                          child: ListTile(
+                            key: ValueKey(
+                              'sync-v2-calendar-note-${entry.note.id}',
+                            ),
+                            title: Text(entry.note.title),
+                            subtitle: Text(
+                              entry.note.body,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            onTap: c.busy ? null : () => _showPreview(entry),
+                          ),
+                        ),
+                      if (dayNotes.length > collapsedDayNoteLimit)
+                        TextButton.icon(
+                          key: const ValueKey('sync-v2-calendar-expand-day'),
+                          onPressed: () {
+                            setDayState(
+                              () => _calendarDayNotesExpanded = !expanded,
+                            );
+                          },
+                          icon: Icon(
+                            expanded
+                                ? Icons.expand_less_rounded
+                                : Icons.expand_more_rounded,
+                          ),
+                          label: Text(
+                            expanded
+                                ? t('表示件数を減らす', 'Show fewer notes')
+                                : t(
+                                    '${dayNotes.length}件すべて表示',
+                                    'Show all ${dayNotes.length} notes',
+                                  ),
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
             ],
           ),
         ),
@@ -3942,7 +4252,12 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
           ? Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
               child: Text(
-                t('未取得またはロック中 · 読み取り専用', 'Missing or locked · read only'),
+                byId[note.id]!.isCorrupt
+                    ? t(
+                        'メモを読み取れません。元のデータは保持されています。',
+                        'This note is unreadable. Its original data is retained.',
+                      )
+                    : t('未取得またはロック中 · 読み取り専用', 'Missing or locked · read only'),
               ),
             )
           : byId[note.id]!.isConflict
@@ -4210,6 +4525,39 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
           icon: const Icon(Icons.attach_file),
           label: Text(t('添付（64 MiBまで）', 'Attach (up to 64 MiB)')),
         ),
+        PopupMenuButton<_SyncV2AttachmentAction>(
+          key: const ValueKey('sync-v2-capture-menu'),
+          enabled: writable && !_pickingAttachments,
+          tooltip: t('写真・動画・音声を追加', 'Add photo, video, or audio'),
+          onSelected: (action) => _run(() => _pickAttachments(action: action)),
+          itemBuilder: (context) => [
+            PopupMenuItem(
+              value: _SyncV2AttachmentAction.photoGallery,
+              child: Text(t('写真を選択', 'Choose photo')),
+            ),
+            PopupMenuItem(
+              value: _SyncV2AttachmentAction.videoGallery,
+              child: Text(t('動画を選択', 'Choose video')),
+            ),
+            if (kIsWeb ||
+                defaultTargetPlatform == TargetPlatform.android ||
+                defaultTargetPlatform == TargetPlatform.iOS) ...[
+              PopupMenuItem(
+                value: _SyncV2AttachmentAction.photoCamera,
+                child: Text(t('写真を撮影', 'Take photo')),
+              ),
+              PopupMenuItem(
+                value: _SyncV2AttachmentAction.videoCamera,
+                child: Text(t('動画を撮影', 'Record video')),
+              ),
+            ],
+            PopupMenuItem(
+              value: _SyncV2AttachmentAction.recordAudio,
+              child: Text(t('音声を録音', 'Record audio')),
+            ),
+          ],
+          icon: const Icon(Icons.add_photo_alternate_outlined),
+        ),
         FilledButton(
           onPressed: writable
               ? () => _run(() async {
@@ -4235,7 +4583,10 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
                               )
                               .map((block) => block.text ?? '')
                               .join('\n'),
-                    createdAt: _editing?.note.createdAt ?? DateTime.now(),
+                    createdAt:
+                        _editing?.note.createdAt ??
+                        _draftCreatedAt ??
+                        DateTime.now(),
                     tags: dedupeNoteTags([..._draftTags, _tagInput.text]),
                     attachments: [
                       for (final item in _editingAttachments)
@@ -4256,6 +4607,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
                   ).normalizedTags;
                   await c.saveNote(
                     original: _editing,
+                    createdAt: _draftCreatedAt,
                     selectedVersionId: _selectedVersionId,
                     title: _title.text,
                     body: _body.text,
@@ -4322,7 +4674,7 @@ class _SyncV2WorkspaceScreenState extends ConsumerState<SyncV2WorkspaceScreen>
           children: [draftSearchBar, _tagEditor(writable), attachments],
         ),
         actions: actions,
-        createdAt: _editing?.note.createdAt,
+        createdAt: _editing?.note.createdAt ?? _draftCreatedAt,
         editing: _editing != null,
         wide: MediaQuery.sizeOf(context).width >= 1180,
       );

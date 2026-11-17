@@ -31,7 +31,11 @@ class MarkedNoteCalendar extends StatelessWidget {
     selectedDay: selectedDay,
     markedDays: {
       for (final note in notes)
-        DateTime(note.createdAt.year, note.createdAt.month, note.createdAt.day),
+        DateTime(
+          note.createdAt.toLocal().year,
+          note.createdAt.toLocal().month,
+          note.createdAt.toLocal().day,
+        ),
     },
     onPreviousMonth: onPreviousMonth,
     onNextMonth: onNextMonth,
