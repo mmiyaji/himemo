@@ -244,6 +244,30 @@ def _bounded_timeout(limit_seconds: float, deadline: float, label: str) -> float
     return min(float(limit_seconds), remaining)
 
 
+def recover_owned_simulator_delete(
+    xcrun: str, device_id: str, *, enabled: bool, log: IO[str]
+) -> bool:
+    """Restart the current user's CoreSimulatorService once, then retry one owned UUID."""
+    if not enabled:
+        return False
+    uid = subprocess.run(["id", "-u"], capture_output=True, text=True, check=False)
+    if uid.returncode != 0 or not uid.stdout.strip().isdigit():
+        log.write("Could not resolve current user ID; CoreSimulatorService recovery skipped.\n")
+        log.flush()
+        return False
+    service = f"gui/{uid.stdout.strip()}/com.apple.CoreSimulator.CoreSimulatorService"
+    result = run_command(
+        ["launchctl", "kickstart", "-k", service], timeout_seconds=30,
+        log=log, label="CoreSimulatorService recovery", allow_failure=True,
+    )
+    if result != 0:
+        return False
+    return run_command(
+        [xcrun, "simctl", "delete", device_id], timeout_seconds=30,
+        log=log, label="owned simulator delete after service recovery", allow_failure=True,
+    ) == 0
+
+
 def parse_migration_statuses(output: str) -> dict[str, str]:
     """Parse simctl bootstatus migration rows, rejecting unknown output formats."""
     lines = output.splitlines()
@@ -356,6 +380,7 @@ def run_smoke(args: argparse.Namespace) -> int:
     operation_deadline = time.monotonic() + args.operation_timeout_seconds
     created_device_udid: str | None = None
     device_id: str | None = None
+    service_recovery_attempted = False
     device_name = args.device_name
 
     with transcript_path.open("w", encoding="utf-8") as log:
@@ -462,6 +487,13 @@ def run_smoke(args: argparse.Namespace) -> int:
                             label=f"owned simulator delete retry {retry_index}/2",
                             allow_failure=True,
                         )
+                    if (delete_result != 0 and not service_recovery_attempted
+                            and getattr(args, "recover_simulator_service", False)):
+                        service_recovery_attempted = True
+                        if recover_owned_simulator_delete(
+                            xcrun, device_id, enabled=True, log=log,
+                        ):
+                            delete_result = 0
                     if delete_result != 0:
                         raise RuntimeError(
                             f"failed simulator candidate {device_id} could not be confirmed deleted; "
@@ -616,13 +648,18 @@ def run_smoke(args: argparse.Namespace) -> int:
                     label="simulator shutdown",
                     allow_failure=True,
                 )
-                run_command(
+                delete_result = run_command(
                     [xcrun, "simctl", "delete", created_device_udid],
                     timeout_seconds=30,
                     log=log,
                     label="owned simulator delete",
                     allow_failure=True,
                 )
+                if delete_result != 0 and not service_recovery_attempted:
+                    recover_owned_simulator_delete(
+                        xcrun, created_device_udid,
+                        enabled=getattr(args, "recover_simulator_service", False), log=log,
+                    )
             else:
                 log.write("No owned simulator was created; no existing simulator was modified.\n")
                 log.flush()
@@ -654,6 +691,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--startup-timeout-seconds", type=int, default=180)
     parser.add_argument("--driver-timeout-seconds", type=int, default=480)
     parser.add_argument("--operation-timeout-seconds", type=int, default=960)
+    parser.add_argument("--recover-simulator-service", action="store_true",
+                        help="Restart the current user's CoreSimulatorService once after owned-device delete failure.")
     return parser.parse_args(argv)
 
 

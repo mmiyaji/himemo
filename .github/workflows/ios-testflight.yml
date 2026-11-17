@@ -226,7 +226,8 @@ jobs:
             --install-timeout-seconds 600 \
             --startup-timeout-seconds 180 \
             --driver-timeout-seconds 480 \
-            --operation-timeout-seconds 1500
+            --operation-timeout-seconds 1500 \
+            --recover-simulator-service
 
       - name: Upload iOS launch evidence
         if: always()

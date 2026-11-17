@@ -97,6 +97,42 @@ def smoke_args(evidence_dir):
 
 
 class IOSLaunchSmokeTests(unittest.TestCase):
+    def test_owned_delete_recovery_restarts_service_then_deletes_only_owned_uuid(self):
+        with tempfile.TemporaryFile(mode="w+") as log:
+            with (
+                patch.object(ios_launch_smoke.subprocess, "run", return_value=CompletedProcess(
+                    ["id", "-u"], 0, "501\n", ""
+                )),
+                patch.object(ios_launch_smoke, "run_command", side_effect=[0, 0]) as command,
+            ):
+                recovered = ios_launch_smoke.recover_owned_simulator_delete(
+                    "xcrun", "owned-uuid", enabled=True, log=log
+                )
+
+        self.assertTrue(recovered)
+        self.assertEqual(command.call_args_list[0].args[0], [
+            "launchctl", "kickstart", "-k",
+            "gui/501/com.apple.CoreSimulator.CoreSimulatorService",
+        ])
+        self.assertEqual(command.call_args_list[1].args[0], [
+            "xcrun", "simctl", "delete", "owned-uuid",
+        ])
+
+    def test_owned_delete_recovery_failure_does_not_retry_delete(self):
+        with tempfile.TemporaryFile(mode="w+") as log:
+            with (
+                patch.object(ios_launch_smoke.subprocess, "run", return_value=CompletedProcess(
+                    ["id", "-u"], 0, "501\n", ""
+                )),
+                patch.object(ios_launch_smoke, "run_command", return_value=1) as command,
+            ):
+                recovered = ios_launch_smoke.recover_owned_simulator_delete(
+                    "xcrun", "owned-uuid", enabled=True, log=log
+                )
+
+        self.assertFalse(recovered)
+        command.assert_called_once()
+
     def test_migration_status_parser_ignores_persistent_pending_but_detects_running(self):
         statuses = parse_migration_statuses(
             """Monitoring boot status.\nData migration details:
