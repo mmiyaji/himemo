@@ -8797,6 +8797,15 @@ class PrivateMemoProfilesController extends Notifier<List<PrivateMemoProfile>> {
 
   @override
   List<PrivateMemoProfile> build() {
+    if (usesSyncV2NoteBackend) {
+      // v2 profile names are only readable while unlocked, so the list
+      // follows the workspace's unlocked profiles.
+      final workspace = ref.watch(syncV2WorkspaceProvider);
+      void onChange() => state = _syncV2Profiles(workspace);
+      workspace.addListener(onChange);
+      ref.onDispose(() => workspace.removeListener(onChange));
+      return _syncV2Profiles(workspace);
+    }
     if (!_restored) {
       _restored = true;
       unawaited(refresh());
@@ -8804,8 +8813,63 @@ class PrivateMemoProfilesController extends Notifier<List<PrivateMemoProfile>> {
     return const <PrivateMemoProfile>[];
   }
 
+  static List<PrivateMemoProfile> _syncV2Profiles(
+    SyncV2WorkspaceController workspace,
+  ) => [
+    for (final profile in workspace.profiles)
+      if (!profile.isNormal && profile.id.startsWith(customPrivateVaultPrefix))
+        PrivateMemoProfile(
+          id: profile.id.substring(customPrivateVaultPrefix.length),
+          name: profile.name,
+          createdAt: DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+        ),
+  ];
+
   Future<void> refresh() async {
+    if (usesSyncV2NoteBackend) {
+      state = _syncV2Profiles(ref.read(syncV2WorkspaceProvider));
+      return;
+    }
     state = await ref.read(privateMemoProfileStoreProvider).listProfiles();
+  }
+
+  static const syncV2AdminRequiredMessage =
+      'Unlock administrator mode to add a private profile.';
+
+  /// v2: wrapping a new profile key needs the ADMIN key, so creation enters
+  /// administrator mode first (device-remembered key or biometrics).
+  Future<String?> _addSyncV2Profile(String name, String password) async {
+    final workspace = ref.read(syncV2WorkspaceProvider);
+    if (!workspace.adminUnlocked) {
+      // Same gate as the settings screen: device authentication first. The
+      // in-process stub (development only) runs on web without device auth.
+      final authenticated =
+          (isDevelopmentFlavor && noteBackend == 'v2-local') ||
+          await ref
+              .read(deviceAuthControllerProvider.notifier)
+              .authenticate(
+                reason: 'Enter admin mode to add a private profile',
+              );
+      if (!authenticated) return syncV2AdminRequiredMessage;
+      try {
+        await ref.read(adminModeSessionControllerProvider.notifier).unlock();
+      } on Object {
+        return syncV2AdminRequiredMessage;
+      }
+    }
+    if (!workspace.adminUnlocked) return syncV2AdminRequiredMessage;
+    try {
+      await workspace.createProfile(name.trim(), password);
+    } on ArgumentError catch (error) {
+      return '${error.message}';
+    } on SyncV2WorkspaceException catch (error) {
+      return error.code == 'admin_required'
+          ? syncV2AdminRequiredMessage
+          : 'Could not create the profile (${error.code}).';
+    }
+    logAudit('private_profile_create', data: {'backend': 'sync_v2'});
+    await refresh();
+    return null;
   }
 
   Future<String?> addProfile({
@@ -8814,6 +8878,7 @@ class PrivateMemoProfilesController extends Notifier<List<PrivateMemoProfile>> {
     bool usePin = false,
     String? recoveryPassword,
   }) async {
+    if (usesSyncV2NoteBackend) return _addSyncV2Profile(name, password);
     final error = await ref
         .read(privateMemoProfileStoreProvider)
         .addProfile(
@@ -8887,6 +8952,18 @@ class PrivateMemoProfilesController extends Notifier<List<PrivateMemoProfile>> {
     required String id,
     required String password,
   }) async {
+    if (usesSyncV2NoteBackend) {
+      try {
+        await ref
+            .read(syncV2WorkspaceProvider)
+            .changeProfilePassword('$customPrivateVaultPrefix$id', password);
+      } on ArgumentError catch (error) {
+        return '${error.message}';
+      } on SyncV2WorkspaceException catch (error) {
+        return 'Could not change the passcode (${error.code}).';
+      }
+      return null;
+    }
     final error = await ref
         .read(privateMemoProfileStoreProvider)
         .updateProfilePassword(id: id, password: password);

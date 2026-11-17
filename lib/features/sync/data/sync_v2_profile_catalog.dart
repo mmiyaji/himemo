@@ -468,7 +468,7 @@ class SyncV2ProfileCatalog {
         name.length > 1024 ||
         password.length < SyncV2ProfileKeys.minimumPasscodeLength) {
       throw ArgumentError(
-        'Provide a name and a password of at least 12 characters.',
+        'Provide a name and a passcode of at least ${SyncV2ProfileKeys.minimumPasscodeLength} characters.',
       );
     }
     final raw = SecretKey(_encryption.generateKeyBytes());

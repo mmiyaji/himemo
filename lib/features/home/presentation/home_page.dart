@@ -37,6 +37,7 @@ import '../../../app/diagnostic_log.dart';
 import '../../../app/app_flavor.dart';
 import '../../../app/audit_log.dart';
 import '../../sync/presentation/sync_v2_note_store_provider.dart';
+import '../../security/data/authentication_throttle.dart';
 import '../../sync/presentation/sync_v2_workspace.dart';
 import '../../../l10n/app_strings.dart';
 import 'marked_note_calendar.dart';
@@ -2124,12 +2125,24 @@ Future<void> _showProfileAccessDialog(
     SnackBar(
       showCloseIcon: true,
       content: Text(
-        unlocked == null
-            ? (strings.text('home.no.private.profile.matched.that.password'))
-            : (strings.text('home.private.profile.unlocked')),
+        unlocked != null
+            ? (strings.text('home.private.profile.unlocked'))
+            : _unlockThrottled(ref)
+            // Do not reveal whether any profile exists; only ask to wait.
+            ? strings.localized(
+                en: 'Too many attempts. Please try again later.',
+                ja: 'しばらくしてから再度お試しください。',
+              )
+            : (strings.text('home.no.private.profile.matched.that.password')),
       ),
     ),
   );
+}
+
+bool _unlockThrottled(WidgetRef ref) {
+  final error = ref.read(privateProfileUnlockControllerProvider).error;
+  return error is AuthenticationThrottledException ||
+      (error is SyncV2WorkspaceException && error.code == 'throttled');
 }
 
 Future<void> _showAddPrivateProfileDialogFromHeader(

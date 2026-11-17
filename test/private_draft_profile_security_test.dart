@@ -231,8 +231,8 @@ void main() {
     test('rejects weak and duplicate passwords', () async {
       final fixture = _ProfileStoreFixture();
       expect(
-        await fixture.store.addProfile(name: 'Weak', password: 'short'),
-        contains('10'),
+        await fixture.store.addProfile(name: 'Weak', password: 'abc'),
+        contains('4'),
       );
       expect(
         await fixture.store.addProfile(
