@@ -449,7 +449,12 @@ class IOSLaunchSmokeTests(unittest.TestCase):
 
             def record_command(command, *, label, allow_failure=False, **kwargs):
                 events.append(label)
-                if label in {"simulator boot", "owned simulator delete"}:
+                if label in {
+                    "simulator boot",
+                    "owned simulator delete",
+                    "owned simulator delete retry 1/2",
+                    "owned simulator delete retry 2/2",
+                }:
                     return 1
                 return 0
 
@@ -463,6 +468,71 @@ class IOSLaunchSmokeTests(unittest.TestCase):
             self.assertEqual(result, 1)
             self.assertEqual(events.count("simulator boot"), 1)
             create.assert_called_once()
+
+    def test_short_owned_delete_retry_success_allows_next_candidate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            events = []
+            ids = iter(("stuck-owned", "ready-owned"))
+            console = FakeConsoleProcess(events)
+            delete_attempts = 0
+
+            def record_command(command, *, label, allow_failure=False, output_callback=None, **kwargs):
+                nonlocal delete_attempts
+                events.append(label)
+                if label == "simulator boot" and command[3] == "stuck-owned":
+                    return 1
+                if label == "owned simulator delete":
+                    delete_attempts += 1
+                    return 124 if delete_attempts == 1 else 0
+                if label.startswith("owned simulator delete retry"):
+                    return 0
+                if label == "simulator bootstatus" and output_callback:
+                    output_callback(
+                        "Data migration details:\n"
+                        "com.apple.MobileAsset : duration: 1, status: success\n\n"
+                    )
+                return 0
+
+            with (
+                patch.object(ios_launch_smoke, "choose_loopback_port", return_value=9134),
+                patch.object(ios_launch_smoke, "create_simulator", side_effect=lambda *a, **k: next(ids)),
+                patch.object(ios_launch_smoke, "run_command", side_effect=record_command),
+                patch.object(ios_launch_smoke, "wait_for_vm_service", return_value=True),
+                patch.object(ios_launch_smoke.subprocess, "Popen", return_value=console),
+            ):
+                result = ios_launch_smoke.run_smoke(smoke_args(directory))
+
+            self.assertEqual(result, 0)
+            self.assertEqual(events.count("simulator boot"), 2)
+            self.assertEqual(events.count("owned simulator delete retry 1/2"), 1)
+            self.assertIn("Flutter driver smoke", events)
+
+    def test_two_short_owned_delete_retries_failing_stops_before_next_candidate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            events = []
+
+            def record_command(command, *, label, allow_failure=False, **kwargs):
+                events.append(label)
+                if label == "simulator boot":
+                    return 1
+                if label in {"owned simulator delete", "owned simulator delete retry 1/2",
+                             "owned simulator delete retry 2/2"}:
+                    return 124
+                return 0
+
+            with (
+                patch.object(ios_launch_smoke, "choose_loopback_port", return_value=9135),
+                patch.object(ios_launch_smoke, "create_simulator", return_value="stuck-owned") as create,
+                patch.object(ios_launch_smoke, "run_command", side_effect=record_command),
+            ):
+                result = ios_launch_smoke.run_smoke(smoke_args(directory))
+
+            self.assertEqual(result, 1)
+            self.assertEqual(events.count("owned simulator delete retry 1/2"), 1)
+            self.assertEqual(events.count("owned simulator delete retry 2/2"), 1)
+            create.assert_called_once()
+            transcript = Path(directory, "smoke-run.log").read_text(encoding="utf-8")
+            self.assertIn("refusing to create another simulator", transcript)
 
     def test_unparseable_bootstatus_fails_before_install_and_driver(self):
         with tempfile.TemporaryDirectory() as directory:

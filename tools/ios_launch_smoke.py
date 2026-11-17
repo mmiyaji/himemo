@@ -445,6 +445,23 @@ def run_smoke(args: argparse.Namespace) -> int:
                         [xcrun, "simctl", "delete", device_id], timeout_seconds=30,
                         log=log, label="owned simulator delete", allow_failure=True,
                     )
+                    retry_deadline = min(operation_deadline, time.monotonic() + 20)
+                    for retry_index in range(1, 3):
+                        remaining = min(retry_deadline, operation_deadline) - time.monotonic()
+                        if delete_result == 0 or remaining <= 0:
+                            break
+                        log.write(
+                            f"Owned simulator delete failed; short retry "
+                            f"{retry_index}/2 for {device_id} ({remaining:.0f}s retry budget remains).\n"
+                        )
+                        log.flush()
+                        delete_result = run_command(
+                            [xcrun, "simctl", "delete", device_id],
+                            timeout_seconds=min(10.0, remaining),
+                            log=log,
+                            label=f"owned simulator delete retry {retry_index}/2",
+                            allow_failure=True,
+                        )
                     if delete_result != 0:
                         raise RuntimeError(
                             f"failed simulator candidate {device_id} could not be confirmed deleted; "
