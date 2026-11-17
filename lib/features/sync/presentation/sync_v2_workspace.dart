@@ -713,7 +713,42 @@ class SyncV2WorkspaceController extends ChangeNotifier {
   }
 
   Future<void> cancelSetup() => _run(() async {
-    _discardPrepared();
+    final prepared = _prepared;
+    SyncV2PendingRegistration? pending;
+    SyncV2Enrollment? enrolled;
+    try {
+      if (prepared != null) {
+        pending = await enrollments.readPendingRegistration();
+        enrolled = await enrollments.readForAccount(prepared.accountId);
+        // Pending state is persisted before publication starts. Keep credentials
+        // for that attempt even if cloud publication or local attachment failed.
+        if (pending?.generationId != prepared.generationId &&
+            enrolled?.generationId != prepared.generationId) {
+          if (await store.read('sync.v2.biometric.${prepared.generationId}') ==
+              'enabled') {
+            await biometrics.delete(prepared.generationId);
+          }
+          await store.delete('sync.v2.biometric.${prepared.generationId}');
+          await store.delete(
+            SyncV2AdminStore(
+              store,
+              _encryption,
+              generationId: prepared.generationId,
+            ).storageKey,
+          );
+          await deviceAdminStore.delete(
+            accountId: prepared.accountId,
+            generationId: prepared.generationId,
+          );
+        }
+      }
+    } finally {
+      pending?.syncKey.destroy();
+      enrolled?.syncKey.destroy();
+      // Cancellation always releases the in-memory setup keys, including when
+      // Keychain cleanup fails. Report the failure through the usual UI path.
+      _discardPrepared();
+    }
   }, allowPaused: true);
 
   Future<void> resumePending() => _run(() async {

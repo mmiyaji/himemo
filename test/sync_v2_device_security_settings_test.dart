@@ -117,6 +117,12 @@ void main() {
       );
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
+      await tester.runAsync(() async {
+        for (var i = 0; i < 100 && controller.hasPreparedSetup; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+      });
+      await tester.pumpAndSettle();
       expect(controller.hasPreparedSetup, isFalse);
       expect(controller.registered, isFalse);
       await begin();

@@ -34,6 +34,7 @@ class _Cloud
   String? proof;
   String account = 'account';
   bool offline = false;
+  bool rejectPreparation = false;
   int registryWrites = 0;
   final records = <SyncV2Publication>[];
   @override
@@ -50,6 +51,7 @@ class _Cloud
 
   @override
   Future<void> prepareGeneration(String generationId) async {
+    if (rejectPreparation) throw StateError('interrupted');
     registryWrites++;
   }
 
@@ -153,8 +155,12 @@ class _Store extends SecureKeyValueStore {
     return backing.write(key, value);
   }
 
+  bool failDeletes = false;
   @override
-  Future<void> delete(String key) => backing.delete(key);
+  Future<void> delete(String key) {
+    if (failDeletes) throw StateError('key store unavailable');
+    return backing.delete(key);
+  }
 }
 
 class _Biometrics implements SyncV2BiometricKeyStore {
@@ -563,6 +569,92 @@ void main() {
     },
     timeout: const Timeout(Duration(minutes: 2)),
   );
+
+  for (final biometricSetup in [false, true]) {
+    test(
+      'cancel unpublished setup removes local credentials (biometrics=$biometricSetup)',
+      () async {
+        final cloud = _Cloud();
+        final biometric = _Biometrics();
+        final device = _Device(cloud, biometrics: biometric);
+        final c = device.workspace;
+        addTearDown(c.dispose);
+        await c.initialize();
+        final codes = biometricSetup
+            ? await c.prepareNewBiometric()
+            : await c.prepareNew('1234');
+        final generation = SyncV2DeviceTransfer(
+          syncCode: codes.syncCode,
+          adminCode: codes.adminCode,
+        ).generationId;
+        final before = await c.deviceAdminStore.read(
+          accountId: 'account',
+          generationId: generation,
+        );
+        expect(before, isNotNull);
+        before?.destroy();
+        await c.cancelSetup();
+        expect(c.hasPreparedSetup, isFalse);
+        expect(c.registered, isFalse);
+        expect(cloud.registryWrites, 0);
+        expect(await device.store.read('sync.v2.admin.$generation'), isNull);
+        expect(
+          await device.store.read('sync.v2.biometric.$generation'),
+          isNull,
+        );
+        expect(biometric.keys.containsKey(generation), isFalse);
+        final remembered = await c.deviceAdminStore.read(
+          accountId: 'account',
+          generationId: generation,
+        );
+        expect(remembered, isNull);
+        await c.prepareNew('5678');
+        await c.confirmSetup();
+        expect(c.registered, isTrue);
+      },
+    );
+  }
+
+  test('cancel preserves credentials for pending cloud registration', () async {
+    final cloud = _Cloud();
+    final device = _Device(cloud);
+    final c = device.workspace;
+    addTearDown(c.dispose);
+    await c.initialize();
+    final codes = await c.prepareNew('1234');
+    final generation = SyncV2DeviceTransfer(
+      syncCode: codes.syncCode,
+      adminCode: codes.adminCode,
+    ).generationId;
+    cloud.rejectPreparation = true;
+    await expectLater(
+      c.confirmSetup(),
+      throwsA(isA<SyncV2WorkspaceException>()),
+    );
+    expect(c.hasPending, isTrue);
+    await c.cancelSetup();
+    expect(c.hasPreparedSetup, isFalse);
+    expect(await device.store.read('sync.v2.admin.$generation'), isNotNull);
+    cloud.rejectPreparation = false;
+    await c.resumePending();
+    await c.unlockAdmin('1234');
+    expect(c.adminUnlocked, isTrue);
+  });
+
+  test('failed cleanup still discards in-memory prepared setup', () async {
+    final device = _Device(_Cloud());
+    final c = device.workspace;
+    addTearDown(c.dispose);
+    await c.initialize();
+    await c.prepareNew('1234');
+    device.store.failDeletes = true;
+    await expectLater(
+      c.cancelSetup(),
+      throwsA(isA<SyncV2WorkspaceException>()),
+    );
+    expect(c.hasPreparedSetup, isFalse);
+    expect(c.registered, isFalse);
+  });
 
   test('biometric setup needs no password and late unlock cannot survive background', () async {
     final cloud = _Cloud();
