@@ -26,6 +26,10 @@ Future<void> bootstrap(AppFlavor flavor) async {
         SemanticsBinding.instance.ensureSemantics();
       }
       configureFlavor(flavor);
+      if (flavor == AppFlavor.development) {
+        // Visible in the browser console; confirms which note store is active.
+        debugPrint('HiMemo note backend: $noteBackend');
+      }
       await initializeFirebaseForFlavor(flavor);
       await configureFirebaseObservability(enableCollection: kReleaseMode);
       runApp(
