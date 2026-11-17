@@ -7,6 +7,7 @@ import 'package:himemo/features/home/domain/note_entry.dart';
 import 'package:himemo/features/security/data/encryption_service.dart';
 import 'package:himemo/features/security/data/sync_v2_profile_keys.dart';
 import 'package:himemo/features/sync/data/sync_v2_header_codec.dart';
+import 'package:himemo/features/sync/data/sync_v2_history.dart';
 import 'package:himemo/features/sync/data/sync_v2_inbox.dart';
 import 'package:himemo/features/sync/data/sync_v2_note_repository.dart';
 import 'package:himemo/features/sync/data/sync_v2_note_store.dart';
@@ -179,6 +180,39 @@ void main() {
     ]);
   });
 
+  test('conflicted notes load but refuse edits and deletes', () async {
+    SyncV2NoteVersion version(String id) => SyncV2NoteVersion(
+      change: SyncV2Change(
+        id: id,
+        profileId: _normalId,
+        noteId: 'note_c',
+        operation: SyncV2Operation.upsert,
+        parentIds: const {},
+        payloadDigest: 'digest',
+      ),
+      payloadAvailable: true,
+      body: {
+        'type': 'note',
+        'note': _note('note_c', vaultId: _normalId, title: id).toJson(),
+      },
+    );
+    final store = SyncV2NoteStore(
+      repository: _FixedRepository({
+        'note_c': SyncV2NoteSnapshot(
+          versions: [version('a'), version('b')],
+          pendingIds: const {},
+        ),
+      }),
+      session: session,
+    );
+    expect((await store.load(fallbackNotes: const [])).single.id, 'c');
+    await expectLater(
+      store.saveOne(_note('c', title: 'overwrite')),
+      throwsA(isA<SyncV2StaleNote>()),
+    );
+    await expectLater(store.deleteById('c'), throwsA(isA<SyncV2StaleNote>()));
+  });
+
   test(
     'unregistered workspace returns the fallback and refuses writes',
     () async {
@@ -192,4 +226,26 @@ void main() {
       );
     },
   );
+}
+
+class _FixedRepository extends SyncV2NoteRepository {
+  _FixedRepository(this.snapshots)
+    : super(
+        SyncV2Inbox(
+          NativeDatabase.memory(),
+          SyncV2HeaderCodec(EncryptionService()),
+        ),
+        SyncV2HeaderCodec(EncryptionService()),
+        SyncV2PayloadCodec(EncryptionService()),
+      );
+  final Map<String, SyncV2NoteSnapshot> snapshots;
+
+  @override
+  Future<Map<String, SyncV2NoteSnapshot>> readProfile({
+    required String generationId,
+    required String profileId,
+    required SecretKey syncKey,
+    SyncV2UnlockedProfileKey? profileKey,
+    String? noteIdPrefix,
+  }) async => profileId == _normalId ? snapshots : const {};
 }

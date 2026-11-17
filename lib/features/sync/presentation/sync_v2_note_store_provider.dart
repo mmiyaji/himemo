@@ -49,14 +49,16 @@ final noteStoreProvider = Provider<NoteStore>((ref) {
     repository: workspace.repository,
     session: () => workspace.noteStoreSession,
   );
-  // Reload v1 state whenever the set of readable v2 profiles changes.
+  // Reload v1 state when readable profiles change or a sync delivers notes.
   String? lastKey;
   void onChange() {
     final session = workspace.noteStoreSession;
     final key = session == null
         ? null
         : '${session.generationId}:${workspace.privateSessionRevision}:'
-              '${(session.profiles.keys.toList()..sort()).join(',')}';
+              '${(session.profiles.keys.toList()..sort()).join(',')}:'
+              // The workspace replaces this list after every sync download.
+              '${identityHashCode(workspace.notes)}';
     if (key == lastKey) return;
     lastKey = key;
     unawaited(ref.read(notesControllerProvider.notifier).reloadFromStorage());

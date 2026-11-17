@@ -34,7 +34,10 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../app/diagnostic_log.dart';
+import '../../../app/app_flavor.dart';
 import '../../../app/audit_log.dart';
+import '../../sync/presentation/sync_v2_note_store_provider.dart';
+import '../../sync/presentation/sync_v2_workspace.dart';
 import '../../../l10n/app_strings.dart';
 import 'marked_note_calendar.dart';
 import 'home_search_toolbar.dart';
@@ -2202,6 +2205,29 @@ class _ProfileAccessDialogState extends ConsumerState<_ProfileAccessDialog> {
   final _formKey = GlobalKey<FormState>();
   bool _usePin = false;
   bool _showPassword = false;
+  int _debugTitleTaps = 0;
+  DateTime? _debugFirstTap;
+
+  /// Development builds only: five quick taps on the title clear the v2
+  /// passcode retry delay so testers are not locked out for an hour.
+  Future<void> _onTitleTap() async {
+    if (!isDevelopmentFlavor || !usesSyncV2NoteBackend) return;
+    final now = DateTime.now();
+    final first = _debugFirstTap;
+    if (first == null || now.difference(first) > const Duration(seconds: 3)) {
+      _debugFirstTap = now;
+      _debugTitleTaps = 0;
+    }
+    if (++_debugTitleTaps < 5) return;
+    _debugTitleTaps = 0;
+    _debugFirstTap = null;
+    await ref.read(syncV2WorkspaceProvider).debugResetUnlockThrottle();
+    logAudit('debug_unlock_throttle_reset');
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('DEV: unlock retry delay cleared')),
+    );
+  }
 
   @override
   void dispose() {
@@ -2221,10 +2247,14 @@ class _ProfileAccessDialogState extends ConsumerState<_ProfileAccessDialog> {
     final strings = context.strings;
     final hasActiveAccess = widget.adminMode || widget.activeLabel != null;
     return AlertDialog(
-      title: Text(
-        hasActiveAccess
-            ? (strings.text('home.switch.private.access'))
-            : (strings.text('home.unlock.private.profile.2')),
+      title: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _onTitleTap,
+        child: Text(
+          hasActiveAccess
+              ? (strings.text('home.switch.private.access'))
+              : (strings.text('home.unlock.private.profile.2')),
+        ),
       ),
       content: Form(
         key: _formKey,

@@ -59,6 +59,7 @@ import '../../sync/data/google_drive_sync_transport.dart';
 import '../../sync/data/google_sign_in_initializer.dart';
 import '../../sync/data/icloud_sync_transport.dart';
 import '../../sync/presentation/sync_v2_note_store_provider.dart';
+import '../../sync/presentation/sync_v2_workspace.dart';
 import '../../sync/data/private_profile_sync_exclusion_store.dart';
 import '../../sync/data/sync_attachment_refs.dart';
 import '../../sync/data/sync_conflict_policy.dart';
@@ -8427,6 +8428,9 @@ class UnlockedPrivateProfileVaultIdController extends Notifier<String?> {
   void lock() {
     final vaultId = state;
     if (vaultId != null) {
+      if (usesSyncV2NoteBackend) {
+        ref.read(syncV2WorkspaceProvider).lockPrivate();
+      }
       ref.read(profileDataKeyServiceProvider).lockAllPrivateProfiles();
       final filters = ref.read(searchFiltersControllerProvider);
       if (filters.vaultId == vaultId) {
@@ -8457,6 +8461,7 @@ class AdminModeSessionController extends Notifier<bool> {
 
   /// The caller must complete device authentication before entering admin mode.
   Future<List<String>> unlock() async {
+    if (usesSyncV2NoteBackend) return _unlockSyncV2();
     final operation = ++_operation;
     final profiles = await ref
         .read(privateMemoProfileStoreProvider)
@@ -8503,6 +8508,37 @@ class AdminModeSessionController extends Notifier<bool> {
         },
       );
       return stillMissing;
+    } catch (_) {
+      if (ref.mounted && operation == _operation) lock();
+      rethrow;
+    }
+  }
+
+  /// v2: the device-remembered ADMIN key opens every profile. Without it, the
+  /// workspace's own biometric unlock is used. Returns no missing profiles.
+  Future<List<String>> _unlockSyncV2() async {
+    final operation = ++_operation;
+    final workspace = ref.read(syncV2WorkspaceProvider);
+    ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
+    ref.read(privateVaultSessionControllerProvider.notifier).lock();
+    // `unlockAdminFromSettings` requires this session to be active.
+    state = true;
+    try {
+      var unlocked = await workspace.unlockAdminFromSettings();
+      if (!unlocked && workspace.biometricEnabled) {
+        await workspace.unlockAdminBiometric();
+        unlocked = workspace.adminUnlocked;
+      }
+      if (!ref.mounted || operation != _operation) return const [];
+      if (!unlocked) {
+        throw const SyncV2WorkspaceException('admin_required');
+      }
+      ref.read(searchFiltersControllerProvider.notifier).setVault(null);
+      logAudit(
+        'admin_mode_login',
+        data: {'allProfilesReadable': true, 'profilesNeedingPassword': 0},
+      );
+      return const [];
     } catch (_) {
       if (ref.mounted && operation == _operation) lock();
       rethrow;
@@ -8563,6 +8599,9 @@ class AdminModeSessionController extends Notifier<bool> {
     _operation++;
     final changed = state;
     state = false;
+    if (changed && usesSyncV2NoteBackend) {
+      ref.read(syncV2WorkspaceProvider).lockPrivate();
+    }
     ref
         .read(profileDataKeyServiceProvider)
         .lockAllPrivateProfiles(
@@ -8593,6 +8632,7 @@ class PrivateProfileUnlockController extends Notifier<AsyncValue<void>> {
   AsyncValue<void> build() => const AsyncData(null);
 
   Future<UnlockProfileResult?> unlockWithPassword(String password) async {
+    if (usesSyncV2NoteBackend) return _unlockSyncV2(password);
     state = const AsyncLoading();
     try {
       UnlockProfileResult? candidate;
@@ -8692,6 +8732,54 @@ class PrivateProfileUnlockController extends Notifier<AsyncValue<void>> {
     await ref
         .read(syncTransferControllerProvider.notifier)
         .applyPendingPrivateDownloadedBundleIfNeeded();
+  }
+
+  /// v2: every profile whose passcode matches opens together. A mismatch
+  /// returns null without revealing whether any profile exists.
+  Future<UnlockProfileResult?> _unlockSyncV2(String password) async {
+    state = const AsyncLoading();
+    final workspace = ref.read(syncV2WorkspaceProvider);
+    try {
+      ref.read(adminModeSessionControllerProvider.notifier).lock();
+      ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
+      workspace.lockPrivate();
+      try {
+        await workspace.unlockPrivate(password);
+      } on SyncV2WorkspaceException catch (error) {
+        if (error.code == 'wrong_password') {
+          state = const AsyncData(null);
+          return null;
+        }
+        rethrow;
+      }
+      final opened = [
+        for (final profile in workspace.profiles)
+          if (!profile.isNormal) profile,
+      ];
+      if (opened.isEmpty) {
+        state = const AsyncData(null);
+        return null;
+      }
+      final result = UnlockProfileResult(
+        vaultId: opened.first.id,
+        label: opened.first.name,
+        isLegacy: false,
+        additionalVaultIds: [for (final p in opened.skip(1)) p.id],
+      );
+      ref
+          .read(unlockedPrivateProfileVaultIdProvider.notifier)
+          .unlock(
+            result.vaultId,
+            additionalVaultIds: result.additionalVaultIds,
+          );
+      await ref.read(notesControllerProvider.notifier).reloadFromStorage();
+      state = const AsyncData(null);
+      return result;
+    } catch (error, stackTrace) {
+      workspace.lockPrivate();
+      state = AsyncError(error, stackTrace);
+      return null;
+    }
   }
 }
 

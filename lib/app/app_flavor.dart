@@ -38,3 +38,13 @@ void configureFlavor(AppFlavor flavor) {
     variables: {'flavor': flavor.name, 'displayName': flavor.displayName},
   );
 }
+
+/// True only in development builds. Used to gate test-only shortcuts.
+bool get isDevelopmentFlavor {
+  try {
+    return FlavorConfig.instance.variables['flavor'] ==
+        AppFlavor.development.name;
+  } on Object {
+    return false;
+  }
+}

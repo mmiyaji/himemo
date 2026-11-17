@@ -63,6 +63,10 @@ class SyncV2NoteStore implements NoteStore {
   /// Last written or loaded note JSON per v2 note id.
   final _known = <String, ({String vaultId, String json})>{};
 
+  /// v2 note ids with concurrent heads or bodies not yet downloaded. Writing
+  /// them would silently discard versions the user has not seen.
+  final _unresolved = <String>{};
+
   Future<void> _queue = Future.value();
 
   Future<T> _serial<T>(Future<T> Function() action) {
@@ -100,6 +104,7 @@ class SyncV2NoteStore implements NoteStore {
     final session = _session();
     if (session == null) return fallbackNotes;
     _heads.clear();
+    _unresolved.clear();
     _known.clear();
     final loaded = <NoteEntry>[];
     for (final entry in session.profiles.entries) {
@@ -135,6 +140,9 @@ class SyncV2NoteStore implements NoteStore {
           continue;
         }
         final note = parsed.copyWith(id: v1NoteId(parsed.id), vaultId: vaultId);
+        if (snapshot.value.hasConflict || !snapshot.value.canCompareVersions) {
+          _unresolved.add(snapshot.key);
+        }
         _heads[snapshot.key] = snapshot.value.headIds;
         _known[snapshot.key] = (
           vaultId: vaultId,
@@ -151,6 +159,7 @@ class SyncV2NoteStore implements NoteStore {
     final profileKey = session.profiles[profileId];
     if (profileKey == null) throw SyncV2NoteStoreLocked(note.vaultId);
     final id = v2NoteId(note.id);
+    if (_unresolved.contains(id)) throw const SyncV2StaleNote();
     final stored = note.copyWith(id: id, vaultId: profileId);
     final change = await repository.save(
       generationId: session.generationId,
@@ -173,6 +182,7 @@ class SyncV2NoteStore implements NoteStore {
   Future<void> _delete(SyncV2NoteStoreSession session, String v2Id) async {
     final known = _known[v2Id];
     if (known == null) return;
+    if (_unresolved.contains(v2Id)) throw const SyncV2StaleNote();
     final profileId = profileIdFor(session, known.vaultId);
     final profileKey = session.profiles[profileId];
     if (profileKey == null) throw SyncV2NoteStoreLocked(known.vaultId);
