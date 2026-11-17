@@ -334,7 +334,7 @@ class IOSLaunchSmokeTests(unittest.TestCase):
         self.assertTrue(all("Duo" not in name for _, _, _, name in candidates))
         self.assertEqual(
             [candidate[1] for candidate in candidates],
-            ["27.1.1", "27.1.0", "27.1.0", "27.2.0", "27.0.0"],
+            ["27.1.1", "27.1.0", "27.1.0", "27.0.0", "27.2.0"],
         )
 
     def test_simulator_selection_falls_back_to_an_available_standard_iphone(self):

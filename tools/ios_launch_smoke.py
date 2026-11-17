@@ -29,7 +29,7 @@ def _runtime_sort_key(runtime: dict[str, object]) -> tuple[object, ...]:
     version_text = str(runtime.get("version", ""))
     parts = tuple(int(part) for part in re.findall(r"\d+", version_text))
     major_minor = parts[:2]
-    priority = {(27, 1): 0, (27, 2): 1, (27, 0): 2}.get(major_minor, 3)
+    priority = {(27, 1): 0, (27, 0): 1, (27, 2): 2}.get(major_minor, 3)
     return (priority, tuple(-part for part in parts), version_text)
 
 
