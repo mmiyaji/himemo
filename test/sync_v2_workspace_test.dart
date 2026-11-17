@@ -695,16 +695,16 @@ void main() {
     expect(c.profiles, hasLength(2));
     await c.selectProfile(c.profiles.singleWhere((p) => !p.isNormal).id);
     expect(c.notes.single.note.title, 'Restored through settings');
+    // Admin credentials stay device-owned, but an administrator session from
+    // settings may still change profile passcodes: the administrator takes
+    // precedence over every profile.
     expect(c.canManageAdminCredentials, isFalse);
-    await expectLater(
-      c.changeProfilePassword(c.selectedProfileId!, 'new-password-123'),
-      throwsA(isA<SyncV2WorkspaceException>()),
-    );
-    await expectLater(
-      c.repairProfilePassword(c.selectedProfileId!, 'new-password-123'),
-      throwsA(isA<SyncV2WorkspaceException>()),
-    );
+    final restoredId = c.selectedProfileId!;
+    await c.changeProfilePassword(restoredId, '5678');
     c.lockSettingsAdmin();
+    await c.unlockPrivate('5678');
+    expect(c.profiles.any((p) => p.id == restoredId), isTrue);
+    c.lockPrivate();
     expect(c.adminUnlocked, isFalse);
     expect(c.notes, isEmpty);
   }, timeout: const Timeout(Duration(minutes: 2)));

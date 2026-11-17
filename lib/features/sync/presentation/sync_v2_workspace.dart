@@ -969,9 +969,9 @@ class SyncV2WorkspaceController extends ChangeNotifier {
   });
   Future<void> changeProfilePassword(String profileId, String password) =>
       _run(() async {
-        if (_admin == null ||
-            _adminFromSettings ||
-            !_private.containsKey(profileId)) {
+        // Any administrator session (including one entered from settings after
+        // device authentication) takes precedence over profile passcodes.
+        if (_admin == null || !_private.containsKey(profileId)) {
           throw const SyncV2WorkspaceException('admin_required');
         }
         await _catalog.changePassword(
@@ -1001,7 +1001,7 @@ class SyncV2WorkspaceController extends ChangeNotifier {
   Future<void> repairProfilePassword(String profileId, String password) =>
       _run(() async {
         final admin = _admin;
-        if (admin == null || _adminFromSettings) {
+        if (admin == null) {
           throw const SyncV2WorkspaceException('admin_required');
         }
         final epoch = _epoch;
