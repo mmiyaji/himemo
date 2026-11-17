@@ -276,68 +276,6 @@ def parse_migration_statuses(output: str) -> dict[str, str]:
     return statuses
 
 
-def wait_for_migration_quiescence(
-    xcrun: str,
-    device_id: str,
-    initial_output: str,
-    *,
-    deadline: float,
-    log: IO[str],
-    poll_interval_seconds: float = 10,
-) -> None:
-    """Wait for all reported running migrations; persistent pending rows are ignored."""
-    output = initial_output
-    attempt = 0
-    while True:
-        statuses = parse_migration_statuses(output)
-        running = sorted(name for name, status in statuses.items() if status == "running")
-        if not running:
-            log.write(
-                "No simulator data migrations are running; pending rows are treated as deferred.\n"
-            )
-            log.flush()
-            return
-
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise RuntimeError(
-                "simulator data migrations remained running until the smoke time budget expired: "
-                + ", ".join(running)
-            )
-        attempt += 1
-        log.write(
-            f"Simulator data migration poll {attempt}: still running: "
-            + ", ".join(running)
-            + f"; {remaining:.0f}s remain.\n"
-        )
-        log.flush()
-        time.sleep(min(poll_interval_seconds, remaining))
-        output_chunks: list[str] = []
-        poll_exit_code = run_command(
-            [xcrun, "simctl", "bootstatus", device_id, "-b", "-d"],
-            timeout_seconds=min(30.0, _bounded_timeout(30, deadline, "migration status poll")),
-            log=log,
-            label="simulator bootstatus migration check",
-            allow_failure=True,
-            output_callback=output_chunks.append,
-        )
-        if poll_exit_code == 124:
-            log.write(
-                "Simulator data migration status poll timed out; retrying within the remaining "
-                "smoke time budget.\n"
-            )
-            log.flush()
-            continue
-        if poll_exit_code != 0:
-            raise RuntimeError(
-                "simulator data migration status check failed with exit code "
-                f"{poll_exit_code}"
-            )
-        if not output_chunks:
-            raise RuntimeError("simctl bootstatus migration check produced no output")
-        output = output_chunks[-1]
-
-
 def collect_failure_diagnostics(
     xcrun: str,
     device_id: str,
@@ -435,7 +373,7 @@ def run_smoke(args: argparse.Namespace) -> int:
             log.flush()
             device_name = f"{device_name}-01"
             # Reserve enough of the common operation deadline for the driver and
-            # startup check. Divide the remaining boot/migration allowance across
+            # startup check. Divide the remaining boot allowance across
             # at most two different candidates.
             candidates = candidates[:2]
             for index, (runtime_id, runtime_version, type_id, type_name) in enumerate(candidates):
@@ -496,13 +434,6 @@ def run_smoke(args: argparse.Namespace) -> int:
                     )
                     if not bootstatus_output:
                         raise RuntimeError("simctl bootstatus produced no output")
-                    wait_for_migration_quiescence(
-                        xcrun,
-                        device_id,
-                        bootstatus_output[-1],
-                        deadline=attempt_deadline,
-                        log=log,
-                    )
                     break
                 except Exception as error:
                     log.write(f"Candidate {index + 1} boot/migration failed: {error}\n")
@@ -526,8 +457,24 @@ def run_smoke(args: argparse.Namespace) -> int:
                     log.write("Retrying boot/migration with the next supported runtime/device candidate.\n")
                     log.flush()
             if device_id is None:
-                raise RuntimeError("no simulator candidate completed boot and migration")
-            print("Simulator boot and migration completed; installing the app...", flush=True)
+                raise RuntimeError("no simulator candidate completed OS boot")
+            migration_statuses = parse_migration_statuses(bootstatus_output[-1])
+            running_migrations = sorted(
+                name for name, status in migration_statuses.items() if status == "running"
+            )
+            pending_migrations = sorted(
+                name for name, status in migration_statuses.items() if status == "pending"
+            )
+            if running_migrations or pending_migrations:
+                log.write(
+                    "OS boot completed; continuing while data migrations remain active. "
+                    f"running={running_migrations}, pending={pending_migrations}\n"
+                )
+                log.flush()
+            else:
+                log.write("OS boot completed; all reported data migrations succeeded.\n")
+                log.flush()
+            print("Simulator OS boot completed; installing the app...", flush=True)
             run_command(
                 [xcrun, "simctl", "install", device_id, args.app_path],
                 # iOS may continue first-boot MobileAsset/data migration after

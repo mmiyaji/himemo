@@ -1,4 +1,3 @@
-import io
 import json
 import tempfile
 import unittest
@@ -14,7 +13,6 @@ from ios_launch_smoke import (
     create_simulator,
     parse_migration_statuses,
     select_simulator_candidates,
-    wait_for_migration_quiescence,
 )
 
 
@@ -121,100 +119,6 @@ class IOSLaunchSmokeTests(unittest.TestCase):
         ):
             with self.subTest(output=output), self.assertRaises(RuntimeError):
                 parse_migration_statuses(output)
-
-    def test_migration_wait_polls_running_rows_until_terminal_state(self):
-        outputs = iter(
-            [
-                "Data migration details:\ncom.apple.PreferencesMigrator : duration: 2, status: success\n",
-            ]
-        )
-        calls = []
-
-        def record_poll(command, *, output_callback, **kwargs):
-            calls.append(command)
-            output_callback(next(outputs))
-            return 0
-
-        with (
-            patch.object(ios_launch_smoke, "run_command", side_effect=record_poll),
-            patch.object(ios_launch_smoke.time, "sleep"),
-        ):
-            wait_for_migration_quiescence(
-                "xcrun",
-                "device-uuid",
-                "Data migration details:\ncom.apple.PreferencesMigrator : duration: 0, status: running\n",
-                deadline=ios_launch_smoke.time.monotonic() + 60,
-                log=io.StringIO(),
-            )
-
-        self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0], ["xcrun", "simctl", "bootstatus", "device-uuid", "-b", "-d"])
-
-    def test_migration_poll_timeout_is_retried_until_success(self):
-        calls = []
-
-        def record_poll(command, *, output_callback, **kwargs):
-            calls.append(command)
-            if len(calls) == 1:
-                return 124
-            output_callback(
-                "Data migration details:\n"
-                "com.apple.PreferencesMigrator : duration: 2, status: success\n"
-            )
-            return 0
-
-        with (
-            patch.object(ios_launch_smoke, "run_command", side_effect=record_poll),
-            patch.object(ios_launch_smoke.time, "sleep"),
-        ):
-            wait_for_migration_quiescence(
-                "xcrun",
-                "device-uuid",
-                "Data migration details:\ncom.apple.PreferencesMigrator : duration: 0, status: running\n",
-                deadline=ios_launch_smoke.time.monotonic() + 60,
-                log=io.StringIO(),
-            )
-
-        self.assertEqual(len(calls), 2)
-        self.assertTrue(all(call == calls[0] for call in calls))
-
-    def test_migration_wait_fails_closed_when_running_past_deadline(self):
-        with patch.object(ios_launch_smoke, "run_command") as run_command:
-            with self.assertRaisesRegex(RuntimeError, "remained running"):
-                wait_for_migration_quiescence(
-                    "xcrun",
-                    "device-uuid",
-                    "Data migration details:\ncom.apple.PreferencesMigrator : duration: 0, status: running\n",
-                    deadline=ios_launch_smoke.time.monotonic() - 1,
-                    log=io.StringIO(),
-                )
-
-        run_command.assert_not_called()
-
-    def test_migration_poll_timeout_cannot_extend_total_deadline(self):
-        clock = [100.0]
-        calls = []
-
-        def timed_out_poll(*args, **kwargs):
-            calls.append(args[0])
-            clock[0] = 111.0
-            return 124
-
-        with (
-            patch.object(ios_launch_smoke, "run_command", side_effect=timed_out_poll),
-            patch.object(ios_launch_smoke.time, "monotonic", side_effect=lambda: clock[0]),
-            patch.object(ios_launch_smoke.time, "sleep"),
-        ):
-            with self.assertRaisesRegex(RuntimeError, "remained running"):
-                wait_for_migration_quiescence(
-                    "xcrun",
-                    "device-uuid",
-                    "Data migration details:\ncom.apple.PreferencesMigrator : duration: 0, status: running\n",
-                    deadline=110.0,
-                    log=io.StringIO(),
-                )
-
-        self.assertEqual(len(calls), 1)
 
     def test_created_simulator_uses_uuid_from_final_output_line(self):
         created_uuid = "12345678-1234-1234-1234-123456789abc"
@@ -390,11 +294,6 @@ class IOSLaunchSmokeTests(unittest.TestCase):
                         "Data migration details:\n"
                         "com.apple.PreferencesMigrator : duration: 0, status: running\n\n"
                     )
-                elif label == "simulator bootstatus migration check" and output_callback:
-                    output_callback(
-                        "Data migration details:\n"
-                        "com.apple.PreferencesMigrator : duration: 2, status: success\n\n"
-                    )
                 return 0
 
             with (
@@ -419,16 +318,8 @@ class IOSLaunchSmokeTests(unittest.TestCase):
             self.assertIn("simulator screenshot", events)
             bootstatus = next(command for label, command in commands if label == "simulator bootstatus")
             self.assertEqual(bootstatus[-1], "-bd")
-            migration_poll = next(
-                command
-                for label, command in commands
-                if label == "simulator bootstatus migration check"
-            )
-            self.assertEqual(migration_poll[-2:], ["-b", "-d"])
-            self.assertLess(
-                events.index("simulator bootstatus migration check"),
-                events.index("simulator install"),
-            )
+            self.assertEqual(events.count("simulator bootstatus"), 1)
+            self.assertNotIn("simulator bootstatus migration check", events)
             self.assertLess(events.index("simulator screenshot"), events.index("console-terminate"))
             self.assertIn("simulator app terminate", events)
             self.assertIn("simulator shutdown", events)
@@ -529,34 +420,28 @@ class IOSLaunchSmokeTests(unittest.TestCase):
             self.assertIn("SMOKE FAILURE", transcript)
             self.assertNotIn("Flutter driver smoke", events)
 
-    def test_migration_failure_retries_next_candidate(self):
+    def test_unparseable_migration_status_fails_without_retrying_boot_candidate(self):
         with tempfile.TemporaryDirectory() as directory:
             events = []
-            ids = iter(("migration-failed", "migration-ready"))
-            console = FakeConsoleProcess(events)
-
             def record_command(command, *, label, allow_failure=False, output_callback=None, **kwargs):
                 events.append(label)
-                if label == "simulator bootstatus" and events.count(label) == 1:
-                    output_callback("unrecognized migration output")
-                    return 0
                 if label == "simulator bootstatus" and output_callback:
-                    output_callback("Data migration details:\ncom.apple.MobileAsset : duration: 1, status: success\n\n")
+                    output_callback("Data migration details:\nunrecognized migration output\n")
                 return 0
 
             with (
                 patch.object(ios_launch_smoke, "choose_loopback_port", return_value=9133),
-                patch.object(ios_launch_smoke, "create_simulator", side_effect=lambda *a, **k: next(ids)),
+                patch.object(ios_launch_smoke, "create_simulator", return_value="migration-invalid") as create,
                 patch.object(ios_launch_smoke, "run_command", side_effect=record_command),
-                patch.object(ios_launch_smoke, "wait_for_vm_service", return_value=True),
-                patch.object(ios_launch_smoke.subprocess, "Popen", return_value=console),
             ):
                 result = ios_launch_smoke.run_smoke(smoke_args(directory))
 
-            self.assertEqual(result, 0)
-            self.assertEqual(events.count("simulator bootstatus"), 2)
-            self.assertEqual(events.count("owned simulator delete"), 2)
-            self.assertIn("Flutter driver smoke", events)
+            self.assertEqual(result, 1)
+            self.assertEqual(events.count("simulator bootstatus"), 1)
+            self.assertNotIn("simulator install", events)
+            create.assert_called_once()
+            transcript = Path(directory, "smoke-run.log").read_text(encoding="utf-8")
+            self.assertIn("could not parse a simctl data migration status row", transcript)
 
     def test_failed_candidate_must_be_confirmed_deleted_before_retry(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -606,10 +491,10 @@ class IOSLaunchSmokeTests(unittest.TestCase):
             transcript = Path(directory, "smoke-run.log").read_text(encoding="utf-8")
             self.assertIn("omitted data migration details", transcript)
 
-    def test_migration_deadline_prevents_install_and_driver(self):
+    def test_running_and_pending_migrations_do_not_block_required_launch_checks(self):
         with tempfile.TemporaryDirectory() as directory:
             events = []
-            clock = [100.0]
+            console = FakeConsoleProcess(events)
 
             def record_command(
                 command, *, label, allow_failure=False, output_callback=None, **kwargs
@@ -619,29 +504,26 @@ class IOSLaunchSmokeTests(unittest.TestCase):
                     output_callback(
                         "Data migration details:\n"
                         "com.apple.PreferencesMigrator : duration: 0, status: running\n"
+                        "com.apple.StocksMigrator : duration: 0, status: pending\n\n"
                     )
-                    clock[0] = 130.0
                 return 0
 
-            args = smoke_args(directory)
-            args.operation_timeout_seconds = 90
-            args.driver_timeout_seconds = 1
-            args.startup_timeout_seconds = 1
             with (
                 patch.object(ios_launch_smoke, "choose_loopback_port", return_value=9128),
                 patch.object(ios_launch_smoke, "create_simulator", return_value="owned-uuid"),
                 patch.object(ios_launch_smoke, "run_command", side_effect=record_command),
-                patch.object(ios_launch_smoke.time, "monotonic", side_effect=lambda: clock[0]),
-                patch.object(ios_launch_smoke.subprocess, "Popen") as popen,
+                patch.object(ios_launch_smoke, "wait_for_vm_service", return_value=True),
+                patch.object(ios_launch_smoke.subprocess, "Popen", return_value=console),
             ):
-                result = ios_launch_smoke.run_smoke(args)
+                result = ios_launch_smoke.run_smoke(smoke_args(directory))
 
-            self.assertEqual(result, 1)
-            self.assertNotIn("simulator install", events)
-            self.assertNotIn("Flutter driver smoke", events)
-            popen.assert_not_called()
+            self.assertEqual(result, 0)
+            self.assertIn("simulator install", events)
+            self.assertIn("Flutter driver smoke", events)
+            self.assertEqual(events.count("simulator bootstatus"), 1)
+            self.assertNotIn("simulator bootstatus migration check", events)
             transcript = Path(directory, "smoke-run.log").read_text(encoding="utf-8")
-            self.assertIn("simulator data migrations remained running", transcript)
+            self.assertIn("continuing while data migrations remain active", transcript)
 
     def test_driver_failure_returns_nonzero_and_still_collects_screenshot(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -655,7 +537,7 @@ class IOSLaunchSmokeTests(unittest.TestCase):
                 if label == "simulator bootstatus" and output_callback:
                     output_callback(
                         "Data migration details:\n"
-                        "com.apple.MobileAsset : duration: 1, status: success\n\n"
+                        "com.apple.PreferencesMigrator : duration: 0, status: running\n\n"
                     )
                 return 7 if label == "Flutter driver smoke" else 0
 
