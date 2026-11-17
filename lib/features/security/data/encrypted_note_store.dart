@@ -91,7 +91,7 @@ class EncryptedNoteStore implements NoteStore {
   }
 
   @override
-  Future<void> save(
+  Future<List<NoteEntry>> save(
     List<NoteEntry> notes, {
     bool preserveOmittedPrivateNotes = false,
   }) async {
@@ -100,7 +100,7 @@ class EncryptedNoteStore implements NoteStore {
         notes,
         preserveOmittedPrivateNotes: preserveOmittedPrivateNotes,
       );
-      return;
+      return notes;
     }
 
     final database = _database ?? EncryptedNoteDatabase();
@@ -169,15 +169,16 @@ class EncryptedNoteStore implements NoteStore {
       attachments: attachments,
       pendingChanges: pendingChanges,
     );
+    return notes;
   }
 
   @override
-  Future<void> saveOne(NoteEntry note) async {
+  Future<NoteEntry> saveOne(NoteEntry note) async {
     if (_isWeb) {
       throw UnsupportedError('Incremental note save is not supported on web.');
     }
     if (_isLockedPlaceholder(note)) {
-      return;
+      return note;
     }
     final key = await _keyForVault(note.vaultId);
     if (key == null) {
@@ -185,6 +186,7 @@ class EncryptedNoteStore implements NoteStore {
     }
     final database = _database ?? EncryptedNoteDatabase();
     await _saveOneWithKey(note, secretKey: key, database: database);
+    return note;
   }
 
   Future<void> _saveOneWithKey(

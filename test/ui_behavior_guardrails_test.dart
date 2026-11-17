@@ -27,7 +27,7 @@ String _homePresentationSource() =>
 
 String _homeProvidersSource() {
   final main = File('lib/features/home/presentation/home_providers.dart');
-  final source = main.readAsStringSync();
+  final source = main.readAsStringSync().replaceAll('\r\n', '\n');
   final parts = RegExp(r"part '([^']+)';")
       .allMatches(source)
       .map((match) => match.group(1)!)

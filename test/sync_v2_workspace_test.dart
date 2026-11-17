@@ -893,6 +893,92 @@ void main() {
     timeout: const Timeout(Duration(minutes: 2)),
   );
 
+  test(
+    'admin and profile passcodes must differ but profiles may share a passcode',
+    () async {
+      final device = _Device(_Cloud());
+      addTearDown(device.workspace.dispose);
+      final c = device.workspace;
+      await c.initialize();
+      final codes = await c.prepareNew('1234');
+      await c.confirmSetup();
+      await expectLater(
+        c.createProfile('duplicate', '1234'),
+        throwsA(isA<SyncV2WorkspaceException>()),
+      );
+      expect(c.error, 'duplicate_passcode');
+      await c.createProfile('first', '5678');
+      final id = c.selectedProfileId!;
+      await c.createProfile('second', '5678');
+      await expectLater(
+        c.changeProfilePassword(id, '1234'),
+        throwsA(isA<SyncV2WorkspaceException>()),
+      );
+      expect(c.error, 'duplicate_passcode');
+      await expectLater(
+        c.recoverAdmin(codes.adminCode, '5678'),
+        throwsA(isA<SyncV2WorkspaceException>()),
+      );
+      expect(c.error, 'duplicate_passcode');
+      c.lockPrivate();
+      await c.unlockPrivate('5678');
+      expect(c.profiles.where((p) => !p.isNormal), hasLength(2));
+      c.lockPrivate();
+      await c.unlockAdmin('1234');
+      expect(c.adminUnlocked, isTrue);
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
+
+  test(
+    'profile rename and deletion persist and synchronize to another admin',
+    () async {
+      final cloud = _Cloud();
+      final first = _Device(cloud);
+      final second = _Device(cloud);
+      addTearDown(first.workspace.dispose);
+      addTearDown(second.workspace.dispose);
+      final c = first.workspace;
+      await c.initialize();
+      final codes = await c.prepareNew('1234');
+      await c.confirmSetup();
+      await c.createProfile('original', '5678');
+      final id = c.selectedProfileId!;
+      await c.saveNote(title: 'private note', body: 'delete with profile');
+      await c.syncNow();
+      await second.workspace.initialize();
+      await second.workspace.recover(codes.syncCode);
+      await second.workspace.recoverAdmin(codes.adminCode, '4321');
+      second.workspace.lockPrivate();
+      await second.workspace.unlockPrivate('5678');
+      await c.renameProfile(id, 'renamed');
+      await c.syncNow();
+      await second.workspace.syncNow();
+      expect(
+        second.workspace.profiles.singleWhere((p) => p.id == id).name,
+        'renamed',
+      );
+      await c.deleteProfile(id);
+      expect(c.notes, isEmpty);
+      expect(c.profiles.where((p) => p.id == id), isEmpty);
+      await c.syncNow();
+      await second.workspace.syncNow();
+      expect(second.workspace.profiles.where((p) => p.id == id), isEmpty);
+      c.lockPrivate();
+      await expectLater(
+        c.unlockPrivate('5678'),
+        throwsA(isA<SyncV2WorkspaceException>()),
+      );
+      expect(c.error, 'wrong_password');
+      await expectLater(
+        c.renameProfile(id, 'denied'),
+        throwsA(isA<SyncV2WorkspaceException>()),
+      );
+      expect(c.error, 'admin_required');
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
+
   test('admin bulk restore creates private destinations atomically and overwrites without private passwords', () async {
     final cloud = _Cloud();
     final first = _Device(cloud);
@@ -2476,7 +2562,7 @@ void main() {
     addTearDown(device.workspace.dispose);
     final c = device.workspace;
     await c.initialize();
-    await c.prepareNew('1234');
+    await c.prepareNew('4321');
     await c.confirmSetup();
     await c.createProfile('Work', '1234');
     c.lockPrivate();

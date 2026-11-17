@@ -591,6 +591,80 @@ class SyncV2ProfileCatalog {
     }
   }
 
+  /// Include conflict versions and fail closed when catalog data is pending.
+  Future<bool> matchesPassword(String password) async {
+    final catalog = await _read();
+    if (catalog.incomplete) throw const SyncV2StaleNote();
+    for (final record in [
+      ...catalog.records,
+      for (final conflict in catalog.conflicts) ...conflict.versions,
+    ]) {
+      final matches = await _keys.unlockMatchingSessions(
+        generationId: generationId,
+        records: [record.wrapped],
+        passphrase: password,
+      );
+      try {
+        if (matches.isNotEmpty) return true;
+      } finally {
+        for (final access in matches.values) {
+          access.destroy();
+        }
+      }
+    }
+    return false;
+  }
+
+  Future<Map<String, String>> unlockedNames(
+    Iterable<SyncV2UnlockedProfile> profiles,
+  ) async {
+    final catalog = await _read();
+    if (catalog.incomplete) throw const SyncV2StaleNote();
+    final records = {
+      for (final record in catalog.records) record.wrapped.profileId: record,
+    };
+    return {
+      for (final profile in profiles)
+        if (records.containsKey(profile.id))
+          profile.id: (await _open(records[profile.id]!, profile.access)).name,
+    };
+  }
+
+  Future<void> rename({
+    required SyncV2UnlockedProfile profile,
+    required String name,
+  }) async {
+    if (name.trim().isEmpty || name.length > 1024) {
+      throw ArgumentError('Provide a profile name.');
+    }
+    final record = (await load()).singleWhere(
+      (r) => r.wrapped.profileId == profile.id,
+    );
+    await _open(record, profile.access);
+    final encryptedName = await _encryption.encryptBytes(
+      clearBytes: utf8.encode(name.trim()),
+      secretKey: profile.access.key,
+      additionalData: _nameContext(profile.access),
+    );
+    await _save(record.noteId, record.wrapped, encryptedName, record.headIds);
+  }
+
+  Future<void> delete(SyncV2UnlockedProfile profile) async {
+    final record = (await load()).singleWhere(
+      (r) => r.wrapped.profileId == profile.id,
+    );
+    await _open(record, profile.access);
+    await _repository.delete(
+      generationId: generationId,
+      profileId: normalAccess.profileId,
+      noteId: record.noteId,
+      changeId: _random(),
+      expectedHeadIds: record.headIds,
+      syncKey: syncKey,
+      profileKey: normalAccess,
+    );
+  }
+
   Future<void> _save(
     String noteId,
     SyncV2WrappedProfileKey wrapped,

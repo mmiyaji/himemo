@@ -12,12 +12,12 @@ abstract interface class NoteStore {
   ///
   /// When [preserveOmittedPrivateNotes] is true, private notes missing from
   /// [notes] are kept (they are usually omitted because they are locked).
-  Future<void> save(
+  Future<List<NoteEntry>> save(
     List<NoteEntry> notes, {
     bool preserveOmittedPrivateNotes = false,
   });
 
-  Future<void> saveOne(NoteEntry note);
+  Future<NoteEntry> saveOne(NoteEntry note);
 
   Future<void> deleteById(String noteId);
 

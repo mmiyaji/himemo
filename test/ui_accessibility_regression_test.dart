@@ -717,7 +717,7 @@ void main() {
   );
 
   testWidgets(
-    'private profile creation rejects passwords below 10 characters',
+    'private profile creation rejects passcodes below four characters',
     (tester) async {
       final harness = await _createHarness(
         preferences: const {'settings.locale': 'english'},
@@ -740,16 +740,16 @@ void main() {
       );
       await tester.enterText(
         find.byKey(SettingsScreen.privateProfilePasswordInputKey),
-        'short',
+        '123',
       );
       await tester.enterText(
         find.byKey(SettingsScreen.privateProfileConfirmInputKey),
-        'short',
+        '123',
       );
       await tester.tap(find.byKey(SettingsScreen.privateProfileSubmitKey));
       await tester.pump();
 
-      expect(find.text('Use at least 10 characters.'), findsOneWidget);
+      expect(find.text('Use at least 4 characters.'), findsOneWidget);
       expect(
         find.byKey(SettingsScreen.privateProfileNameInputKey),
         findsOneWidget,

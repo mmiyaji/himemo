@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/misc.dart';
 import '../../home/data/note_store.dart';
 import '../../home/presentation/home_providers.dart';
 import '../data/sync_v2_note_store.dart';
+import '../data/sync_v2_attachment_service.dart';
 import '../testing/sync_v2_local_preview.dart';
 import 'sync_v2_workspace.dart';
 
@@ -41,14 +42,34 @@ Future<void> _registerLocalPreview(SyncV2WorkspaceController workspace) async {
   await workspace.confirmSetup();
 }
 
-final noteStoreProvider = Provider<NoteStore>((ref) {
+// Shared lookup avoids a Riverpod dependency cycle between the note writer and
+// the attachment reader used by the existing viewer widgets.
+final syncV2AttachmentLookupProvider = Provider<SyncV2AttachmentLookup>(
+  (ref) => SyncV2AttachmentLookup(),
+);
+
+class SyncV2AttachmentLookup {
+  SyncV2NoteStore? store;
+}
+
+final Provider<NoteStore> noteStoreProvider = Provider<NoteStore>((ref) {
   if (!usesSyncV2NoteBackend) return ref.watch(encryptedNoteStoreProvider);
   final workspace = ref.watch(syncV2WorkspaceProvider);
   if (noteBackend == 'v2') unawaited(workspace.initialize());
   final store = SyncV2NoteStore(
     repository: workspace.repository,
     session: () => workspace.noteStoreSession,
+    attachmentService: SyncV2AttachmentService(
+      workspace.inbox,
+      workspace.repository,
+    ),
+    attachmentStore: ref.watch(encryptedAttachmentStoreProvider),
   );
+  final lookup = ref.watch(syncV2AttachmentLookupProvider);
+  lookup.store = store;
+  ref.onDispose(() {
+    if (identical(lookup.store, store)) lookup.store = null;
+  });
   // Reload v1 state when readable profiles change or a sync delivers notes.
   String? lastKey;
   void onChange() {
@@ -64,6 +85,9 @@ final noteStoreProvider = Provider<NoteStore>((ref) {
     unawaited(ref.read(notesControllerProvider.notifier).reloadFromStorage());
   }
 
+  Future.microtask(() {
+    if (ref.mounted) onChange();
+  });
   workspace.addListener(onChange);
   ref.onDispose(() => workspace.removeListener(onChange));
   return store;

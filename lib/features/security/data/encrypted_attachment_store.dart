@@ -33,6 +33,7 @@ class EncryptedAttachmentStore {
     required this._encryptionService,
     required this._masterKeyService,
     this._profileDataKeyService,
+    Future<SecretKey?> Function(String vaultId)? keyForVault,
     Future<Directory> Function()? directoryProvider,
     Future<Directory> Function()? temporaryDirectoryProvider,
     Future<SharedPreferences> Function()? sharedPreferencesProvider,
@@ -40,13 +41,15 @@ class EncryptedAttachmentStore {
     this.webStoragePrefix = 'attachments.encrypted.',
     this.vaultStoragePrefix = 'attachments.vault.',
     WebAttachmentPayloadStore? webPayloadStore,
-  }) : _directoryProvider = directoryProvider ?? getApplicationSupportDirectory,
+  }) : _keyResolver = keyForVault,
+       _directoryProvider = directoryProvider ?? getApplicationSupportDirectory,
        _temporaryDirectoryProvider =
            temporaryDirectoryProvider ?? getTemporaryDirectory,
        _sharedPreferencesProvider =
            sharedPreferencesProvider ?? SharedPreferences.getInstance,
        _webPayloadStore = webPayloadStore ?? WebAttachmentPayloadStore();
 
+  final Future<SecretKey?> Function(String vaultId)? _keyResolver;
   final EncryptionService _encryptionService;
   final MasterKeyService _masterKeyService;
   final ProfileDataKeyService? _profileDataKeyService;
@@ -69,7 +72,8 @@ class EncryptedAttachmentStore {
     required AttachmentType type,
   }) async {
     final bytes = await sourceFile.readAsBytes();
-    final key = await _masterKeyService.obtainOrCreate();
+    final key = await _keyForVault('everyday');
+    if (key == null) throw StateError('Attachment key is unavailable.');
     final encrypted = await _encryptAttachmentBytesForStorage(
       bytes: bytes,
       key: key,
@@ -160,7 +164,7 @@ class EncryptedAttachmentStore {
         additionalData: _aad(type),
       );
     } catch (_) {
-      if (vaultId == 'everyday') {
+      if (vaultId == 'everyday' || _keyResolver != null) {
         rethrow;
       }
       final normalKey = await _masterKeyService.obtainOrCreate();
@@ -754,6 +758,7 @@ class EncryptedAttachmentStore {
   }
 
   Future<SecretKey?> _keyForVault(String vaultId) {
+    if (_keyResolver != null) return _keyResolver(vaultId);
     final profileDataKeyService = _profileDataKeyService;
     if (profileDataKeyService != null) {
       return profileDataKeyService.keyForVault(vaultId);

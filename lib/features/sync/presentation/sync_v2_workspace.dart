@@ -943,6 +943,9 @@ class SyncV2WorkspaceController extends ChangeNotifier {
         accountId: accountId!,
         adminKey: admin,
       );
+      if (await _catalog.matchesPassword(newPassword)) {
+        throw const SyncV2WorkspaceException('duplicate_passcode');
+      }
       await _adminStore.configure(adminKey: admin, password: newPassword);
       await _rememberDeviceAdmin(admin, epoch);
       await _refreshAdminProfiles(admin, epoch);
@@ -958,6 +961,7 @@ class SyncV2WorkspaceController extends ChangeNotifier {
   Future<void> createProfile(String name, String password) => _run(() async {
     if (_admin == null) throw const SyncV2WorkspaceException('admin_required');
     final epoch = _epoch;
+    await _checkProfilePassword(password);
     final profile = await _catalog.create(
       name: name,
       password: password,
@@ -974,6 +978,7 @@ class SyncV2WorkspaceController extends ChangeNotifier {
         if (_admin == null || !_private.containsKey(profileId)) {
           throw const SyncV2WorkspaceException('admin_required');
         }
+        await _checkProfilePassword(password);
         await _catalog.changePassword(
           profile: _private[profileId]!,
           password: password,
@@ -981,11 +986,80 @@ class SyncV2WorkspaceController extends ChangeNotifier {
         );
       });
 
+  Future<void> _checkProfilePassword(String password) async {
+    if (await _adminStore.matchesPassword(password)) {
+      throw const SyncV2WorkspaceException('duplicate_passcode');
+    }
+  }
+
+  Future<void> renameProfile(String profileId, String name) => _run(() async {
+    if (_admin == null || !_private.containsKey(profileId)) {
+      throw const SyncV2WorkspaceException('admin_required');
+    }
+    await _catalog.rename(profile: _private[profileId]!, name: name);
+    await _refreshAdminProfiles(_admin!, _epoch);
+    await _reloadNotes();
+  });
+
+  Future<void> deleteProfile(String profileId) => _run(() async {
+    if (_admin == null || !_private.containsKey(profileId)) {
+      throw const SyncV2WorkspaceException('admin_required');
+    }
+    final profile = _private[profileId]!;
+    final epoch = _epoch;
+    void checkActive() {
+      if (_epoch != epoch || _disposed || _paused || _admin == null) {
+        throw const SyncV2WorkspaceException('locked');
+      }
+    }
+
+    await inbox.transaction(() async {
+      final snapshots = await repository.readProfile(
+        generationId: generationId!,
+        profileId: profileId,
+        syncKey: _syncKey!,
+        profileKey: profile.access,
+      );
+      for (final entry in snapshots.entries) {
+        checkActive();
+        if (!entry.value.canCompareVersions || entry.value.hasConflict) {
+          throw const SyncV2StaleNote();
+        }
+        if (entry.value.versions.every((v) => v.isDeleted)) continue;
+        await repository.delete(
+          generationId: generationId!,
+          profileId: profileId,
+          noteId: entry.key,
+          changeId: _id('delete'),
+          expectedHeadIds: entry.value.headIds,
+          syncKey: _syncKey!,
+          profileKey: profile.access,
+        );
+      }
+      checkActive();
+      await _catalog.delete(profile);
+      checkActive();
+    });
+    _private.remove(profileId)?.destroy();
+    if (selectedProfileId == profileId) selectedProfileId = _normal!.profileId;
+    await _reloadNotes();
+  });
+
   Future<void> _refreshAdminProfiles(SecretKey admin, int epoch) async {
     final unlocked = await _catalog.unlockAdmin(admin);
     try {
       final conflicts = await _catalog.conflictNames(admin);
+      if (_epoch != epoch || _disposed || _paused) {
+        throw const SyncV2WorkspaceException('locked');
+      }
+      for (final profile in _private.values) {
+        profile.destroy();
+      }
+      _private.clear();
       _installProfiles(unlocked, epoch);
+      if (!_private.containsKey(selectedProfileId)) {
+        selectedProfileId = _normal?.profileId;
+      }
       profileConflicts = [
         for (final entry in conflicts.entries)
           SyncV2WorkspaceProfile(entry.key, entry.value),
@@ -1005,6 +1079,7 @@ class SyncV2WorkspaceController extends ChangeNotifier {
           throw const SyncV2WorkspaceException('admin_required');
         }
         final epoch = _epoch;
+        await _checkProfilePassword(password);
         await _catalog.resolvePasswordConflict(
           profileId: profileId,
           password: password,
@@ -1778,6 +1853,24 @@ class SyncV2WorkspaceController extends ChangeNotifier {
     }
     if (_admin != null) {
       await _refreshAdminProfiles(_admin!, epoch);
+    } else if (_private.isNotEmpty) {
+      final names = await _catalog.unlockedNames(_private.values.toList());
+      if (_epoch != epoch || _disposed || _paused) return;
+      for (final id in _private.keys.toList()) {
+        final profile = _private[id]!;
+        if (!names.containsKey(id)) {
+          _private.remove(id)?.destroy();
+        } else {
+          _private[id] = SyncV2UnlockedProfile(
+            name: names[id]!,
+            access: profile.access,
+          );
+        }
+      }
+      if (selectedProfileId != _normal?.profileId &&
+          !_private.containsKey(selectedProfileId)) {
+        selectedProfileId = _normal?.profileId;
+      }
     }
     await _reloadNotes();
   }

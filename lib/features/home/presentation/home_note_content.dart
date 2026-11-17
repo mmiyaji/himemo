@@ -3463,6 +3463,16 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         await ref.read(noteEditorDraftStoreProvider).clear();
       }
       _saved = true;
+      if (usesSyncV2NoteBackend) {
+        unawaited(
+          ref
+              .read(notesControllerProvider.notifier)
+              .cleanupCommittedAttachmentDrafts(note)
+              .catchError((Object error) {
+                logDiagnostic('note_editor', 'v2 draft cleanup failed');
+              }),
+        );
+      }
       if (mounted) {
         Navigator.of(context).pop();
       }
@@ -5743,6 +5753,10 @@ Future<NoteAttachment?> _downloadRemoteAttachmentWithPrompt(
   bool forceDownload = false,
 }) async {
   final filePath = attachment.filePath;
+  if (usesSyncV2NoteBackend &&
+      (filePath?.startsWith('v2attachment:') ?? false)) {
+    return attachment;
+  }
   final hasSyncContentHash =
       attachment.syncAttachmentContentHash?.isNotEmpty == true;
   final localPayloadMissing =

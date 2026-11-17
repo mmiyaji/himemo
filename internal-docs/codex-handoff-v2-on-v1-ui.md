@@ -1,6 +1,6 @@
 # 引き継ぎ指示書: v1 画面で Sync v2 を扱う統合作業
 
-作成日: 2026-11-18 / ブランチ: `feature/v2-on-v1-ui`（`feature/v2-attachment-viewer` から分岐。最新 `bf765a2`）
+作成日: 2026-11-18 / ブランチ: `feature/v2-on-v1-ui`（`feature/v2-attachment-viewer` から分岐。実装の基点 `bf765a2`、引き継ぎ資料 `a3eea96`。フェーズ2/3は本ブランチで実装済み）
 
 ## 0. 最初に読むもの
 
@@ -19,7 +19,7 @@
 | 項目 | 決定 |
 |---|---|
 | パスコード最短長 | 4 文字（`SyncV2ProfileKeys.minimumPasscodeLength`） |
-| 同一パスコード | プロファイル同士は許可（同時に開く）。管理パスコードとの重複は禁止（未実装） |
+| 同一パスコード | プロファイル同士は許可（同時に開く）。管理パスコードとの重複は禁止（設定・作成・変更時に検査） |
 | Argon2id | m=19MiB, t=2, p=1。鍵レコード `formatVersion` = 3（旧形式は読まない） |
 | 誤入力の待ち時間 | 1〜4 回: なし / 5: 30 秒 / 6: 1 分 / 7: 5 分 / 8: 15 分 / 9 以降: 1 時間。プロファイル解除と管理パスコード解除で共有（`syncV2UnlockAttemptsKey`、`syncV2UnlockDelay`） |
 | 開発用回避 | development フレーバーかつ v2 バックエンドのみ、解除ダイアログのタイトルを 3 秒以内に 5 回タップで待ち時間リセット |
@@ -30,7 +30,7 @@
 ## 3. 実装済みの構成（要点）
 
 - `lib/features/home/data/note_store.dart` — `NoteStore` インターフェース。`NotesController` は `noteStoreProvider` 経由で保存。
-- `lib/features/sync/data/sync_v2_note_store.dart` — v2 実装。ID 変換: v1 `X` ⇔ v2 `note_X`、`everyday` ⇔ v2 通常プロファイル、プライベートは `private_profile:...` のまま。競合中・本文未着のノートは保存・削除を拒否（`SyncV2StaleNote`）。添付参照は空で保存（フェーズ 3 で対応）。
+- `lib/features/sync/data/sync_v2_note_store.dart` — v2 実装。ID 変換: v1 `X` ⇔ v2 `note_X`、`everyday` ⇔ v2 通常プロファイル、プライベートは `private_profile:...` のまま。競合中・本文未着のノートは保存・削除を拒否（`SyncV2StaleNote`）。添付はv2チャンク参照としてノートと同じトランザクションで保存。
 - `lib/features/sync/presentation/sync_v2_note_store_provider.dart` — `HIMEMO_NOTE_BACKEND`（`v1` 既定 / `v2` / `v2-local`）で切替。ワークスペースの変化（プロファイル解除・同期受信）で `NotesController.reloadFromStorage()`。
 - `SyncV2WorkspaceController.noteStoreSession`、`debugResetUnlockThrottle()` を追加。
 - `home_providers.dart`: v2 モード時、`PrivateProfileUnlockController` / `AdminModeSessionController` / `UnlockedPrivateProfileVaultIdController` / `PrivateMemoProfilesController` が v2 ワークスペースに委譲（関数 `_unlockSyncV2`、`_addSyncV2Profile` など）。プロファイル作成は端末認証 → 管理者モード → `createProfile`。
@@ -39,13 +39,21 @@
 
 ## 4. 残作業（この順で）
 
-### フェーズ 2 の残り
-1. **管理パスコードによる管理者解除 UI**: v1 の管理者モード入口（`home_settings_screen.dart` の `_enterAdminMode`）で、生体認証が使えない/オフの端末では管理パスコード入力 → `SyncV2WorkspaceController.unlockAdmin(password)` を使う。
-2. **管理パスコードとプロファイルパスコードの重複禁止**: 管理パスコード設定・変更時と、プロファイル作成・パスコード変更時に検査。
-3. **プロファイル削除・名前変更を v2 に接続**: `PrivateMemoProfilesController.deleteProfile` / `renameProfile`。v2 側に API が無ければ追加。
+### フェーズ 2（2026-11-18に残りを実装）
+- 管理パスコードでの管理者解除UI、管理・プロファイル間のパスコード重複禁止、プロファイルの名前変更・削除をv2に接続した。
+- 名前変更・削除は同期先の解除済みセッションにも反映する。削除はノートとカタログをトランザクション内で処理し、競合・未受信データがあれば中止する。
+- `v2-local` の管理パスコードは開発用の `preview-password`（`sync_v2_note_store_provider.dart` の自動登録処理）。
+- フェーズ3の添付も下記のとおり実装。
 
-### フェーズ 3: 添付
-- `encryptedAttachmentStoreProvider` を v2 の添付処理（`lib/features/sync/data/sync_v2_attachment_service.dart`）へ。`SyncV2NoteStore._write` の `'attachments': []` を実際の参照に。画像・動画・音声の追加と表示を確認。
+### フェーズ 3: 添付（実装済み）
+- `SyncV2AttachmentStore` でv1の画像・動画・音声ビューアをv2へ接続。一時添付は端末内の専用領域 `sync_v2_drafts`、確定した参照は `v2attachment:<id>`。
+- `SyncV2NoteStore` がチャンクとノートを同じトランザクションで保存し、確定した参照を `NotesController` に返す。本文編集時の参照保持、プロファイル移動時の再暗号化、ロック後の読み出し拒否に対応。
+- 下書き本体・一時添付はv2プロファイル鍵で保護。保存中の下書きは維持し、エディタの保存完了後に不要な一時添付を削除。古い下書き参照からの再保存には確定参照の対応表を使用。
+- v2バックエンド時はv1同期を停止し、v1 ZIP取り込みを処理開始前に拒否する。
+- Opusで設計・実装レビューを実施し、領域分離、プレースホルダ保護、保存エラーの再試行等を修正。再レビューはClaude Codeの利用上限により未実施。
+- 大きい添付の読み込みがDBトランザクションを占有する点は、フェーズ6で性能評価・改善する。
+- Webの `v2-local` で画像・動画・音声の取り込み、保存後の画像表示、動画・音声の再生を手動確認済み（ブラウザerrorログなし）。完成したビルドで再確認し、画像表示・動画再生完了・音声再生を確認。
+- 次はフェーズ4。iOS実機のメディア再生・CloudKitは未確認。
 
 ### フェーズ 4: 管理者解除方式と端末追加
 - 端末ごとに「生体認証 / 管理パスコード」を選択可能に。
@@ -69,7 +77,8 @@
 flutter analyze lib
 flutter test test/sync_v2_note_store_test.dart test/sync_v2_unlock_throttle_test.dart test/sync_v2_workspace_test.dart test/sync_v2_workspace_screen_test.dart test/sync_v2_profile_keys_test.dart test/sync_v2_admin_store_test.dart test/home_providers_logic_test.dart test/app_test.dart
 ```
-- テスト全体（`flutter test`）は未実行。区切りで一度実行すること。
+- 2026-11-18 フェーズ2完了時: `flutter test` 全817件成功。`flutter analyze lib` と変更テストの解析は指摘なし。development / `v2-local` のWebビルド成功。iOS実機の生体認証・CloudKitは未確認。
+- フェーズ3: 全体823件成功（v2専用テスト1件は通常実行時スキップし、`--dart-define=HIMEMO_NOTE_BACKEND=v2-local` を付けて別途成功）。静的解析・Webビルド成功。
 - `test/sync_v2_cloudkit_web_test.js` は flutter test の対象外（読み込みエラーになるが無関係）。
 
 ### Web で画面確認（重要な落とし穴あり）
@@ -78,6 +87,7 @@ flutter test test/sync_v2_note_store_test.dart test/sync_v2_unlock_throttle_test
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/flutter_with_env.ps1 build web --no-wasm-dry-run -t lib/main_development.dart --dart-define=HIMEMO_NOTE_BACKEND=v2-local
 python -m http.server 8765 --directory build/web
 ```
+- Webビルド後に生成済みl10nファイルが削除される場合は、`flutter gen-l10n` で再生成してから解析・テストする。テストとWebビルドは同時実行しない。
 - ブラウザのコンソールに `HiMemo note backend: v2-local`、IndexedDB に `himemo_sync_v2_local_preview_wasm` があることを確認してから判断する。
 - `v2-local` は鍵をメモリにしか置かないため、再読み込みで以前のデータは読めない（仕様）。確認前に localStorage / IndexedDB を消すと確実。
 - Web では管理者モードの端末認証が無いので、`v2-local` かつ development のときだけ省略している。

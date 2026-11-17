@@ -3076,6 +3076,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     List<int> bytes, {
     String? password,
   }) async {
+    if (usesSyncV2NoteBackend) {
+      throw UnsupportedError('Legacy ZIP import is disabled with Sync v2.');
+    }
     _startBusy(SyncTransferProgress.applyingBundle);
     try {
       await logFirebaseBreadcrumb('local zip archive apply selected');
@@ -5313,14 +5316,16 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   }
 
   Future<void> _runUnlockOperation(Future<void> Function() run) =>
-      _runSyncOperation(() async {
-        _unlockReplay = true;
-        try {
-          await run();
-        } finally {
-          _unlockReplay = false;
-        }
-      });
+      usesSyncV2NoteBackend
+      ? Future<void>.value()
+      : _runSyncOperation(() async {
+          _unlockReplay = true;
+          try {
+            await run();
+          } finally {
+            _unlockReplay = false;
+          }
+        });
 
   Future<void> _applyPendingCachedBundle() async {
     if (!await _hasPendingPrivateBundleApply()) return;
@@ -5401,6 +5406,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   }
 
   bool _supportsRemoteTransport(SyncProvider provider) {
+    if (usesSyncV2NoteBackend) return false;
     return provider == SyncProvider.googleDrive ||
         provider == SyncProvider.iCloud;
   }
@@ -6664,6 +6670,7 @@ class SyncProviderController extends Notifier<SyncProvider> {
 
   @override
   SyncProvider build() {
+    if (usesSyncV2NoteBackend) return SyncProvider.off;
     if (!_restored) {
       _restored = true;
       unawaited(_restore());
@@ -6672,6 +6679,7 @@ class SyncProviderController extends Notifier<SyncProvider> {
   }
 
   Future<void> setProvider(SyncProvider provider) async {
+    if (usesSyncV2NoteBackend) return;
     if ((await SharedPreferences.getInstance()).getBool(
           'settings.sync_v2.enabled',
         ) ==

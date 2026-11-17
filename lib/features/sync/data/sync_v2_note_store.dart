@@ -1,11 +1,16 @@
 import 'dart:convert';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:path/path.dart' as path;
 
 import '../../home/data/note_store.dart';
 import '../../home/domain/note_entry.dart';
 import '../../security/data/sync_v2_profile_keys.dart';
 import 'sync_v2_note_repository.dart';
+import 'sync_v2_attachment_service.dart';
+import '../../security/data/encrypted_attachment_store.dart';
+
+import 'dart:typed_data';
 
 /// The v1 vault id used for the v2 normal profile.
 const syncV2NormalVaultId = 'everyday';
@@ -45,14 +50,18 @@ class SyncV2NoteStoreLocked implements Exception {
 /// - vault `everyday` is the v2 normal profile; private vault ids are the v2
 ///   profile ids unchanged (`private_profile:...`).
 ///
-/// Attachments are not migrated yet: attachment references are written empty.
+/// Local encrypted attachment drafts are committed as v2 chunks with the note.
 class SyncV2NoteStore implements NoteStore {
   SyncV2NoteStore({
     required this.repository,
     required this._session,
     String Function()? changeIdFactory,
+    this.attachmentService,
+    this.attachmentStore,
   }) : _changeId = changeIdFactory ?? _defaultChangeId;
 
+  final SyncV2AttachmentService? attachmentService;
+  final EncryptedAttachmentStore? attachmentStore;
   final SyncV2NoteRepository repository;
   final SyncV2NoteStoreSession? Function() _session;
   final String Function() _changeId;
@@ -66,6 +75,81 @@ class SyncV2NoteStore implements NoteStore {
   /// v2 note ids with concurrent heads or bodies not yet downloaded. Writing
   /// them would silently discard versions the user has not seen.
   final _unresolved = <String>{};
+  final _references = <String, List<SyncV2AttachmentReference>>{};
+  // Editors may retain a local draft path after a successful save. Only publish
+  // aliases after the transaction commits; generation/profile scopes forbid reuse across locks.
+  final _draftReferences = <String, String>{};
+  String _draftKey(
+    SyncV2NoteStoreSession session,
+    String profileId,
+    AttachmentType type,
+    String source,
+  ) =>
+      '${session.generationId}:$profileId:${type.name}:${path.basename(source)}';
+
+  ({
+    SyncV2NoteStoreSession session,
+    SyncV2UnlockedProfileKey access,
+    SyncV2AttachmentReference reference,
+  })
+  attachmentContext(String id) {
+    final session = _requireSession();
+    for (final entry in _references.entries) {
+      final known = _known[entry.key];
+      if (known == null) continue;
+      final access = session.profiles[profileIdFor(session, known.vaultId)];
+      if (access == null) continue;
+      for (final reference in entry.value) {
+        if (reference.id == id) {
+          return (session: session, access: access, reference: reference);
+        }
+      }
+    }
+    throw const SyncV2NoteStoreLocked('attachment');
+  }
+
+  void _checkActive(
+    SyncV2NoteStoreSession session,
+    SyncV2UnlockedProfileKey access,
+  ) {
+    final current = _session();
+    if (current == null ||
+        current.generationId != session.generationId ||
+        !identical(current.profiles[access.profileId], access)) {
+      throw const SyncV2NoteStoreLocked('attachment');
+    }
+  }
+
+  String? committedDraftReference(
+    String vaultId,
+    AttachmentType type,
+    String source,
+  ) {
+    final session = _session();
+    if (session == null) return null;
+    final id =
+        _draftReferences[_draftKey(
+          session,
+          profileIdFor(session, vaultId),
+          type,
+          source,
+        )];
+    return id == null ? null : 'v2attachment:$id';
+  }
+
+  Future<Uint8List> readAttachment(String id, AttachmentType type) async {
+    final context = attachmentContext(id);
+    if (context.reference.type != type.name || attachmentService == null) {
+      throw const FormatException('Invalid v2 attachment');
+    }
+    return attachmentService!.read(
+      reference: context.reference,
+      generationId: context.session.generationId,
+      syncKey: context.session.syncKey,
+      profileAccess: context.access,
+      checkActive: () => _checkActive(context.session, context.access),
+    );
+  }
 
   Future<void> _queue = Future.value();
 
@@ -106,6 +190,7 @@ class SyncV2NoteStore implements NoteStore {
     _heads.clear();
     _unresolved.clear();
     _known.clear();
+    _references.clear();
     final loaded = <NoteEntry>[];
     for (final entry in session.profiles.entries) {
       final snapshots = await repository.readProfile(
@@ -122,9 +207,11 @@ class SyncV2NoteStore implements NoteStore {
           continue;
         }
         Map<String, dynamic>? noteJson;
+        Map<String, Object?>? selectedBody;
         for (final version in versions) {
           final body = version.body;
           if (body != null && body['type'] == 'note' && body['note'] is Map) {
+            selectedBody = body;
             noteJson = Map<String, dynamic>.from(body['note'] as Map);
             break;
           }
@@ -143,6 +230,12 @@ class SyncV2NoteStore implements NoteStore {
         if (snapshot.value.hasConflict || !snapshot.value.canCompareVersions) {
           _unresolved.add(snapshot.key);
         }
+        _references[snapshot.key] = [
+          for (final raw in (selectedBody?['attachments'] as List? ?? const []))
+            SyncV2AttachmentReference.fromJson(
+              Map<String, dynamic>.from(raw as Map),
+            ),
+        ];
         _heads[snapshot.key] = snapshot.value.headIds;
         _known[snapshot.key] = (
           vaultId: vaultId,
@@ -154,29 +247,189 @@ class SyncV2NoteStore implements NoteStore {
     return loaded;
   });
 
-  Future<void> _write(SyncV2NoteStoreSession session, NoteEntry note) async {
+  Future<NoteEntry> _write(
+    SyncV2NoteStoreSession session,
+    NoteEntry note,
+  ) async {
+    if (note.deviceId == 'locked-private-note') return note;
     final profileId = profileIdFor(session, note.vaultId);
     final profileKey = session.profiles[profileId];
-    if (profileKey == null) throw SyncV2NoteStoreLocked(note.vaultId);
+    if (profileKey == null) {
+      throw SyncV2NoteStoreLocked(note.vaultId);
+    }
     final id = v2NoteId(note.id);
     if (_unresolved.contains(id)) throw const SyncV2StaleNote();
-    final stored = note.copyWith(id: id, vaultId: profileId);
-    final change = await repository.save(
-      generationId: session.generationId,
-      profileId: profileId,
-      noteId: id,
-      changeId: _changeId(),
-      expectedHeadIds: _heads[id] ?? const {},
-      body: {
-        'type': 'note',
-        'note': stored.toJson(),
-        'attachments': const <Object>[],
-      },
-      syncKey: session.syncKey,
-      profileKey: profileKey,
-    );
-    _heads[id] = {change.id};
-    _known[id] = (vaultId: note.vaultId, json: jsonEncode(note.toJson()));
+    final refs = <String, SyncV2AttachmentReference>{};
+    final translated = <String, NoteAttachment>{};
+    final pendingAliases = <String, String>{};
+    Future<NoteAttachment> prepare(NoteAttachment attachment) async {
+      final rawSource = attachment.filePath;
+      if (rawSource == null || rawSource.isEmpty) return attachment;
+      var source = rawSource;
+      final cached = translated['${attachment.type.name}:$source'];
+      if (cached != null) {
+        return attachment.copyWith(
+          filePath: cached.filePath,
+          syncAttachmentContentHash: cached.syncAttachmentContentHash,
+          localPayloadSizeBytes: null,
+          localPayloadModifiedAtMillis: null,
+        );
+      }
+      final originalSource = source;
+      final aliasKey = _draftKey(session, profileId, attachment.type, source);
+      final alias = _draftReferences[aliasKey];
+      if (!source.startsWith('v2attachment:') && alias != null) {
+        try {
+          attachmentContext(alias);
+          source = 'v2attachment:$alias';
+        } on SyncV2NoteStoreLocked {
+          /* The original draft may still exist. */
+        }
+      }
+      _checkActive(session, profileKey);
+      SyncV2AttachmentReference reference;
+      if (source.startsWith('v2attachment:')) {
+        final context = attachmentContext(
+          source.substring('v2attachment:'.length),
+        );
+        if (context.reference.type != attachment.type.name) {
+          throw const FormatException('Attachment type mismatch');
+        }
+        if (context.access.profileId == profileId) {
+          reference = context.reference;
+        } else {
+          final bytes = await readAttachment(
+            context.reference.id,
+            attachment.type,
+          );
+          try {
+            reference = await attachmentService!.store(
+              generationId: session.generationId,
+              syncKey: session.syncKey,
+              profileAccess: profileKey,
+              bytes: bytes,
+              label: attachment.label,
+              type: attachment.type.name,
+              stableId: 'copy:$source',
+              checkActive: () => _checkActive(session, profileKey),
+            );
+          } finally {
+            bytes.fillRange(0, bytes.length, 0);
+          }
+        }
+      } else {
+        if (attachmentService == null || attachmentStore == null) {
+          throw StateError('Attachment storage is unavailable');
+        }
+        final clear = await attachmentStore!.readAttachment(
+          source,
+          type: attachment.type,
+        );
+        if (clear == null || clear.isEmpty) {
+          throw const FormatException('Missing attachment draft');
+        }
+        final bytes = clear is Uint8List ? clear : Uint8List.fromList(clear);
+        try {
+          reference = await attachmentService!.store(
+            generationId: session.generationId,
+            syncKey: session.syncKey,
+            profileAccess: profileKey,
+            bytes: bytes,
+            label: attachment.label,
+            type: attachment.type.name,
+            stableId: path.basename(source),
+            checkActive: () => _checkActive(session, profileKey),
+          );
+        } finally {
+          bytes.fillRange(0, bytes.length, 0);
+        }
+      }
+      if (!originalSource.startsWith('v2attachment:')) {
+        pendingAliases[aliasKey] = reference.id;
+      }
+      refs[reference.id] = reference;
+      final result = attachment.copyWith(
+        filePath: 'v2attachment:${reference.id}',
+        syncAttachmentContentHash: reference.sha256,
+        localPayloadSizeBytes: null,
+        localPayloadModifiedAtMillis: null,
+      );
+      translated['${attachment.type.name}:$originalSource'] = result;
+      return result;
+    }
+
+    Future<({NoteEntry note, String head})> commit() async {
+      final normalized = note.copyWith(
+        attachments: [
+          for (final attachment in note.attachments) await prepare(attachment),
+        ],
+        blocks: [
+          for (final block in note.blocks)
+            block.attachment == null
+                ? block
+                : block.copyWith(attachment: await prepare(block.attachment!)),
+        ],
+      );
+      _checkActive(session, profileKey);
+      final previous = _known[id];
+      final moving = previous != null && previous.vaultId != note.vaultId;
+      var heads = _heads[id] ?? const <String>{};
+      if (moving) {
+        final destination = await repository.readNote(
+          generationId: session.generationId,
+          profileId: profileId,
+          noteId: id,
+          syncKey: session.syncKey,
+          profileKey: profileKey,
+        );
+        if (!destination.canCompareVersions ||
+            destination.versions.any((v) => !v.isDeleted)) {
+          throw const SyncV2StaleNote();
+        }
+        heads = destination.headIds;
+      }
+      final change = await repository.save(
+        generationId: session.generationId,
+        profileId: profileId,
+        noteId: id,
+        changeId: _changeId(),
+        expectedHeadIds: heads,
+        body: {
+          'type': 'note',
+          'note': normalized.copyWith(id: id, vaultId: profileId).toJson(),
+          'attachments': [
+            for (final reference in refs.values) reference.toJson(),
+          ],
+        },
+        syncKey: session.syncKey,
+        profileKey: profileKey,
+      );
+      if (moving) {
+        final oldId = profileIdFor(session, previous.vaultId);
+        final oldKey = session.profiles[oldId];
+        if (oldKey == null) throw SyncV2NoteStoreLocked(previous.vaultId);
+        await repository.delete(
+          generationId: session.generationId,
+          profileId: oldId,
+          noteId: id,
+          changeId: _changeId(),
+          expectedHeadIds: _heads[id]!,
+          syncKey: session.syncKey,
+          profileKey: oldKey,
+        );
+      }
+      _checkActive(session, profileKey);
+      return (note: normalized, head: change.id);
+    }
+
+    final saved = attachmentService == null
+        ? await commit()
+        : await attachmentService!.inbox.transaction(commit);
+    _draftReferences.addAll(pendingAliases);
+    _heads[id] = {saved.head};
+    _known[id] = (vaultId: note.vaultId, json: jsonEncode(saved.note.toJson()));
+    _references[id] = refs.values.toList();
+    return saved.note;
   }
 
   Future<void> _delete(SyncV2NoteStoreSession session, String v2Id) async {
@@ -197,24 +450,33 @@ class SyncV2NoteStore implements NoteStore {
     );
     _heads.remove(v2Id);
     _known.remove(v2Id);
+    _references.remove(v2Id);
   }
 
   @override
-  Future<void> saveOne(NoteEntry note) =>
+  Future<NoteEntry> saveOne(NoteEntry note) =>
       _serial(() => _write(_requireSession(), note));
 
   @override
-  Future<void> save(
+  Future<List<NoteEntry>> save(
     List<NoteEntry> notes, {
     bool preserveOmittedPrivateNotes = false,
   }) => _serial(() async {
     final session = _requireSession();
     final present = <String>{};
+    final saved = <NoteEntry>[];
     for (final note in notes) {
       final id = v2NoteId(note.id);
       present.add(id);
-      if (_known[id]?.json == jsonEncode(note.toJson())) continue;
-      await _write(session, note);
+      if (note.deviceId == 'locked-private-note') {
+        saved.add(note);
+        continue;
+      }
+      if (_known[id]?.json == jsonEncode(note.toJson())) {
+        saved.add(note);
+      } else {
+        saved.add(await _write(session, note));
+      }
     }
     for (final entry in _known.entries.toList()) {
       if (present.contains(entry.key)) continue;
@@ -224,6 +486,7 @@ class SyncV2NoteStore implements NoteStore {
       }
       await _delete(session, entry.key);
     }
+    return saved;
   });
 
   @override
@@ -235,7 +498,10 @@ class SyncV2NoteStore implements NoteStore {
   Future<void> deleteByVaultId(String vaultId) => _serial(() async {
     _known.removeWhere((id, value) {
       final match = value.vaultId == vaultId;
-      if (match) _heads.remove(id);
+      if (match) {
+        _heads.remove(id);
+        _references.remove(id);
+      }
       return match;
     });
   });

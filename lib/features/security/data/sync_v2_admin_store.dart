@@ -49,6 +49,30 @@ class SyncV2AdminStore {
     ).reset();
   }
 
+  /// Checks a proposed profile passcode without consuming unlock attempts.
+  Future<bool> matchesPassword(String password) async {
+    final raw = await _store.read(storageKey);
+    if (raw == null || password.isEmpty) return false;
+    final record = SyncV2WrappedProfileKey.fromJson(
+      Map<String, dynamic>.from(jsonDecode(raw) as Map),
+    );
+    if (record.profileId != 'admin' || record.keyId != 'admin') {
+      throw const FormatException('Invalid admin identity');
+    }
+    final matches = await _keys.unlockMatching(
+      generationId: generationId,
+      records: [record],
+      passphrase: password,
+    );
+    try {
+      return matches.isNotEmpty;
+    } finally {
+      for (final key in matches.values) {
+        key.destroy();
+      }
+    }
+  }
+
   Future<SecretKey?> unlock(String password) async {
     SecretKey? result;
     try {

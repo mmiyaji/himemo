@@ -55,6 +55,8 @@ import '../../security/data/profile_name_sync.dart';
 import '../../security/data/storage_serial_executor.dart';
 import '../../security/data/private_vault_secret_store.dart';
 import '../../security/data/secure_key_value_store.dart';
+import '../../sync/data/sync_v2_attachment_store.dart';
+import '../../sync/data/sync_v2_note_store.dart';
 import '../../sync/data/google_drive_sync_transport.dart';
 import '../../sync/data/google_sign_in_initializer.dart';
 import '../../sync/data/icloud_sync_transport.dart';
@@ -5285,9 +5287,18 @@ class NoteEditorDraftStore {
     required this._encryptionService,
     required this._masterKeyService,
     required this._profileDataKeyService,
-  });
+    Future<SecretKey?> Function(String vaultId)? keyForVault,
+    this._protectAttachments,
+    this._storageKey = 'notes.editor_draft.v1',
+  }) : _keyResolver = keyForVault;
 
-  static const _storageKey = 'notes.editor_draft.v1';
+  final Future<void> Function(NoteEditorDraftSnapshot snapshot)?
+  _protectAttachments;
+  final String _storageKey;
+  final Future<SecretKey?> Function(String vaultId)? _keyResolver;
+  Future<SecretKey?> _keyForVault(String vaultId) =>
+      _keyResolver?.call(vaultId) ??
+      _profileDataKeyService.keyForVault(vaultId);
   static const _envelopeVersion = 2;
 
   final EncryptionService _encryptionService;
@@ -5310,7 +5321,7 @@ class NoteEditorDraftStore {
       if (decoded['version'] == _envelopeVersion &&
           decoded['encryptedPayload'] is String) {
         final vaultId = decoded['vaultId'] as String? ?? 'everyday';
-        final profileKey = await _profileDataKeyService.keyForVault(vaultId);
+        final profileKey = await _keyForVault(vaultId);
         final usesMigrationKey = decoded['keyScope'] == 'deviceMigration';
         if (profileKey == null) {
           return null;
@@ -5329,6 +5340,10 @@ class NoteEditorDraftStore {
         if (usesMigrationKey) {
           await save(snapshot);
         }
+        if (_keyResolver != null &&
+            !identical(await _keyForVault(vaultId), key)) {
+          return null;
+        }
         return snapshot;
       }
 
@@ -5336,7 +5351,7 @@ class NoteEditorDraftStore {
       // private draft unless that profile key is currently unlocked. Once it
       // is accessible, immediately rewrite it using the encrypted envelope.
       final snapshot = NoteEditorDraftSnapshot.fromJson(decoded);
-      final key = await _profileDataKeyService.keyForVault(snapshot.vaultId);
+      final key = await _keyForVault(snapshot.vaultId);
       if (key == null) {
         final migrationKey = await _masterKeyService.obtainOrCreate();
         await _writeEncryptedEnvelope(
@@ -5354,10 +5369,11 @@ class NoteEditorDraftStore {
   }
 
   Future<void> save(NoteEditorDraftSnapshot snapshot) async {
-    final key = await _profileDataKeyService.keyForVault(snapshot.vaultId);
+    final key = await _keyForVault(snapshot.vaultId);
     if (key == null) {
       return;
     }
+    await _protectAttachments?.call(snapshot);
     await _writeEncryptedEnvelope(snapshot, secretKey: key);
   }
 
@@ -5370,6 +5386,10 @@ class NoteEditorDraftStore {
       payload: snapshot.toJson(),
       secretKey: secretKey,
     );
+    if (_keyResolver != null &&
+        !identical(await _keyForVault(snapshot.vaultId), secretKey)) {
+      return;
+    }
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
       _storageKey,
@@ -6850,6 +6870,14 @@ class NotesController extends _$NotesController {
     return removedCount;
   }
 
+  Future<void> cleanupCommittedAttachmentDrafts(NoteEntry draft) async {
+    if (!usesSyncV2NoteBackend ||
+        await ref.read(noteEditorDraftStoreProvider).hasSavedDraft()) {
+      return;
+    }
+    await _deleteAttachments(_attachmentsIn(draft).toList());
+  }
+
   Future<int> cleanupUnreferencedAttachments() async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
@@ -7694,32 +7722,32 @@ class NotesController extends _$NotesController {
       }
     }
     final noteId = id ?? now.microsecondsSinceEpoch.toString();
-    await upsert(
-      NoteEntry(
-        id: noteId,
-        vaultId: 'everyday',
-        title: content.title,
-        body: content.body,
-        createdAt: now,
-        updatedAt: now,
-        attachments: attachments,
-        blocks: [
-          if (content.body.isNotEmpty)
-            NoteBlock(type: NoteBlockType.paragraph, text: content.body),
-          for (final attachment in attachments)
-            NoteBlock(
-              type: switch (attachment.type) {
-                AttachmentType.photo => NoteBlockType.photo,
-                AttachmentType.video => NoteBlockType.video,
-                AttachmentType.audio => NoteBlockType.audio,
-                AttachmentType.file => NoteBlockType.file,
-              },
-              attachment: attachment,
-            ),
-        ],
-        editorMode: NoteEditorMode.quick,
-      ),
+    final captured = NoteEntry(
+      id: noteId,
+      vaultId: 'everyday',
+      title: content.title,
+      body: content.body,
+      createdAt: now,
+      updatedAt: now,
+      attachments: attachments,
+      blocks: [
+        if (content.body.isNotEmpty)
+          NoteBlock(type: NoteBlockType.paragraph, text: content.body),
+        for (final attachment in attachments)
+          NoteBlock(
+            type: switch (attachment.type) {
+              AttachmentType.photo => NoteBlockType.photo,
+              AttachmentType.video => NoteBlockType.video,
+              AttachmentType.audio => NoteBlockType.audio,
+              AttachmentType.file => NoteBlockType.file,
+            },
+            attachment: attachment,
+          ),
+      ],
+      editorMode: NoteEditorMode.quick,
     );
+    await upsert(captured);
+    if (usesSyncV2NoteBackend) await cleanupCommittedAttachmentDrafts(captured);
     if (deferredPreviews.isNotEmpty) {
       unawaited(_applyDeferredPreviewsToNote(noteId, deferredPreviews));
     }
@@ -7749,6 +7777,21 @@ class NotesController extends _$NotesController {
     );
     if (note == null) {
       return;
+    }
+    if (usesSyncV2NoteBackend) {
+      final store = ref.read(noteStoreProvider) as SyncV2NoteStore;
+      for (final source in deferredPreviews.keys) {
+        for (final type in AttachmentType.values) {
+          final committed = store.committedDraftReference(
+            note.vaultId,
+            type,
+            source,
+          );
+          if (committed != null && resolved[source] != null) {
+            resolved[committed] = resolved[source]!;
+          }
+        }
+      }
     }
     NoteAttachment applyPreview(NoteAttachment a) {
       final preview = a.filePath != null ? resolved[a.filePath] : null;
@@ -7963,9 +8006,24 @@ class NotesController extends _$NotesController {
     }
     final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
     try {
-      await ref
+      final saving = state;
+      final saved = await ref
           .read(noteStoreProvider)
-          .save(state, preserveOmittedPrivateNotes: true);
+          .save(saving, preserveOmittedPrivateNotes: true);
+      if (ref.mounted) {
+        final replacements = {
+          for (var i = 0; i < saving.length; i++)
+            saving[i].id: (before: saving[i], after: saved[i]),
+        };
+        state = [
+          for (final current in state)
+            if (replacements[current.id] case final replacement?
+                when identical(current, replacement.before))
+              replacement.after
+            else
+              current,
+        ];
+      }
       ref.invalidate(syncQueueSummaryProvider);
       ref.invalidate(storageUsageSummaryProvider);
       await _syncSpotlightIndexForAll();
@@ -8020,7 +8078,13 @@ class NotesController extends _$NotesController {
     }
     final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
     try {
-      await ref.read(noteStoreProvider).saveOne(note);
+      final saved = await ref.read(noteStoreProvider).saveOne(note);
+      if (ref.mounted) {
+        state = [
+          for (final current in state)
+            identical(current, note) ? saved : current,
+        ];
+      }
       ref.invalidate(syncQueueSummaryProvider);
       ref.invalidate(storageUsageSummaryProvider);
       await _syncSpotlightIndexForNote(note);
@@ -8038,6 +8102,7 @@ class NotesController extends _$NotesController {
         stackTrace,
         reason: 'note_persist_one_failed',
       );
+      if (usesSyncV2NoteBackend) Error.throwWithStackTrace(error, stackTrace);
       await _persist();
     }
   }
@@ -8545,6 +8610,15 @@ class AdminModeSessionController extends Notifier<bool> {
     }
   }
 
+  Future<void> unlockWithAdminPassword(String password) async {
+    final operation = ++_operation;
+    await ref.read(syncV2WorkspaceProvider).unlockAdmin(password);
+    if (!ref.mounted || operation != _operation) return;
+    state = true;
+    ref.read(searchFiltersControllerProvider.notifier).setVault(null);
+    logAudit('admin_mode_login', data: {'backend': 'sync_v2'});
+  }
+
   /// Migrate a profile created before local admin keys existed, or imported
   /// from another device, without leaving the authenticated admin session.
   Future<bool> unlockProfile(String vaultId, String password) async {
@@ -8863,6 +8937,9 @@ class PrivateMemoProfilesController extends Notifier<List<PrivateMemoProfile>> {
     } on ArgumentError catch (error) {
       return '${error.message}';
     } on SyncV2WorkspaceException catch (error) {
+      if (error.code == 'duplicate_passcode') {
+        return 'Use a passcode different from the administrator passcode.';
+      }
       return error.code == 'admin_required'
           ? syncV2AdminRequiredMessage
           : 'Could not create the profile (${error.code}).';
@@ -8897,6 +8974,25 @@ class PrivateMemoProfilesController extends Notifier<List<PrivateMemoProfile>> {
       return false;
     }
     final vaultId = '$customPrivateVaultPrefix$id';
+    if (usesSyncV2NoteBackend) {
+      try {
+        await ref.read(syncV2WorkspaceProvider).deleteProfile(vaultId);
+      } on SyncV2WorkspaceException {
+        return false;
+      }
+      await ref
+          .read(profileColorThemeControllerProvider.notifier)
+          .clearTheme(vaultId);
+      if (ref.read(searchFiltersControllerProvider).vaultId == vaultId) {
+        ref.read(searchFiltersControllerProvider.notifier).setVault(null);
+      }
+      await refresh();
+      logAudit(
+        'private_profile_delete',
+        data: {'vaultId': vaultId, 'backend': 'sync_v2'},
+      );
+      return true;
+    }
     final removedNoteCount = await ref
         .read(notesControllerProvider.notifier)
         .deleteVaultLocally(vaultId);
@@ -8922,6 +9018,18 @@ class PrivateMemoProfilesController extends Notifier<List<PrivateMemoProfile>> {
   }
 
   Future<bool> renameProfile({required String id, required String name}) async {
+    if (usesSyncV2NoteBackend) {
+      if (!ref.read(adminModeSessionControllerProvider)) return false;
+      try {
+        await ref
+            .read(syncV2WorkspaceProvider)
+            .renameProfile('$customPrivateVaultPrefix$id', name);
+        await refresh();
+        return true;
+      } on SyncV2WorkspaceException {
+        return false;
+      }
+    }
     final changed = await ref
         .read(privateMemoProfileStoreProvider)
         .renameProfile(id: id, name: name);
@@ -8960,7 +9068,9 @@ class PrivateMemoProfilesController extends Notifier<List<PrivateMemoProfile>> {
       } on ArgumentError catch (error) {
         return '${error.message}';
       } on SyncV2WorkspaceException catch (error) {
-        return 'Could not change the passcode (${error.code}).';
+        return error.code == 'duplicate_passcode'
+            ? 'Use a passcode different from the administrator passcode.'
+            : 'Could not change the passcode (${error.code}).';
       }
       return null;
     }
@@ -9717,6 +9827,38 @@ final noteEditorDraftStoreProvider = Provider<NoteEditorDraftStore>(
     encryptionService: ref.watch(encryptionServiceProvider),
     masterKeyService: ref.watch(masterKeyServiceProvider),
     profileDataKeyService: ref.watch(profileDataKeyServiceProvider),
+    protectAttachments: !usesSyncV2NoteBackend
+        ? null
+        : (snapshot) async {
+            final store = ref.read(encryptedAttachmentStoreProvider);
+            final seen = <String>{};
+            for (final attachment in [
+              ...snapshot.quickAttachments,
+              for (final block in snapshot.richBlocks)
+                if (block.attachment != null) block.attachment!,
+            ]) {
+              final source = attachment.filePath;
+              if (source != null && seen.add(source)) {
+                await store.protectAttachmentForVault(
+                  source,
+                  type: attachment.type,
+                  vaultId: snapshot.vaultId,
+                );
+              }
+            }
+          },
+    storageKey: usesSyncV2NoteBackend
+        ? 'notes.editor_draft.v2'
+        : 'notes.editor_draft.v1',
+    keyForVault: !usesSyncV2NoteBackend
+        ? null
+        : (vaultId) async {
+            final session = ref.read(syncV2WorkspaceProvider).noteStoreSession;
+            if (session == null) return null;
+            return session
+                .profiles[SyncV2NoteStore.profileIdFor(session, vaultId)]
+                ?.key;
+          },
   ),
 );
 

@@ -320,9 +320,83 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
+  Future<bool> _unlockAdminWithPasscode(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    final strings = context.strings;
+    var password = '';
+    String? error;
+    var busy = false;
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) {
+          Future<void> submit() async {
+            if (busy) return;
+            setState(() {
+              busy = true;
+              error = null;
+            });
+            try {
+              await ref
+                  .read(adminModeSessionControllerProvider.notifier)
+                  .unlockWithAdminPassword(password);
+              if (context.mounted) Navigator.of(context).pop(true);
+            } on SyncV2WorkspaceException catch (failure) {
+              if (!context.mounted) return;
+              setState(() {
+                busy = false;
+                error = failure.code == 'throttled'
+                    ? strings.localized(
+                        en: 'Please wait before trying again.',
+                        ja: 'しばらくしてから再度お試しください。',
+                      )
+                    : strings.localized(
+                        en: 'Could not unlock administrator mode.',
+                        ja: '管理者モードを解除できませんでした。',
+                      );
+              });
+            }
+          }
+
+          return PopScope(
+            canPop: !busy,
+            child: AlertDialog(
+              title: Text(
+                strings.localized(en: 'Administrator passcode', ja: '管理パスコード'),
+              ),
+              content: TextField(
+                onChanged: (value) => password = value,
+                obscureText: true,
+                autofocus: true,
+                enabled: !busy,
+                onSubmitted: (_) => submit(),
+                decoration: InputDecoration(errorText: error),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: busy
+                      ? null
+                      : () => Navigator.of(context).pop(false),
+                  child: Text(strings.cancel),
+                ),
+                FilledButton(
+                  onPressed: busy ? null : submit,
+                  child: Text(strings.unlock),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+    return result == true;
+  }
+
   Future<void> _enterAdminMode(BuildContext context, WidgetRef ref) async {
     final strings = context.strings;
-    if (kIsWeb) {
+    if (kIsWeb && !usesSyncV2NoteBackend) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           showCloseIcon: true,
@@ -335,16 +409,30 @@ class SettingsScreen extends ConsumerWidget {
       );
       return;
     }
-    final authenticated = await ref
-        .read(deviceAuthControllerProvider.notifier)
-        .authenticate(reason: 'Enter admin mode to manage private profiles');
-    if (!authenticated || !context.mounted) {
-      return;
-    }
     final controller = ref.read(adminModeSessionControllerProvider.notifier);
-    List<String> missing;
+    List<String> missing = const [];
     try {
-      missing = await controller.unlock();
+      final workspace = usesSyncV2NoteBackend
+          ? ref.read(syncV2WorkspaceProvider)
+          : null;
+      if (workspace != null && !workspace.biometricEnabled) {
+        if (!await _unlockAdminWithPasscode(context, ref)) return;
+      } else {
+        final authenticated = await ref
+            .read(deviceAuthControllerProvider.notifier)
+            .authenticate(
+              reason: 'Enter admin mode to manage private profiles',
+            );
+        if (!context.mounted) return;
+        if (!authenticated) {
+          if (workspace == null ||
+              !await _unlockAdminWithPasscode(context, ref)) {
+            return;
+          }
+        } else {
+          missing = await controller.unlock();
+        }
+      }
     } catch (_) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
