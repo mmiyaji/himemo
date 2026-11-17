@@ -882,6 +882,36 @@ void main() {
     timeout: const Timeout(Duration(minutes: 2)),
   );
 
+  test('sync status distinguishes syncing, successful completion, and connection errors', () async {
+    final cloud = _Cloud();
+    final device = _Device(cloud);
+    addTearDown(device.workspace.dispose);
+    final c = device.workspace;
+    await c.initialize();
+    await c.prepareNew('1234');
+    await c.confirmSetup();
+    expect(c.lastSyncCompletedAt, isNull);
+    device.syncEntered = Completer<void>();
+    device.syncRelease = Completer<void>();
+    final sync = c.syncNow();
+    await device.syncEntered!.future;
+    expect(c.syncing, isTrue);
+    device.syncRelease!.complete();
+    await sync;
+    expect(c.syncing, isFalse);
+    expect(c.lastSyncCompletedAt, isNotNull);
+    expect(c.syncError, isNull);
+    final completed = c.lastSyncCompletedAt;
+    cloud.offline = true;
+    await expectLater(c.syncNow(), throwsA(isA<SyncV2WorkspaceException>()));
+    expect(c.syncing, isFalse);
+    expect(c.syncError, isNotNull);
+    expect(c.lastSyncCompletedAt, completed);
+    cloud.offline = false;
+    await c.syncNow();
+    expect(c.syncError, isNull);
+  });
+
   test(
     'device transfer grants both roles with a device-local passcode',
     () async {

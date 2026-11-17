@@ -309,7 +309,11 @@ class _AppShellState extends ConsumerState<AppShell> {
         titleSpacing: useRail ? 28 : null,
         title: const _AppBrandTitle(),
         actions: [
-          if (showSyncIndicator)
+          if (usesSyncV2NoteBackend)
+            _HeaderV2SyncIndicator(
+              forceVisible: tutorialStep == AppTutorialStep.syncStatus,
+            )
+          else if (showSyncIndicator)
             Padding(
               padding: EdgeInsetsDirectional.only(
                 end: privateProfileActive || adminMode ? 8 : 4,
@@ -1326,6 +1330,11 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
         en: 'Unlock a private profile from the header before writing private memos. In the editor, choose the private save destination before saving.',
         ja: 'プライベートメモを書く前に、ヘッダーからプロファイルを解除します。編集画面では保存先がプライベートになっていることを確認して保存します。',
       ),
+      AppTutorialStep.syncTroubleshooting when usesSyncV2NoteBackend =>
+        strings.localized(
+          en: 'Notes sync automatically through iCloud. Check sync status, add another device, or save your recovery file here.',
+          ja: 'メモはiCloudで自動同期されます。ここで同期状態の確認、別の端末の追加、復元用ファイルの保存ができます。',
+        ),
       AppTutorialStep.syncTroubleshooting => strings.localized(
         en: widget.syncProvider == SyncProvider.off
             ? 'Sync is turned off. Choose a backup provider here to get started. Progress appears in the header while a sync is running.'
@@ -1334,6 +1343,11 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
             ? '現在、同期はオフです。ここで保存先を選ぶと利用を始められます。同期中は画面上部に進捗が表示されます。'
             : 'ここで保存先や同期の操作を管理できます。同期中は画面上部に進捗と件数が表示されます。',
       ),
+      AppTutorialStep.syncStatus when usesSyncV2NoteBackend =>
+        strings.localized(
+          en: 'This indicator shows when syncing or when sync needs attention. Tap it to open sync settings.',
+          ja: '同期中や確認が必要なときに表示されます。タップすると同期の設定を開けます。',
+        ),
       AppTutorialStep.syncStatus => strings.localized(
         en: 'When sync is running, this indicator rotates and shows progress. Tap it to see the current step and item counts.',
         ja: '同期中はこのインジケーターが回転し、進捗を表示します。タップすると現在の処理や件数進捗を確認できます。',
@@ -1406,6 +1420,60 @@ class _TutorialScrimPainter extends CustomPainter {
     return oldDelegate.highlightRect != highlightRect ||
         oldDelegate.color != color ||
         oldDelegate.borderColor != borderColor;
+  }
+}
+
+class _HeaderV2SyncIndicator extends ConsumerWidget {
+  const _HeaderV2SyncIndicator({required this.forceVisible});
+  final bool forceVisible;
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final workspace = ref.watch(syncV2WorkspaceProvider);
+    return ListenableBuilder(
+      listenable: workspace,
+      builder: (context, _) {
+        if (!forceVisible &&
+            !workspace.syncing &&
+            workspace.syncError == null) {
+          return const SizedBox.shrink();
+        }
+        final strings = context.strings;
+        return IconButton(
+          key: AppShell.syncIndicatorKey,
+          tooltip: workspace.syncing
+              ? strings.localized(
+                  en: 'Syncing. Open sync settings.',
+                  ja: '同期中。同期の設定を開く',
+                )
+              : strings.localized(en: 'Check sync settings', ja: '同期の設定を確認'),
+          onPressed: () {
+            context.go('/settings');
+            SettingsScreen._syncController.expand();
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              final target = SettingsScreen._syncSectionKey.currentContext;
+              if (target != null && target.mounted) {
+                Scrollable.ensureVisible(
+                  target,
+                  alignment: 0.05,
+                  duration: const Duration(milliseconds: 200),
+                );
+              }
+            });
+          },
+          icon: workspace.syncing
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Icon(
+                  workspace.syncError == null
+                      ? Icons.sync
+                      : Icons.sync_problem_outlined,
+                ),
+        );
+      },
+    );
   }
 }
 

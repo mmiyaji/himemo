@@ -585,6 +585,8 @@ class SyncV2WorkspaceController extends ChangeNotifier {
       throw const SyncV2WorkspaceException('locked');
     }
     registered = true;
+    lastSyncCompletedAt = null;
+    syncError = null;
     await _reloadNotes();
     if (_paused || _disposed) throw const SyncV2WorkspaceException('locked');
   }
@@ -804,6 +806,8 @@ class SyncV2WorkspaceController extends ChangeNotifier {
     selectedProfileId = null;
     registered = false;
     hasPending = false;
+    lastSyncCompletedAt = null;
+    syncError = null;
     biometricEnabled = false;
     adminPasswordConfigured = false;
     failures = [];
@@ -1963,8 +1967,38 @@ class SyncV2WorkspaceController extends ChangeNotifier {
   }
 
   Future<void> syncNow() => _run(_sync);
+  bool syncing = false;
+  String? syncError;
+  DateTime? lastSyncCompletedAt;
+
   Future<void> _sync() async {
     if (!registered) return;
+    syncing = true;
+    syncError = null;
+    _notify();
+    final epoch = _epoch;
+    try {
+      await _syncChanges();
+      if (_epoch == epoch && !_paused && !_disposed && registered) {
+        lastSyncCompletedAt = DateTime.now();
+      }
+    } catch (failure) {
+      final cancelled =
+          failure is SyncV2WorkspaceException &&
+          (failure.code == 'locked' || failure.code == 'closed');
+      if (!cancelled) {
+        syncError = failure is SyncV2WorkspaceException
+            ? failure.code
+            : 'sync_failed';
+      }
+      rethrow;
+    } finally {
+      syncing = false;
+      _notify();
+    }
+  }
+
+  Future<void> _syncChanges() async {
     final epoch = _epoch;
     // Verify before doing any work; cached offline access never grants sync.
     if (await registrationTransport.readCurrentAccountId() != accountId) {

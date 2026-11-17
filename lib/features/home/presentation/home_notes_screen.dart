@@ -86,7 +86,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         sortField: sortField,
         attachmentPreviewFit: attachmentPreviewFit,
         query: query,
-        onRefresh: syncProvider == SyncProvider.off
+        onRefresh: !usesSyncV2NoteBackend && syncProvider == SyncProvider.off
             ? null
             : () => _refreshNotesFromCloud(context),
         onUnlockPrivateProfile: () => _showProfileAccessDialog(context, ref),
@@ -143,7 +143,8 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                 attachmentPreviewFit: attachmentPreviewFit,
                 query: query,
                 onAddNote: () => showNoteEditorSheet(context, ref),
-                onRefresh: syncProvider == SyncProvider.off
+                onRefresh:
+                    !usesSyncV2NoteBackend && syncProvider == SyncProvider.off
                     ? null
                     : () => _refreshNotesFromCloud(context),
                 onUnlockPrivateProfile: () =>
@@ -281,6 +282,26 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
 
   Future<void> _refreshNotesFromCloud(BuildContext context) async {
     final strings = context.strings;
+    if (usesSyncV2NoteBackend) {
+      final workspace = ref.read(syncV2WorkspaceProvider);
+      if (!workspace.registered || workspace.busy) return;
+      try {
+        await workspace.syncNow();
+      } catch (_) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              strings.localized(
+                en: 'Could not sync. Check your iCloud sign-in and connection.',
+                ja: '同期できませんでした。iCloudのサインインと通信状態を確認してください。',
+              ),
+            ),
+          ),
+        );
+      }
+      return;
+    }
     final warning = await ref
         .read(syncTransferControllerProvider.notifier)
         .largeMobileTransferWarning(includeUpload: true, includeDownload: true);

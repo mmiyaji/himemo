@@ -1150,7 +1150,14 @@ class SettingsScreen extends ConsumerWidget {
         : (appSessionUnlocked
               ? (strings.text('home.on.this.session.is.unlocked'))
               : (strings.text('home.on.this.session.is.locked')));
-    final syncSummary = syncProvider == SyncProvider.off
+    final syncSummary = usesSyncV2NoteBackend
+        ? (ref.watch(syncV2WorkspaceProvider).registered
+              ? strings.localized(
+                  en: 'Automatic iCloud sync',
+                  ja: 'iCloudで自動同期',
+                )
+              : strings.localized(en: 'Not set up', ja: '未設定'))
+        : syncProvider == SyncProvider.off
         ? (strings.text('home.device.only.storage'))
         : _syncConnectionStep(strings, syncProvider, syncAuthState);
     final memoEditorModeLabel =
@@ -1400,7 +1407,7 @@ class SettingsScreen extends ConsumerWidget {
         vertical: compactSettingsLayout ? 8 : 16,
       ),
       children: [
-        if (kIsWeb)
+        if (kIsWeb && !usesSyncV2NoteBackend)
           ListTile(
             key: const Key('open-sync-v2-web-readonly'),
             leading: const Icon(Icons.cloud_outlined),
@@ -1419,7 +1426,9 @@ class SettingsScreen extends ConsumerWidget {
             trailing: const Icon(Icons.chevron_right),
             onTap: () => context.go('/sync-v2-web-readonly'),
           ),
-        if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS)
+        if (!usesSyncV2NoteBackend &&
+            !kIsWeb &&
+            defaultTargetPlatform == TargetPlatform.iOS)
           ListTile(
             key: const Key('open-sync-v2-workspace'),
             leading: const Icon(Icons.cloud_sync_outlined),
@@ -2779,10 +2788,7 @@ class SettingsScreen extends ConsumerWidget {
         if (usesSyncV2NoteBackend)
           _SettingsGroup(
             title: strings.localized(en: 'Sync and security', ja: '同期とセキュリティ'),
-            summary: strings.localized(
-              en: 'Device access, pairing, and recovery',
-              ja: '端末の解除方式・端末追加・復元',
-            ),
+            summary: syncSummary,
             icon: Icons.sync_outlined,
             sectionKey: _syncSectionKey,
             controller: _syncController,
@@ -3959,6 +3965,7 @@ class SettingsScreen extends ConsumerWidget {
         ),
         SizedBox(height: settingsGroupSpacing),
         _SettingsGroup(
+          visible: !usesSyncV2NoteBackend,
           title: strings.localized(
             en: 'File backup',
             ja: 'ファイルバックアップ',

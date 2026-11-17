@@ -114,6 +114,11 @@ class _DeviceSecurityState extends ConsumerState<SyncV2DeviceSecuritySettings>
     } catch (failure) {
       if (!mounted || !_foreground || revision != _revision) return;
       final code = failure is SyncV2WorkspaceException ? failure.code : '';
+      if (code == 'locked' ||
+          code == 'closed' ||
+          code == 'authentication_cancelled') {
+        return;
+      }
       final message = switch (code) {
         'duplicate_passcode' => t(
           'プロファイルとは異なる管理パスコードを使用してください。',
@@ -181,6 +186,10 @@ class _DeviceSecurityState extends ConsumerState<SyncV2DeviceSecuritySettings>
   }
 
   Future<void> showQr(int revision, {bool administrator = true}) async {
+    if (administrator) {
+      await authenticate(revision);
+      if (!active(revision) || !c.canManageAdminCredentials) return;
+    }
     final transfer = await c.deviceTransfer(
       includeAdministrator: administrator,
     );
@@ -204,6 +213,8 @@ class _DeviceSecurityState extends ConsumerState<SyncV2DeviceSecuritySettings>
   }
 
   Future<void> exportFile(int revision) async {
+    await authenticate(revision);
+    if (!active(revision) || !c.canManageAdminCredentials) return;
     final transfer = await c.deviceTransfer();
     if (!active(revision)) return;
     final bytes = Uint8List.fromList(utf8.encode(transfer.toRecoveryFile()));
@@ -325,6 +336,110 @@ class _DeviceSecurityState extends ConsumerState<SyncV2DeviceSecuritySettings>
     }
   }
 
+  Future<void> chooseUnlockMethod(int revision) async {
+    await authenticate(revision);
+    if (!active(revision) || !c.canManageAdminCredentials) return;
+    final method = await dialog<String>(
+      (context) => SimpleDialog(
+        title: Text(t('この端末の管理者解除', 'Administrator unlock on this device')),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, 'password'),
+            child: Text(
+              t('管理パスコードを設定・変更', 'Set or change administrator passcode'),
+            ),
+          ),
+          if (c.biometricsAvailable && !c.biometricEnabled)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, 'biometric'),
+              child: Text(
+                t(
+                  '管理パスコードの代わりに生体認証を使う',
+                  'Use biometrics instead of an administrator passcode',
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+    if (!active(revision)) return;
+    if (method == 'password') await changePassword(revision);
+    if (method == 'biometric') {
+      final accepted = await dialog<bool>(
+        (context) => AlertDialog(
+          title: Text(t('生体認証に切り替える', 'Switch to biometrics')),
+          content: Text(
+            t(
+              '管理パスコードは削除されます。生体情報を変更した場合は、別の端末のQRコードか復元用ファイルが必要です。先に復元用ファイルを保存してください。',
+              'Your administrator passcode will be removed. If your biometric enrollment changes, you will need another device’s QR code or your recovery file. Save a recovery file first.',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(t('キャンセル', 'Cancel')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text(t('切り替える', 'Switch')),
+            ),
+          ],
+        ),
+      );
+      if (accepted == true && active(revision)) {
+        await enableBiometrics(revision);
+      }
+    }
+  }
+
+  Future<void> restoreDevice(int revision) async {
+    final source = await dialog<String>(
+      (context) => SimpleDialog(
+        title: Text(t('管理者権限を追加', 'Add administrator access')),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, 'qr'),
+            child: Text(t('別の端末のQRコードを読み取る', 'Scan QR from another device')),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, 'file'),
+            child: Text(t('復元用ファイルを読み込む', 'Open recovery file')),
+          ),
+        ],
+      ),
+    );
+    if (!active(revision)) return;
+    if (source == 'qr') await scan(revision);
+    if (source == 'file') await importFile(revision);
+  }
+
+  String syncStatus(SyncV2WorkspaceController controller) {
+    if (controller.syncing) return t('同期中…', 'Syncing…');
+    if (controller.syncError != null) {
+      return t(
+        controller.syncError == 'account_changed'
+            ? 'iCloudアカウントが変更されています。元のアカウントを確認してください。'
+            : '同期できませんでした。接続状態を確認して再試行してください。',
+        controller.syncError == 'account_changed'
+            ? 'Your iCloud account has changed. Check the original account.'
+            : 'Could not sync. Check your connection and retry.',
+      );
+    }
+    final completed = controller.lastSyncCompletedAt;
+    if (completed == null) {
+      return t('メモの変更は自動で同期されます。', 'Changes to your notes sync automatically.');
+    }
+    final local = MaterialLocalizations.of(context).formatTimeOfDay(
+      TimeOfDay.fromDateTime(completed),
+      alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context),
+    );
+    final now = DateTime.now();
+    final date = DateUtils.isSameDay(now, completed)
+        ? ''
+        : '${MaterialLocalizations.of(context).formatShortDate(completed)} ';
+    return t('最終同期 $date$local', 'Last synced $date$local');
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = ref.watch(syncV2WorkspaceProvider);
@@ -332,129 +447,170 @@ class _DeviceSecurityState extends ConsumerState<SyncV2DeviceSecuritySettings>
       listenable: controller,
       builder: (context, _) {
         final busy = _working || controller.busy;
+        final administratorAvailable =
+            controller.canManageAdminCredentials ||
+            controller.biometricEnabled ||
+            controller.adminPasswordConfigured;
         Widget action(
           String ja,
           String en,
           Future<void> Function(int) callback, {
           bool enabled = true,
-          Key? key,
         }) => OutlinedButton(
-          key: key,
           onPressed: busy || !enabled ? null : () => perform(callback),
           child: Text(t(ja, en)),
         );
+        Widget section(
+          String title,
+          String description,
+          List<Widget> actions,
+        ) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: Theme.of(context).textTheme.titleSmall),
+              const SizedBox(height: 4),
+              Text(description),
+              const SizedBox(height: 8),
+              Wrap(spacing: 8, runSpacing: 8, children: actions),
+            ],
+          ),
+        );
+        if (!controller.registered) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              section(
+                t('この端末を追加する', 'Add this device'),
+                t(
+                  'すでに使っている端末のQRコード、または復元用ファイルを使います。',
+                  'Use the QR code from an existing device, or your recovery file.',
+                ),
+                [
+                  action('QRコードを読み取る', 'Scan QR code', scan),
+                  action('復元用ファイルを読み込む', 'Open recovery file', importFile),
+                ],
+              ),
+              TextButton(
+                onPressed: busy ? null : () => context.push('/sync-v2'),
+                child: Text(
+                  t('初めて使う：iCloud同期を始める', 'First time: set up iCloud sync'),
+                ),
+              ),
+            ],
+          );
+        }
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (!controller.registered) ...[
-              Text(
-                t(
-                  '既存の端末から追加QRを読み取るか、復元ファイルを選んでください。',
-                  'Scan the add-device QR from an existing device, or choose a recovery file.',
+            section(
+              t('iCloudで自動同期', 'Automatic iCloud sync'),
+              syncStatus(controller),
+              [
+                FilledButton.icon(
+                  onPressed: busy
+                      ? null
+                      : () => perform((_) async {
+                          try {
+                            await controller.syncNow();
+                          } catch (_) {
+                            // The persistent sync status already explains failure.
+                          }
+                        }),
+                  icon: controller.syncing
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.sync),
+                  label: Text(
+                    controller.syncError == null
+                        ? t('今すぐ同期', 'Sync now')
+                        : t('同期を再試行', 'Retry sync'),
+                  ),
                 ),
+              ],
+            ),
+            const Divider(),
+            section(
+              t('別の端末を追加する', 'Add another device'),
+              t(
+                '追加する端末で、この端末のQRコードを読み取ってください。',
+                'Scan this device’s QR code on the device you want to add.',
               ),
-              Wrap(
-                spacing: 8,
-                children: [
-                  action('端末追加QRを読み取る', 'Scan add device QR', scan),
-                  action('復元ファイルから追加', 'Add from recovery file', importFile),
-                  TextButton(
-                    onPressed: busy ? null : () => context.push('/sync-v2'),
-                    child: Text(t('新しく同期を始める', 'Set up new sync')),
-                  ),
-                ],
-              ),
-            ] else ...[
-              Text(
-                t('この端末の管理者解除方式', 'Administrator unlock on this device'),
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              Text(
-                controller.biometricEnabled
-                    ? t('生体認証', 'Biometrics')
-                    : controller.adminPasswordConfigured
-                    ? t('管理パスコード', 'Administrator passcode')
-                    : t('管理者未登録', 'Administrator not registered'),
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  if (!controller.canManageAdminCredentials)
-                    action('管理者認証', 'Authenticate administrator', authenticate),
-                  action(
-                    '管理パスコードを設定・変更',
-                    'Set or change administrator passcode',
-                    changePassword,
-                    enabled: controller.canManageAdminCredentials,
-                  ),
-                  action(
-                    '生体認証を使う',
-                    'Use biometrics',
-                    enableBiometrics,
-                    enabled:
-                        controller.canManageAdminCredentials &&
-                        controller.biometricsAvailable &&
-                        !controller.biometricEnabled,
-                  ),
-                ],
-              ),
-              const Divider(),
-              Text(
-                t('端末を追加・復元', 'Add or recover a device'),
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              Text(
-                t(
-                  'QRと復元ファイルは全プロファイルを開く鍵を含みます。安全な場所に保管してください。',
-                  'QR codes and recovery files contain keys to every profile. Keep them safe.',
+              [
+                action(
+                  '追加用QRコードを表示',
+                  'Show pairing QR',
+                  (r) => showQr(r),
+                  enabled: administratorAvailable,
                 ),
+              ],
+            ),
+            section(
+              t('機種変更・復元に備える', 'Prepare for device replacement or recovery'),
+              t(
+                '復元用ファイルには同期と管理者の鍵が含まれます。安全な場所に保管してください。',
+                'Your recovery file contains sync and administrator keys. Keep it somewhere safe.',
               ),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  action(
-                    '端末追加QRを表示',
-                    'Show add device QR',
-                    (r) => showQr(r),
-                    enabled: controller.canManageAdminCredentials,
-                  ),
-                  action(
-                    '復元ファイルを保存',
-                    'Save recovery file',
-                    exportFile,
-                    enabled: controller.canManageAdminCredentials,
-                  ),
-                ],
-              ),
-              ExpansionTile(
-                tilePadding: EdgeInsets.zero,
-                title: Text(t('詳細設定', 'Advanced')),
-                children: [
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      action('端末追加QRから復元', 'Recover from add device QR', scan),
-                      action(
-                        '復元ファイルから復元',
-                        'Recover from recovery file',
-                        importFile,
-                      ),
-                    ],
-                  ),
-                  Align(
-                    alignment: AlignmentDirectional.centerStart,
-                    child: action(
-                      '管理者なしで追加（同期のみ）',
-                      'Add without administrator (sync only)',
-                      (r) => showQr(r, administrator: false),
+              [
+                action(
+                  '復元用ファイルを保存',
+                  'Save recovery file',
+                  exportFile,
+                  enabled: administratorAvailable,
+                ),
+                if (!administratorAvailable)
+                  action('管理者権限を追加', 'Add administrator access', restoreDevice),
+              ],
+            ),
+            const Divider(),
+            section(
+              t('この端末の管理者解除', 'Administrator unlock on this device'),
+              controller.biometricEnabled
+                  ? t('生体認証', 'Biometrics')
+                  : controller.adminPasswordConfigured
+                  ? t('管理パスコード', 'Administrator passcode')
+                  : t(
+                      'この端末には管理者権限が登録されていません。',
+                      'Administrator access is not registered on this device.',
                     ),
-                  ),
-                ],
+              [
+                action(
+                  '解除方法を変更',
+                  'Change unlock method',
+                  chooseUnlockMethod,
+                  enabled: administratorAvailable,
+                ),
+              ],
+            ),
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              title: Text(
+                t(
+                  '管理者権限を付けずに追加する場合',
+                  'Add a device without administrator access',
+                ),
               ),
-            ],
+              children: [
+                Text(
+                  t(
+                    '追加先でも、プロファイルのパスコードを知る人はそのプロファイルを開けます。',
+                    'People who know a profile passcode can still open that profile on the added device.',
+                  ),
+                ),
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: action(
+                    '同期のみのQRコードを表示',
+                    'Show sync-only QR',
+                    (r) => showQr(r, administrator: false),
+                  ),
+                ),
+              ],
+            ),
           ],
         );
       },

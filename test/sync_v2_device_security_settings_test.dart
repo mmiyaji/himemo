@@ -73,11 +73,20 @@ void main() {
         ),
       );
       expect(find.text('Administrator passcode'), findsOneWidget);
-      expect(find.text('Show add device QR'), findsOneWidget);
+      expect(find.text('Sync now'), findsOneWidget);
+      expect(find.text('Automatic iCloud sync'), findsOneWidget);
+      expect(find.text('Change unlock method'), findsOneWidget);
+      expect(find.text('Detailed sync'), findsNothing);
+      expect(find.text('Authenticate administrator'), findsNothing);
+      expect(find.text('Use biometrics'), findsNothing);
+      await tester.runAsync(() => controller.syncNow());
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Last synced'), findsOneWidget);
+      expect(find.text('Show pairing QR'), findsOneWidget);
       expect(find.text('Save recovery file'), findsOneWidget);
-      expect(find.text('Add without administrator (sync only)'), findsNothing);
+      expect(find.text('Show sync-only QR'), findsNothing);
       await tester.runAsync(() async {
-        await tester.tap(find.text('Show add device QR'));
+        await tester.tap(find.text('Show pairing QR'));
       });
       await tester.pumpAndSettle();
       expect(find.byType(SyncV2PairingQrDialog), findsOneWidget);
@@ -119,6 +128,8 @@ void main() {
           ),
         ),
       );
+      await tester.tap(find.text('Change unlock method'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Set or change administrator passcode'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).first, '123');
@@ -131,13 +142,11 @@ void main() {
       );
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Advanced'));
+      await tester.tap(find.text('Add a device without administrator access'));
       await tester.pumpAndSettle();
-      await tester.ensureVisible(
-        find.text('Add without administrator (sync only)'),
-      );
+      await tester.ensureVisible(find.text('Show sync-only QR'));
       await tester.runAsync(() async {
-        await tester.tap(find.text('Add without administrator (sync only)'));
+        await tester.tap(find.text('Show sync-only QR'));
       });
       await tester.pumpAndSettle();
       final dialog = tester.widget<SyncV2PairingQrDialog>(
