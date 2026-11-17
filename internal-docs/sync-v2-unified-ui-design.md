@@ -165,3 +165,21 @@ v2 固有の操作（QR ペアリング、復元コード、生体認証登録�
 2. Argon2id は 2.4 の推奨値を採用
 3. 誤入力の待ち時間は 2.3 の推奨値を採用。開発ビルドのみアイコン 5 回タップで回避
 4. Web 版はリリースしない。同期スタブで開発し、iOS 実機確認は GitHub Actions で行う
+
+## 8. 実装状況
+
+### フェーズ1（2026-11-17）
+
+- `NoteStore`（`lib/features/home/data/note_store.dart`）を抽出し、`NotesController` は `noteStoreProvider` 経由で保存する。
+- v2 実装 `SyncV2NoteStore`（`lib/features/sync/data/sync_v2_note_store.dart`）。ID 変換: v1 `X` ⇔ v2 `note_X`、`everyday` ⇔ v2 通常プロファイル。
+- 切り替えは `--dart-define=HIMEMO_NOTE_BACKEND=...`:
+  - `v1`（既定）: 従来のローカル暗号化 DB
+  - `v2`: iCloud の v2 ワークスペース（登録済みであること）
+  - `v2-local`: 同期スタブ。起動時に自動登録。鍵はメモリ上のみで、再起動すると以前のデータは読めない
+- v2 のプロファイル解除状態が変わると `NotesController.reloadFromStorage()` を呼ぶ。
+
+```bash
+flutter run -t lib/main_development.dart -d chrome --dart-define=HIMEMO_NOTE_BACKEND=v2-local
+```
+
+未対応（後続フェーズ）: 添付（参照は空で保存）、v1 のロック UI と v2 解除の接続、v1 同期処理（Google Drive / 旧 iCloud）の停止。

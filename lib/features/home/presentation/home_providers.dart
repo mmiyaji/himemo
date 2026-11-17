@@ -58,6 +58,7 @@ import '../../security/data/secure_key_value_store.dart';
 import '../../sync/data/google_drive_sync_transport.dart';
 import '../../sync/data/google_sign_in_initializer.dart';
 import '../../sync/data/icloud_sync_transport.dart';
+import '../../sync/presentation/sync_v2_note_store_provider.dart';
 import '../../sync/data/private_profile_sync_exclusion_store.dart';
 import '../../sync/data/sync_attachment_refs.dart';
 import '../../sync/data/sync_conflict_policy.dart';
@@ -2527,7 +2528,7 @@ const _iosPickedImagesDirectoryName = 'picked_images';
 final storageUsageSummaryProvider = FutureProvider<StorageUsageSummary>((
   ref,
 ) async {
-  final noteStore = ref.watch(encryptedNoteStoreProvider);
+  final noteStore = ref.watch(noteStoreProvider);
   final attachmentStore = ref.watch(encryptedAttachmentStoreProvider);
   final notePayloadBytes = await noteStore.storagePayloadSizeBytes();
   final attachmentPayloadBytes = await attachmentStore
@@ -6148,7 +6149,7 @@ class NotesController extends _$NotesController {
         if (_isLockedPrivatePlaceholder(note)) {
           next.removeAt(i);
           state = next;
-          await ref.read(encryptedNoteStoreProvider).deleteById(noteId);
+          await ref.read(noteStoreProvider).deleteById(noteId);
           ref.invalidate(storageUsageSummaryProvider);
           deletedNote = note;
           lockedPlaceholder = true;
@@ -6255,7 +6256,7 @@ class NotesController extends _$NotesController {
         if (note.vaultId == vaultId) note,
     ];
     if (removed.isEmpty) {
-      await ref.read(encryptedNoteStoreProvider).deleteByVaultId(vaultId);
+      await ref.read(noteStoreProvider).deleteByVaultId(vaultId);
       return 0;
     }
     final removedIds = {for (final note in removed) note.id};
@@ -6275,7 +6276,7 @@ class NotesController extends _$NotesController {
       for (final note in removed)
         if (!_isLockedPrivatePlaceholder(note)) ..._attachmentsIn(note),
     ]);
-    await ref.read(encryptedNoteStoreProvider).deleteByVaultId(vaultId);
+    await ref.read(noteStoreProvider).deleteByVaultId(vaultId);
     ref.invalidate(storageUsageSummaryProvider);
     ref.invalidate(syncQueueSummaryProvider);
     logAudit(
@@ -6842,7 +6843,7 @@ class NotesController extends _$NotesController {
           .map((note) => note.id)
           .toSet(),
     );
-    await ref.read(encryptedNoteStoreProvider).save(const <NoteEntry>[]);
+    await ref.read(noteStoreProvider).save(const <NoteEntry>[]);
     await _syncSpotlightIndexForAll();
     ref.invalidate(storageUsageSummaryProvider);
     return removedCount;
@@ -7774,7 +7775,7 @@ class NotesController extends _$NotesController {
       final deletedSeedNoteIds = await _deletedSeedNoteIds();
       final restored = [
         ...await ref
-            .read(encryptedNoteStoreProvider)
+            .read(noteStoreProvider)
             .load(fallbackNotes: const <NoteEntry>[]),
       ];
       if (!ref.mounted) {
@@ -7892,7 +7893,7 @@ class NotesController extends _$NotesController {
   }
 
   Future<void> _purgeDeletedNote(NoteEntry note) async {
-    final store = ref.read(encryptedNoteStoreProvider);
+    final store = ref.read(noteStoreProvider);
     final keepDeletion =
         note.syncState != NoteSyncState.localOnly &&
         !noteExcludedFromSync(
@@ -7962,7 +7963,7 @@ class NotesController extends _$NotesController {
     final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
     try {
       await ref
-          .read(encryptedNoteStoreProvider)
+          .read(noteStoreProvider)
           .save(state, preserveOmittedPrivateNotes: true);
       ref.invalidate(syncQueueSummaryProvider);
       ref.invalidate(storageUsageSummaryProvider);
@@ -8018,7 +8019,7 @@ class NotesController extends _$NotesController {
     }
     final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
     try {
-      await ref.read(encryptedNoteStoreProvider).saveOne(note);
+      await ref.read(noteStoreProvider).saveOne(note);
       ref.invalidate(syncQueueSummaryProvider);
       ref.invalidate(storageUsageSummaryProvider);
       await _syncSpotlightIndexForNote(note);

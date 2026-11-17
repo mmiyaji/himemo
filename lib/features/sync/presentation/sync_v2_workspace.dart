@@ -28,6 +28,7 @@ import '../data/sync_v2_icloud_session.dart';
 import '../data/sync_v2_icloud_transport.dart';
 import '../data/sync_v2_inbox.dart';
 import '../data/sync_v2_note_repository.dart';
+import '../data/sync_v2_note_store.dart';
 import '../data/sync_v2_payload_codec.dart';
 import '../data/sync_v2_profile_catalog.dart';
 
@@ -392,6 +393,23 @@ class SyncV2WorkspaceController extends ChangeNotifier {
   /// Changes whenever unlocked projections must be discarded by the UI.
   int get privateSessionRevision => _epoch;
   bool get hasPreparedSetup => _prepared != null;
+
+  /// Keys for the v1 UI note store. Null until registered and while paused.
+  SyncV2NoteStoreSession? get noteStoreSession {
+    final normal = _normal, syncKey = _syncKey, generation = generationId;
+    if (!registered || _paused || _disposed) return null;
+    if (normal == null || syncKey == null || generation == null) return null;
+    return SyncV2NoteStoreSession(
+      generationId: generation,
+      syncKey: syncKey,
+      normalProfileId: normal.profileId,
+      profiles: {
+        normal.profileId: normal,
+        for (final profile in _private.values) profile.id: profile.access,
+      },
+    );
+  }
+
   List<SyncV2WorkspaceProfile> get profiles => [
     if (_normal != null)
       SyncV2WorkspaceProfile(_normal!.profileId, '通常', isNormal: true),

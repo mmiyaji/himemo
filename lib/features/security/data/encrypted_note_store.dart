@@ -7,13 +7,14 @@ import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../home/data/note_store.dart';
 import '../../home/domain/note_entry.dart';
 import 'encrypted_note_database.dart';
 import 'encryption_service.dart';
 import 'master_key_service.dart';
 import 'profile_data_key_service.dart';
 
-class EncryptedNoteStore {
+class EncryptedNoteStore implements NoteStore {
   EncryptedNoteStore({
     required this._encryptionService,
     required this._masterKeyService,
@@ -41,6 +42,7 @@ class EncryptedNoteStore {
   final String legacyStorageKey;
   final String webStorageKey;
 
+  @override
   Future<List<NoteEntry>> load({required List<NoteEntry> fallbackNotes}) async {
     if (_isWeb) {
       return _loadWeb(fallbackNotes: fallbackNotes);
@@ -88,6 +90,7 @@ class EncryptedNoteStore {
     );
   }
 
+  @override
   Future<void> save(
     List<NoteEntry> notes, {
     bool preserveOmittedPrivateNotes = false,
@@ -168,6 +171,7 @@ class EncryptedNoteStore {
     );
   }
 
+  @override
   Future<void> saveOne(NoteEntry note) async {
     if (_isWeb) {
       throw UnsupportedError('Incremental note save is not supported on web.');
@@ -616,6 +620,7 @@ class EncryptedNoteStore {
     );
   }
 
+  @override
   Future<void> deleteById(String noteId) async {
     if (!_isWeb) {
       final database = _database ?? EncryptedNoteDatabase();
@@ -626,6 +631,7 @@ class EncryptedNoteStore {
     await save(notes.where((note) => note.id != noteId).toList());
   }
 
+  @override
   Future<void> deleteByVaultId(String vaultId) async {
     if (!_isWeb) {
       final database = _database ?? EncryptedNoteDatabase();
@@ -636,6 +642,7 @@ class EncryptedNoteStore {
     await save(notes.where((note) => note.vaultId != vaultId).toList());
   }
 
+  @override
   Future<int> storagePayloadSizeBytes() async {
     if (!_isWeb) {
       final database = _database;
