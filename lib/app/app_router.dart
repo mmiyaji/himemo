@@ -40,10 +40,12 @@ GoRouter appRouter(Ref ref) {
       GoRoute(path: '/', redirect: (_, _) => '/notes'),
       GoRoute(
         path: '/sync-v2',
+        redirect: (_, _) => usesSyncV2NoteBackend ? '/settings' : null,
         builder: (context, state) => const SyncV2WorkspaceScreen(),
       ),
       GoRoute(
         path: '/sync-v2-web-readonly',
+        redirect: (_, _) => usesSyncV2NoteBackend ? '/settings' : null,
         builder: (context, state) =>
             SyncV2CloudKitReadOnlyScreen(onExit: () => context.go('/settings')),
       ),

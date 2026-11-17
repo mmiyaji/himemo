@@ -4,13 +4,26 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../data/sync_v2_device_transfer.dart';
 import 'sync_v2_pairing_dialogs.dart';
 import 'sync_v2_privacy.dart';
 import 'sync_v2_workspace.dart';
+
+final syncV2RecoveryFileWriterProvider =
+    Provider<Future<bool> Function(Uint8List, String)>(
+      (ref) => (bytes, title) async {
+        final uri = await FilePicker.saveFile(
+          dialogTitle: title,
+          fileName: 'himemo-recovery.json',
+          bytes: bytes,
+        );
+        // Browser downloads return no URI; the user must also confirm safekeeping.
+        return kIsWeb || uri != null;
+      },
+    );
 
 /// Device-owned ADMIN credentials and device transfer controls shared by the
 /// v1 settings route and the temporary v2 setup route.
@@ -120,6 +133,10 @@ class _DeviceSecurityState extends ConsumerState<SyncV2DeviceSecuritySettings>
         return;
       }
       final message = switch (code) {
+        'wrong_password' => t(
+          '管理パスコードが違います。',
+          'Incorrect administrator passcode.',
+        ),
         'duplicate_passcode' => t(
           'プロファイルとは異なる管理パスコードを使用してください。',
           'Use an administrator passcode different from profile passcodes.',
@@ -217,17 +234,146 @@ class _DeviceSecurityState extends ConsumerState<SyncV2DeviceSecuritySettings>
     if (!active(revision) || !c.canManageAdminCredentials) return;
     final transfer = await c.deviceTransfer();
     if (!active(revision)) return;
+    await saveRecoveryFile(transfer);
+  }
+
+  Future<bool> saveRecoveryFile(SyncV2DeviceTransfer transfer) async {
+    var saved = false;
     final bytes = Uint8List.fromList(utf8.encode(transfer.toRecoveryFile()));
     try {
       await withPicker(() async {
-        await FilePicker.saveFile(
-          dialogTitle: t('復元ファイルを保存', 'Save recovery file'),
-          fileName: 'himemo-recovery.json',
-          bytes: bytes,
+        saved = await ref.read(syncV2RecoveryFileWriterProvider)(
+          bytes,
+          t('復元ファイルを保存', 'Save recovery file'),
         );
       });
     } finally {
       bytes.fillRange(0, bytes.length, 0);
+    }
+    return saved;
+  }
+
+  Future<void> startSync(int revision) async {
+    // Prepared registrations survive a failed cloud confirmation. Re-enter the
+    // same local passcode to resume them rather than generating another key.
+    var useBiometrics = c.hasPreparedSetup && c.preparedUsesBiometrics;
+    if (!c.hasPreparedSetup && c.biometricsAvailable) {
+      final method = await dialog<String>(
+        (context) => SimpleDialog(
+          title: Text(t('この端末の管理者解除方式', 'Administrator unlock on this device')),
+          children: [
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, 'biometric'),
+              child: Text(t('生体認証', 'Biometrics')),
+            ),
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, 'passcode'),
+              child: Text(t('管理パスコード', 'Administrator passcode')),
+            ),
+          ],
+        ),
+      );
+      if (method == null || !active(revision)) return;
+      useBiometrics = method == 'biometric';
+    }
+    final password = useBiometrics
+        ? null
+        : await passcode(confirm: !c.hasPreparedSetup);
+    if ((!useBiometrics && password == null) || !active(revision)) return;
+    late final ({String syncCode, String adminCode}) codes;
+    await withPicker(() async {
+      codes = useBiometrics
+          ? await c.prepareNewBiometric()
+          : await c.prepareNew(password!);
+    });
+    if (!active(revision)) return;
+    final transfer = SyncV2DeviceTransfer(
+      syncCode: codes.syncCode,
+      adminCode: codes.adminCode,
+    );
+    var saved = false, fileWritten = false, saving = false;
+    final accepted = await dialog<bool>(
+      (context) => StatefulBuilder(
+        builder: (context, update) => AlertDialog(
+          title: Text(t('復元用ファイルを保管', 'Keep your recovery file')),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  t(
+                    '端末を失った場合の復元に必要です。このファイルを持つ人はメモにアクセスできます。安全な場所に保存してください。',
+                    'You need this file if you lose your device. Anyone with it can access your notes. Save it somewhere safe.',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          update(() => saving = true);
+                          try {
+                            final written = await saveRecoveryFile(transfer);
+                            if (context.mounted && active(revision)) {
+                              update(() => fileWritten = written);
+                            }
+                          } catch (_) {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    t(
+                                      '保存できませんでした。もう一度お試しください。',
+                                      'Could not save the file. Please try again.',
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }
+                          } finally {
+                            if (context.mounted) update(() => saving = false);
+                          }
+                        },
+                  icon: const Icon(Icons.save_alt),
+                  label: Text(t('復元用ファイルを保存', 'Save recovery file')),
+                ),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: saved,
+                  onChanged: fileWritten && !saving
+                      ? (value) => update(() => saved = value ?? false)
+                      : null,
+                  title: Text(
+                    t(
+                      '復元用ファイルを安全な場所に保存しました',
+                      'I saved the recovery file somewhere safe',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(t('キャンセル', 'Cancel')),
+            ),
+            FilledButton(
+              onPressed: saved && fileWritten && !saving
+                  ? () => Navigator.pop(context, true)
+                  : null,
+              child: Text(t('iCloud同期を始める', 'Start iCloud sync')),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!active(revision)) return;
+    if (accepted == true) {
+      await c.confirmSetup();
+    } else {
+      await c.cancelSetup();
     }
   }
 
@@ -492,8 +638,27 @@ class _DeviceSecurityState extends ConsumerState<SyncV2DeviceSecuritySettings>
                   action('復元用ファイルを読み込む', 'Open recovery file', importFile),
                 ],
               ),
+              if (controller.hasPreparedSetup)
+                TextButton(
+                  onPressed: busy
+                      ? null
+                      : () => perform((_) => controller.cancelSetup()),
+                  child: Text(t('準備中の登録を取り消す', 'Cancel prepared setup')),
+                ),
+              if (controller.hasPending)
+                TextButton(
+                  onPressed: busy
+                      ? null
+                      : () => perform((_) => controller.resumePending()),
+                  child: Text(
+                    t(
+                      '中断したiCloud登録を再開',
+                      'Resume interrupted iCloud registration',
+                    ),
+                  ),
+                ),
               TextButton(
-                onPressed: busy ? null : () => context.push('/sync-v2'),
+                onPressed: busy ? null : () => perform(startSync),
                 child: Text(
                   t('初めて使う：iCloud同期を始める', 'First time: set up iCloud sync'),
                 ),
@@ -562,8 +727,7 @@ class _DeviceSecurityState extends ConsumerState<SyncV2DeviceSecuritySettings>
                   exportFile,
                   enabled: administratorAvailable,
                 ),
-                if (!administratorAvailable)
-                  action('管理者権限を追加', 'Add administrator access', restoreDevice),
+                action('管理者権限を追加', 'Add administrator access', restoreDevice),
               ],
             ),
             const Divider(),
