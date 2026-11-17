@@ -142,6 +142,34 @@ class IOSLaunchSmokeTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0], ["xcrun", "simctl", "bootstatus", "device-uuid", "-b", "-d"])
 
+    def test_migration_poll_timeout_is_retried_until_success(self):
+        calls = []
+
+        def record_poll(command, *, output_callback, **kwargs):
+            calls.append(command)
+            if len(calls) == 1:
+                return 124
+            output_callback(
+                "Data migration details:\n"
+                "com.apple.PreferencesMigrator : duration: 2, status: success\n"
+            )
+            return 0
+
+        with (
+            patch.object(ios_launch_smoke, "run_command", side_effect=record_poll),
+            patch.object(ios_launch_smoke.time, "sleep"),
+        ):
+            wait_for_migration_quiescence(
+                "xcrun",
+                "device-uuid",
+                "Data migration details:\ncom.apple.PreferencesMigrator : duration: 0, status: running\n",
+                deadline=ios_launch_smoke.time.monotonic() + 60,
+                log=io.StringIO(),
+            )
+
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(all(call == calls[0] for call in calls))
+
     def test_migration_wait_fails_closed_when_running_past_deadline(self):
         with patch.object(ios_launch_smoke, "run_command") as run_command:
             with self.assertRaisesRegex(RuntimeError, "remained running"):
@@ -154,6 +182,31 @@ class IOSLaunchSmokeTests(unittest.TestCase):
                 )
 
         run_command.assert_not_called()
+
+    def test_migration_poll_timeout_cannot_extend_total_deadline(self):
+        clock = [100.0]
+        calls = []
+
+        def timed_out_poll(*args, **kwargs):
+            calls.append(args[0])
+            clock[0] = 111.0
+            return 124
+
+        with (
+            patch.object(ios_launch_smoke, "run_command", side_effect=timed_out_poll),
+            patch.object(ios_launch_smoke.time, "monotonic", side_effect=lambda: clock[0]),
+            patch.object(ios_launch_smoke.time, "sleep"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "remained running"):
+                wait_for_migration_quiescence(
+                    "xcrun",
+                    "device-uuid",
+                    "Data migration details:\ncom.apple.PreferencesMigrator : duration: 0, status: running\n",
+                    deadline=110.0,
+                    log=io.StringIO(),
+                )
+
+        self.assertEqual(len(calls), 1)
 
     def test_created_simulator_uses_uuid_from_final_output_line(self):
         created_uuid = "12345678-1234-1234-1234-123456789abc"

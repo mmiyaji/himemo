@@ -313,13 +313,26 @@ def wait_for_migration_quiescence(
         log.flush()
         time.sleep(min(poll_interval_seconds, remaining))
         output_chunks: list[str] = []
-        run_command(
+        poll_exit_code = run_command(
             [xcrun, "simctl", "bootstatus", device_id, "-b", "-d"],
             timeout_seconds=min(30.0, _bounded_timeout(30, deadline, "migration status poll")),
             log=log,
             label="simulator bootstatus migration check",
+            allow_failure=True,
             output_callback=output_chunks.append,
         )
+        if poll_exit_code == 124:
+            log.write(
+                "Simulator data migration status poll timed out; retrying within the remaining "
+                "smoke time budget.\n"
+            )
+            log.flush()
+            continue
+        if poll_exit_code != 0:
+            raise RuntimeError(
+                "simulator data migration status check failed with exit code "
+                f"{poll_exit_code}"
+            )
         if not output_chunks:
             raise RuntimeError("simctl bootstatus migration check produced no output")
         output = output_chunks[-1]
