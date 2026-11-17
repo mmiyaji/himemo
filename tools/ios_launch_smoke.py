@@ -414,7 +414,7 @@ def run_smoke(args: argparse.Namespace) -> int:
     console_process: subprocess.Popen[bytes] | None = None
     exit_code = 1
     xcrun = args.xcrun
-    # The CI step has a 20-minute ceiling; reserve four minutes for diagnostics and cleanup.
+    # The CI step reserves time beyond this deadline for diagnostics and cleanup.
     operation_deadline = time.monotonic() + args.operation_timeout_seconds
     created_device_udid: str | None = None
     device_id: str | None = None
@@ -433,56 +433,101 @@ def run_smoke(args: argparse.Namespace) -> int:
             candidates = select_simulator_candidates(runtimes, device_types)
             log.write(f"Available supported simulator candidates: {len(candidates)}\n")
             log.flush()
-            runtime_id, runtime_version, type_id, type_name = candidates[0]
             device_name = f"{device_name}-01"
-            print(
-                f"Creating owned {type_name} simulator on iOS {runtime_version}...",
-                flush=True,
-            )
-            created_device_udid = create_simulator(
-                xcrun,
-                device_name,
-                type_id,
-                runtime_id,
-                timeout_seconds=_bounded_timeout(45, operation_deadline, "simulator create"),
-                log=log,
-            )
-            if created_device_udid is None:
-                raise RuntimeError("simctl could not create a fresh standard iPhone simulator")
-            device_id = created_device_udid
-            log.write(
-                f"Created owned simulator {device_name} ({device_id}), "
-                f"type={type_name}, runtime=iOS {runtime_version} ({runtime_id}).\n"
-            )
-            log.flush()
-
-            print("Booting owned iOS simulator and installing the app...", flush=True)
-            run_command(
-                [xcrun, "simctl", "boot", device_id],
-                timeout_seconds=_bounded_timeout(30, operation_deadline, "simulator boot"),
-                log=log,
-                label="simulator boot",
-                allow_failure=True,
-            )
-            bootstatus_output: list[str] = []
-            run_command(
-                [xcrun, "simctl", "bootstatus", device_id, "-bd"],
-                timeout_seconds=_bounded_timeout(
-                    args.boot_timeout_seconds, operation_deadline, "simulator bootstatus"
-                ),
-                log=log,
-                label="simulator bootstatus",
-                output_callback=bootstatus_output.append,
-            )
-            if not bootstatus_output:
-                raise RuntimeError("simctl bootstatus produced no output")
-            wait_for_migration_quiescence(
-                xcrun,
-                device_id,
-                bootstatus_output[-1],
-                deadline=operation_deadline,
-                log=log,
-            )
+            # Reserve enough of the common operation deadline for the driver and
+            # startup check. Divide the remaining boot/migration allowance across
+            # at most two different candidates.
+            candidates = candidates[:2]
+            for index, (runtime_id, runtime_version, type_id, type_name) in enumerate(candidates):
+                created_device_udid = None
+                device_id = None
+                remaining_attempts = len(candidates) - index
+                prep_budget = max(
+                    1.0,
+                    (operation_deadline - time.monotonic()
+                     - args.driver_timeout_seconds - args.startup_timeout_seconds - 60)
+                    / remaining_attempts,
+                )
+                attempt_deadline = min(
+                    operation_deadline - args.driver_timeout_seconds - args.startup_timeout_seconds - 60,
+                    time.monotonic() + prep_budget,
+                )
+                print(
+                    f"Creating owned {type_name} simulator on iOS {runtime_version} "
+                    f"(candidate {index + 1}/{len(candidates)})...",
+                    flush=True,
+                )
+                created_device_udid = create_simulator(
+                    xcrun,
+                    f"{device_name}-{index + 1:02d}",
+                    type_id,
+                    runtime_id,
+                    timeout_seconds=_bounded_timeout(45, operation_deadline, "simulator create"),
+                    log=log,
+                )
+                if created_device_udid is None:
+                    raise RuntimeError("simctl could not create a fresh standard iPhone simulator")
+                device_id = created_device_udid
+                log.write(
+                    f"Created owned simulator ({device_id}), type={type_name}, "
+                    f"runtime=iOS {runtime_version} ({runtime_id}).\n"
+                )
+                log.flush()
+                try:
+                    print("Booting owned iOS simulator...", flush=True)
+                    boot_result = run_command(
+                        [xcrun, "simctl", "boot", device_id],
+                        timeout_seconds=_bounded_timeout(30, attempt_deadline, "simulator boot"),
+                        log=log,
+                        label="simulator boot",
+                        allow_failure=True,
+                    )
+                    if boot_result != 0:
+                        raise RuntimeError(f"simulator boot failed with exit code {boot_result}")
+                    bootstatus_output: list[str] = []
+                    run_command(
+                        [xcrun, "simctl", "bootstatus", device_id, "-bd"],
+                        timeout_seconds=_bounded_timeout(
+                            args.boot_timeout_seconds, attempt_deadline, "simulator bootstatus"
+                        ),
+                        log=log,
+                        label="simulator bootstatus",
+                        output_callback=bootstatus_output.append,
+                    )
+                    if not bootstatus_output:
+                        raise RuntimeError("simctl bootstatus produced no output")
+                    wait_for_migration_quiescence(
+                        xcrun,
+                        device_id,
+                        bootstatus_output[-1],
+                        deadline=attempt_deadline,
+                        log=log,
+                    )
+                    break
+                except Exception as error:
+                    log.write(f"Candidate {index + 1} boot/migration failed: {error}\n")
+                    log.flush()
+                    # A fresh, owned simulator is the only device ever cleaned up.
+                    run_command([xcrun, "simctl", "shutdown", device_id], timeout_seconds=30,
+                                log=log, label="simulator shutdown", allow_failure=True)
+                    delete_result = run_command(
+                        [xcrun, "simctl", "delete", device_id], timeout_seconds=30,
+                        log=log, label="owned simulator delete", allow_failure=True,
+                    )
+                    if delete_result != 0:
+                        raise RuntimeError(
+                            f"failed simulator candidate {device_id} could not be confirmed deleted; "
+                            "refusing to create another simulator"
+                        ) from error
+                    created_device_udid = None
+                    device_id = None
+                    if index + 1 >= len(candidates):
+                        raise
+                    log.write("Retrying boot/migration with the next supported runtime/device candidate.\n")
+                    log.flush()
+            if device_id is None:
+                raise RuntimeError("no simulator candidate completed boot and migration")
+            print("Simulator boot and migration completed; installing the app...", flush=True)
             run_command(
                 [xcrun, "simctl", "install", device_id, args.app_path],
                 # iOS may continue first-boot MobileAsset/data migration after

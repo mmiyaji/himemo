@@ -208,7 +208,7 @@ jobs:
             --build-number="$BUILD_NUMBER"
 
       - name: Verify production startup on iOS simulator
-        timeout-minutes: 20
+        timeout-minutes: 30
         run: |
           set -euo pipefail
           xcrun simctl list runtimes -j > "$RUNNER_TEMP/ios-runtimes.json"
@@ -226,7 +226,7 @@ jobs:
             --install-timeout-seconds 600 \
             --startup-timeout-seconds 180 \
             --driver-timeout-seconds 480 \
-            --operation-timeout-seconds 960
+            --operation-timeout-seconds 1500
 
       - name: Upload iOS launch evidence
         if: always()

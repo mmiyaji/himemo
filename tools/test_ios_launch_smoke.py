@@ -42,8 +42,16 @@ def smoke_args(evidence_dir):
             {
                 "runtimes": [
                     {
-                        "identifier": "com.apple.CoreSimulator.SimRuntime.iOS-27-1",
-                        "version": "27.1",
+                        "identifier": "com.apple.CoreSimulator.SimRuntime.iOS-27-0",
+                        "version": "27.0",
+                        "isAvailable": True,
+                        "supportedDeviceTypes": [
+                            {"identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro"}
+                        ],
+                    },
+                    {
+                        "identifier": "com.apple.CoreSimulator.SimRuntime.iOS-27-2",
+                        "version": "27.2",
                         "isAvailable": True,
                         "supportedDeviceTypes": [
                             {
@@ -51,7 +59,7 @@ def smoke_args(evidence_dir):
                                 "name": "iPhone 18 Pro",
                             }
                         ],
-                    }
+                    },
                 ]
             }
         ),
@@ -469,6 +477,108 @@ class IOSLaunchSmokeTests(unittest.TestCase):
             transcript = Path(directory, "smoke-run.log").read_text(encoding="utf-8")
             self.assertIn("did not expose a valid Dart VM service", transcript)
 
+    def test_boot_failure_retries_next_candidate_then_runs_driver(self):
+        with tempfile.TemporaryDirectory() as directory:
+            events = []
+            ids = iter(("failed-uuid", "ready-uuid"))
+            console = FakeConsoleProcess(events)
+
+            def record_command(command, *, label, allow_failure=False, output_callback=None, **kwargs):
+                events.append(label)
+                if label == "simulator boot" and events.count(label) == 1:
+                    return 1
+                if label == "simulator bootstatus" and output_callback:
+                    output_callback("Data migration details:\ncom.apple.MobileAsset : duration: 1, status: success\n\n")
+                return 0
+
+            with (
+                patch.object(ios_launch_smoke, "choose_loopback_port", return_value=9130),
+                patch.object(ios_launch_smoke, "create_simulator", side_effect=lambda *a, **k: next(ids)),
+                patch.object(ios_launch_smoke, "run_command", side_effect=record_command),
+                patch.object(ios_launch_smoke, "wait_for_vm_service", return_value=True),
+                patch.object(ios_launch_smoke.subprocess, "Popen", return_value=console),
+            ):
+                result = ios_launch_smoke.run_smoke(smoke_args(directory))
+
+            self.assertEqual(result, 0)
+            self.assertEqual(events.count("simulator boot"), 2)
+            self.assertEqual(events.count("owned simulator delete"), 2)
+            self.assertIn("Flutter driver smoke", events)
+            self.assertIn("ready-uuid", Path(directory, "smoke-run.log").read_text(encoding="utf-8"))
+
+    def test_all_boot_candidates_fail_and_each_owned_simulator_is_deleted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            events = []
+            ids = iter(("failed-one", "failed-two"))
+
+            def record_command(command, *, label, allow_failure=False, **kwargs):
+                events.append(label)
+                return 1 if label == "simulator boot" else 0
+
+            with (
+                patch.object(ios_launch_smoke, "choose_loopback_port", return_value=9131),
+                patch.object(ios_launch_smoke, "create_simulator", side_effect=lambda *a, **k: next(ids)),
+                patch.object(ios_launch_smoke, "run_command", side_effect=record_command),
+            ):
+                result = ios_launch_smoke.run_smoke(smoke_args(directory))
+
+            self.assertEqual(result, 1)
+            self.assertEqual(events.count("simulator boot"), 2)
+            self.assertEqual(events.count("owned simulator delete"), 2)
+            transcript = Path(directory, "smoke-run.log").read_text(encoding="utf-8")
+            self.assertIn("SMOKE FAILURE", transcript)
+            self.assertNotIn("Flutter driver smoke", events)
+
+    def test_migration_failure_retries_next_candidate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            events = []
+            ids = iter(("migration-failed", "migration-ready"))
+            console = FakeConsoleProcess(events)
+
+            def record_command(command, *, label, allow_failure=False, output_callback=None, **kwargs):
+                events.append(label)
+                if label == "simulator bootstatus" and events.count(label) == 1:
+                    output_callback("unrecognized migration output")
+                    return 0
+                if label == "simulator bootstatus" and output_callback:
+                    output_callback("Data migration details:\ncom.apple.MobileAsset : duration: 1, status: success\n\n")
+                return 0
+
+            with (
+                patch.object(ios_launch_smoke, "choose_loopback_port", return_value=9133),
+                patch.object(ios_launch_smoke, "create_simulator", side_effect=lambda *a, **k: next(ids)),
+                patch.object(ios_launch_smoke, "run_command", side_effect=record_command),
+                patch.object(ios_launch_smoke, "wait_for_vm_service", return_value=True),
+                patch.object(ios_launch_smoke.subprocess, "Popen", return_value=console),
+            ):
+                result = ios_launch_smoke.run_smoke(smoke_args(directory))
+
+            self.assertEqual(result, 0)
+            self.assertEqual(events.count("simulator bootstatus"), 2)
+            self.assertEqual(events.count("owned simulator delete"), 2)
+            self.assertIn("Flutter driver smoke", events)
+
+    def test_failed_candidate_must_be_confirmed_deleted_before_retry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            events = []
+
+            def record_command(command, *, label, allow_failure=False, **kwargs):
+                events.append(label)
+                if label in {"simulator boot", "owned simulator delete"}:
+                    return 1
+                return 0
+
+            with (
+                patch.object(ios_launch_smoke, "choose_loopback_port", return_value=9132),
+                patch.object(ios_launch_smoke, "create_simulator", return_value="undeleted") as create,
+                patch.object(ios_launch_smoke, "run_command", side_effect=record_command),
+            ):
+                result = ios_launch_smoke.run_smoke(smoke_args(directory))
+
+            self.assertEqual(result, 1)
+            self.assertEqual(events.count("simulator boot"), 1)
+            create.assert_called_once()
+
     def test_unparseable_bootstatus_fails_before_install_and_driver(self):
         with tempfile.TemporaryDirectory() as directory:
             events = []
@@ -514,7 +624,9 @@ class IOSLaunchSmokeTests(unittest.TestCase):
                 return 0
 
             args = smoke_args(directory)
-            args.operation_timeout_seconds = 30
+            args.operation_timeout_seconds = 90
+            args.driver_timeout_seconds = 1
+            args.startup_timeout_seconds = 1
             with (
                 patch.object(ios_launch_smoke, "choose_loopback_port", return_value=9128),
                 patch.object(ios_launch_smoke, "create_simulator", return_value="owned-uuid"),
