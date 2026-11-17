@@ -94,70 +94,88 @@ class SyncV2AttachmentService {
   }) async {
     checkActive?.call();
     final content = Uint8List.fromList(bytes);
-    if (content.isEmpty || content.length > maxBytes) {
-      throw const FormatException('Attachment exceeds size limit');
-    }
-    final digest = crypto.sha256.convert(content).toString();
-    final seed =
-        stableId ??
-        base64Url.encode(
-          List.generate(32, (_) => Random.secure().nextInt(256)),
-        );
-    final key = await syncKey.extractBytes();
-    String identify(String purpose) => crypto.Hmac(crypto.sha256, key)
-        .convert(
-          utf8.encode(
-            jsonEncode([generationId, profileAccess.profileId, seed, purpose]),
-          ),
-        )
-        .toString();
-    final id = identify('attachment');
-    final count = (content.length + chunkBytes - 1) ~/ chunkBytes;
-    final chunks = [
-      for (var i = 0; i < count; i++) 'blob_${identify('chunk:$i')}',
-    ];
-    final reference = SyncV2AttachmentReference(
-      id: id,
-      label: label,
-      type: type,
-      size: content.length,
-      sha256: digest,
-      chunks: chunks,
-    );
-    reference._validate();
-    final records =
-        <({String noteId, String changeId, Map<String, Object?> body})>[];
-    for (var i = 0; i < count; i++) {
+    List<int>? key;
+    try {
+      if (content.isEmpty || content.length > maxBytes) {
+        throw const FormatException('Attachment exceeds size limit');
+      }
+      final digest = crypto.sha256.convert(content).toString();
+      final seed =
+          stableId ??
+          base64Url.encode(
+            List.generate(32, (_) => Random.secure().nextInt(256)),
+          );
       checkActive?.call();
-      final part = content.sublist(
-        i * chunkBytes,
-        min(content.length, (i + 1) * chunkBytes),
+      final extractedKey = await syncKey.extractBytes();
+      key = Uint8List.fromList(extractedKey);
+      checkActive?.call();
+      String identify(String purpose) => crypto.Hmac(crypto.sha256, key!)
+          .convert(
+            utf8.encode(
+              jsonEncode([
+                generationId,
+                profileAccess.profileId,
+                seed,
+                purpose,
+              ]),
+            ),
+          )
+          .toString();
+      final id = identify('attachment');
+      final count = (content.length + chunkBytes - 1) ~/ chunkBytes;
+      final chunks = [
+        for (var i = 0; i < count; i++) 'blob_${identify('chunk:$i')}',
+      ];
+      final reference = SyncV2AttachmentReference(
+        id: id,
+        label: label,
+        type: type,
+        size: content.length,
+        sha256: digest,
+        chunks: chunks,
       );
-      records.add((
-        noteId: chunks[i],
-        changeId: identify('change:$i'),
-        body: {
-          'type': 'attachment-chunk',
-          'attachmentId': id,
-          'index': i,
-          'total': count,
-          'digest': crypto.sha256.convert(part).toString(),
-          'bytes': base64Encode(part),
-        },
-      ));
+      reference._validate();
+      final records =
+          <({String noteId, String changeId, Map<String, Object?> body})>[];
+      for (var i = 0; i < count; i++) {
+        checkActive?.call();
+        final part = content.sublist(
+          i * chunkBytes,
+          min(content.length, (i + 1) * chunkBytes),
+        );
+        try {
+          records.add((
+            noteId: chunks[i],
+            changeId: identify('change:$i'),
+            body: {
+              'type': 'attachment-chunk',
+              'attachmentId': id,
+              'index': i,
+              'total': count,
+              'digest': crypto.sha256.convert(part).toString(),
+              'bytes': base64Encode(part),
+            },
+          ));
+        } finally {
+          part.fillRange(0, part.length, 0);
+        }
+        checkActive?.call();
+      }
       checkActive?.call();
+      await repository.saveNewBatch(
+        generationId: generationId,
+        profileId: profileAccess.profileId,
+        syncKey: syncKey,
+        profileKey: profileAccess,
+        notes: records,
+        checkActive: checkActive,
+      );
+      checkActive?.call();
+      return reference;
+    } finally {
+      content.fillRange(0, content.length, 0);
+      key?.fillRange(0, key.length, 0);
     }
-    checkActive?.call();
-    await repository.saveNewBatch(
-      generationId: generationId,
-      profileId: profileAccess.profileId,
-      syncKey: syncKey,
-      profileKey: profileAccess,
-      notes: records,
-      checkActive: checkActive,
-    );
-    checkActive?.call();
-    return reference;
   }
 
   Future<Uint8List> read({

@@ -2,24 +2,28 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-String _homePresentationSource() => [
-  'lib/features/home/presentation/home_page.dart',
-  'lib/features/home/presentation/home_settings_screen.dart',
-  'lib/features/home/presentation/home_settings_components.dart',
-  'lib/features/home/presentation/home_private_profile_settings.dart',
-  'lib/features/home/presentation/home_note_content.dart',
-  'lib/features/home/presentation/home_sync_support.dart',
-  'lib/features/home/presentation/home_media_viewers.dart',
-  'lib/features/home/presentation/home_trash_widgets.dart',
-  'lib/features/home/presentation/home_sidebar.dart',
-  'lib/features/home/presentation/home_note_lists.dart',
-  'lib/features/home/presentation/home_note_detail.dart',
-  'lib/features/home/presentation/home_calendar_screen.dart',
-  'lib/features/home/presentation/home_insights_screen.dart',
-  'lib/features/home/presentation/home_notes_screen.dart',
-  'lib/features/home/presentation/home_trash_screen.dart',
-  'lib/features/home/presentation/home_google_drive_panel.dart',
-].map((path) => File(path).readAsStringSync()).join('\n');
+String _homePresentationSource() =>
+    [
+          'lib/features/home/presentation/home_page.dart',
+          'lib/features/home/presentation/home_settings_screen.dart',
+          'lib/features/home/presentation/home_settings_components.dart',
+          'lib/features/home/presentation/home_private_profile_settings.dart',
+          'lib/features/home/presentation/home_note_content.dart',
+          'lib/features/home/presentation/home_search_toolbar.dart',
+          'lib/features/home/presentation/home_sync_support.dart',
+          'lib/features/home/presentation/home_media_viewers.dart',
+          'lib/features/home/presentation/home_trash_widgets.dart',
+          'lib/features/home/presentation/home_sidebar.dart',
+          'lib/features/home/presentation/home_note_lists.dart',
+          'lib/features/home/presentation/home_note_detail.dart',
+          'lib/features/home/presentation/home_calendar_screen.dart',
+          'lib/features/home/presentation/home_insights_screen.dart',
+          'lib/features/home/presentation/home_notes_screen.dart',
+          'lib/features/home/presentation/home_trash_screen.dart',
+          'lib/features/home/presentation/home_google_drive_panel.dart',
+        ]
+        .map((path) => File(path).readAsStringSync().replaceAll('\r\n', '\n'))
+        .join('\n');
 
 String _homeProvidersSource() {
   final main = File('lib/features/home/presentation/home_providers.dart');

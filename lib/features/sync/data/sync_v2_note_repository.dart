@@ -314,6 +314,59 @@ class SyncV2NoteRepository {
     return SyncV2NoteSnapshot(versions: versions, pendingIds: pending);
   }
 
+  /// Reads the sole authenticated immediate predecessor of a tombstone.
+  /// Multiple parents, missing payloads and unresolved heads are not guessed.
+  Future<Map<String, Object?>> readDeletedPredecessor({
+    required String generationId,
+    required String profileId,
+    required String noteId,
+    required Set<String> expectedHeadIds,
+    required SecretKey syncKey,
+    required SyncV2UnlockedProfileKey profileKey,
+  }) => _inbox.transaction(() async {
+    _validateIdentity(generationId, profileId, noteId);
+    _validateProfileKey(profileKey, generationId, profileId);
+    final history = await _history(generationId, syncKey);
+    final resolved = _resolveNote(history, profileId, noteId);
+    if (resolved.pendingIds.isNotEmpty ||
+        expectedHeadIds.length != 1 ||
+        resolved.headIds.length != 1 ||
+        !resolved.headIds.containsAll(expectedHeadIds)) {
+      throw const SyncV2StaleNote();
+    }
+    final tombstone = history.singleWhere(
+      (change) => change.id == expectedHeadIds.single,
+    );
+    if (tombstone.operation != SyncV2Operation.delete ||
+        tombstone.parentIds.length != 1) {
+      throw const SyncV2StaleNote();
+    }
+    final candidates = history
+        .where(
+          (change) =>
+              change.id == tombstone.parentIds.single &&
+              change.profileId == profileId &&
+              change.noteId == noteId &&
+              change.operation == SyncV2Operation.upsert,
+        )
+        .toList();
+    if (candidates.length != 1) throw const SyncV2StaleNote();
+    final parent = candidates.single;
+    final encrypted = await _inbox.readPayload(
+      generationId: generationId,
+      recordId: parent.id,
+    );
+    if (encrypted == null) throw const SyncV2StaleNote();
+    return Map.unmodifiable(
+      await _payloads.open(
+        generationId: generationId,
+        change: parent,
+        encryptedPayload: encrypted,
+        profileKey: profileKey.key,
+      ),
+    );
+  });
+
   /// Supply exactly the heads shown to the editor. Resolving a conflict must
   /// acknowledge every version; unseen or incomplete history blocks a write.
   /// Repeating a change ID with the same content reuses its original ciphertext.

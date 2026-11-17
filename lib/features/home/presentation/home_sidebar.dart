@@ -1,5 +1,56 @@
 part of 'home_page.dart';
 
+/// The V1 sidebar presentation with actions supplied by the owning workspace.
+/// It has no dependency on either workspace's note storage or authentication.
+class HomeSharedSidebar extends StatefulWidget {
+  const HomeSharedSidebar({
+    super.key,
+    required this.section,
+    required this.onSectionSelected,
+    required this.onAddNote,
+    this.enabled = true,
+    this.canOpenSettings = true,
+    this.tagSummaries = const [],
+    this.activeTags = const [],
+    this.onTagSelected,
+    this.onShowAllNotes,
+  });
+  final AppSection section;
+  final ValueChanged<AppSection> onSectionSelected;
+  final VoidCallback onAddNote;
+  final bool enabled;
+  final bool canOpenSettings;
+  final List<VisibleTagSummary> tagSummaries;
+  final List<String> activeTags;
+  final ValueChanged<String>? onTagSelected;
+  final VoidCallback? onShowAllNotes;
+
+  @override
+  State<HomeSharedSidebar> createState() => _HomeSharedSidebarState();
+}
+
+class _HomeSharedSidebarState extends State<HomeSharedSidebar> {
+  bool _collapsed = false;
+
+  @override
+  Widget build(BuildContext context) => _Sidebar(
+    section: widget.section,
+    activeIdentity: null,
+    collapsed: _collapsed,
+    tagSummaries: widget.tagSummaries,
+    activeTags: widget.activeTags,
+    enabled: widget.enabled,
+    settingsEnabled: widget.canOpenSettings,
+    onToggleCollapsed: () => setState(() => _collapsed = !_collapsed),
+    onSectionSelected: widget.onSectionSelected,
+    onShowAllNotes:
+        widget.onShowAllNotes ??
+        () => widget.onSectionSelected(AppSection.notes),
+    onTagSelected: widget.onTagSelected ?? (_) {},
+    onAddNote: widget.onAddNote,
+  );
+}
+
 class _Sidebar extends StatelessWidget {
   const _Sidebar({
     required this.section,
@@ -12,10 +63,12 @@ class _Sidebar extends StatelessWidget {
     required this.onShowAllNotes,
     required this.onTagSelected,
     required this.onAddNote,
+    this.enabled = true,
+    this.settingsEnabled = true,
   });
 
   final AppSection section;
-  final UnlockIdentity activeIdentity;
+  final UnlockIdentity? activeIdentity;
   final bool collapsed;
   final List<VisibleTagSummary> tagSummaries;
   final List<String> activeTags;
@@ -24,10 +77,13 @@ class _Sidebar extends StatelessWidget {
   final VoidCallback onShowAllNotes;
   final ValueChanged<String> onTagSelected;
   final VoidCallback onAddNote;
+  final bool enabled;
+  final bool settingsEnabled;
 
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
+    final identity = activeIdentity;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOutCubic,
@@ -39,19 +95,19 @@ class _Sidebar extends StatelessWidget {
             child: ListView(
               padding: EdgeInsets.zero,
               children: [
-                if (activeIdentity.id != 'daily') ...[
+                if (identity != null && identity.id != 'daily') ...[
                   if (collapsed)
                     Padding(
                       padding: const EdgeInsets.fromLTRB(12, 16, 12, 12),
                       child: Tooltip(
-                        message: strings.identityActive(activeIdentity.name),
+                        message: strings.identityActive(identity.name),
                         child: CircleAvatar(
                           radius: 18,
                           backgroundColor: Theme.of(context)
                               .colorScheme
                               .surfaceContainerHighest,
                           child: Text(
-                            activeIdentity.name.characters.first,
+                            identity.name.characters.first,
                             style: Theme.of(context).textTheme.labelMedium,
                           ),
                         ),
@@ -72,7 +128,7 @@ class _Sidebar extends StatelessWidget {
                           borderRadius: BorderRadius.circular(999),
                         ),
                         child: Text(
-                          strings.identityActive(activeIdentity.name),
+                          strings.identityActive(identity.name),
                           style: Theme.of(context).textTheme.labelMedium,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -88,16 +144,21 @@ class _Sidebar extends StatelessWidget {
                   label: strings.notes,
                   showLabel: !collapsed,
                   selected: section == AppSection.notes,
-                  onTap: activeTags.isEmpty
+                  onTap: !enabled
+                      ? null
+                      : activeTags.isEmpty
                       ? () => onSectionSelected(AppSection.notes)
                       : onShowAllNotes,
                 ),
                 if (!collapsed && tagSummaries.isNotEmpty)
-                  _SidebarTagSection(
-                    summaries: tagSummaries,
-                    activeTags: activeTags,
-                    onTagSelected: onTagSelected,
-                    onShowAllNotes: onShowAllNotes,
+                  IgnorePointer(
+                    ignoring: !enabled,
+                    child: _SidebarTagSection(
+                      summaries: tagSummaries,
+                      activeTags: activeTags,
+                      onTagSelected: onTagSelected,
+                      onShowAllNotes: onShowAllNotes,
+                    ),
                   ),
                 _SidebarItem(
                   itemKey: AppShell.calendarNavKey,
@@ -106,7 +167,9 @@ class _Sidebar extends StatelessWidget {
                   label: strings.calendar,
                   showLabel: !collapsed,
                   selected: section == AppSection.calendar,
-                  onTap: () => onSectionSelected(AppSection.calendar),
+                  onTap: enabled
+                      ? () => onSectionSelected(AppSection.calendar)
+                      : null,
                 ),
                 _SidebarItem(
                   itemKey: AppShell.insightsNavKey,
@@ -115,7 +178,9 @@ class _Sidebar extends StatelessWidget {
                   label: strings.insights,
                   showLabel: !collapsed,
                   selected: section == AppSection.insights,
-                  onTap: () => onSectionSelected(AppSection.insights),
+                  onTap: enabled
+                      ? () => onSectionSelected(AppSection.insights)
+                      : null,
                 ),
                 _SidebarItem(
                   itemKey: AppShell.trashNavKey,
@@ -131,7 +196,9 @@ class _Sidebar extends StatelessWidget {
                   ),
                   showLabel: !collapsed,
                   selected: section == AppSection.trash,
-                  onTap: () => onSectionSelected(AppSection.trash),
+                  onTap: enabled
+                      ? () => onSectionSelected(AppSection.trash)
+                      : null,
                 ),
                 const Divider(height: 20, indent: 16, endIndent: 16),
                 _SidebarItem(
@@ -148,7 +215,9 @@ class _Sidebar extends StatelessWidget {
                   ),
                   showLabel: !collapsed,
                   selected: section == AppSection.tags,
-                  onTap: () => onSectionSelected(AppSection.tags),
+                  onTap: enabled
+                      ? () => onSectionSelected(AppSection.tags)
+                      : null,
                 ),
                 _SidebarItem(
                   itemKey: AppShell.settingsNavKey,
@@ -157,7 +226,9 @@ class _Sidebar extends StatelessWidget {
                   label: strings.settings,
                   showLabel: !collapsed,
                   selected: section == AppSection.settings,
-                  onTap: () => onSectionSelected(AppSection.settings),
+                  onTap: enabled && settingsEnabled
+                      ? () => onSectionSelected(AppSection.settings)
+                      : null,
                 ),
               ],
             ),
@@ -168,7 +239,7 @@ class _Sidebar extends StatelessWidget {
             child: _SidebarCreateNoteButton(
               key: AppShell.addNoteKey,
               collapsed: collapsed,
-              onPressed: onAddNote,
+              onPressed: enabled ? onAddNote : null,
             ),
           ),
           Padding(
@@ -202,7 +273,7 @@ class _SidebarCreateNoteButton extends StatelessWidget {
   });
 
   final bool collapsed;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -262,7 +333,7 @@ class _SidebarItem extends StatelessWidget {
   final String label;
   final bool showLabel;
   final bool selected;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -300,6 +371,7 @@ class _SidebarItem extends StatelessWidget {
         leading: Icon(selected ? selectedIcon : icon),
         title: Text(label),
         selected: selected,
+        enabled: onTap != null,
         selectedTileColor: _selectedSurfaceColor(context),
         onTap: onTap,
       ),

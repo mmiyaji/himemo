@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:himemo/features/home/domain/note_entry.dart';
 import 'package:himemo/features/security/data/encryption_service.dart';
 import 'package:himemo/features/security/data/secure_key_value_store.dart';
+import 'package:himemo/features/security/data/sync_v2_profile_keys.dart';
 import 'package:himemo/features/sync/data/sync_v2_enrollment_store.dart';
 import 'package:himemo/features/sync/data/sync_v2_generation_registration.dart';
 import 'package:himemo/features/sync/data/sync_v2_header_codec.dart';
@@ -180,21 +181,66 @@ class _Biometrics implements SyncV2BiometricKeyStore {
   Future<void> delete(String generationId) async => keys.remove(generationId);
 }
 
+class _HeldBatchRepository extends SyncV2NoteRepository {
+  // The superclass field-formal parameter names are library-private.
+  // ignore: use_super_parameters
+  _HeldBatchRepository(
+    SyncV2Inbox inbox,
+    SyncV2HeaderCodec headers,
+    SyncV2PayloadCodec payloads,
+  ) : super(inbox, headers, payloads);
+
+  Completer<void>? entered;
+  Completer<void>? release;
+
+  @override
+  Future<void> saveNewBatch({
+    required String generationId,
+    required String profileId,
+    required SecretKey syncKey,
+    required SyncV2UnlockedProfileKey profileKey,
+    void Function()? checkActive,
+    required List<({String noteId, String changeId, Map<String, Object?> body})>
+    notes,
+  }) async {
+    await super.saveNewBatch(
+      generationId: generationId,
+      profileId: profileId,
+      syncKey: syncKey,
+      profileKey: profileKey,
+      checkActive: checkActive,
+      notes: notes,
+    );
+    final gate = release;
+    if (gate != null) {
+      entered!.complete();
+      await gate.future;
+      release = null;
+      checkActive?.call();
+    }
+  }
+}
+
 class _Device {
   _Device(
     this.cloud, {
     _Store? sharedStore,
     _Biometrics? biometrics,
     bool Function()? settingsAdminAuthenticated,
+    SyncV2NoteRepository Function(
+      SyncV2Inbox,
+      SyncV2HeaderCodec,
+      SyncV2PayloadCodec,
+    )?
+    repositoryFactory,
   }) : store = sharedStore ?? _Store() {
     final encryption = EncryptionService();
     final headers = SyncV2HeaderCodec(encryption);
     inbox = SyncV2Inbox(NativeDatabase.memory(), headers);
-    final repository = SyncV2NoteRepository(
-      inbox,
-      headers,
-      SyncV2PayloadCodec(encryption),
-    );
+    final payloads = SyncV2PayloadCodec(encryption);
+    final repository =
+        repositoryFactory?.call(inbox, headers, payloads) ??
+        SyncV2NoteRepository(inbox, headers, payloads);
     enrollment = SyncV2EnrollmentStore(store);
     workspace = SyncV2WorkspaceController(
       inbox: inbox,
@@ -259,6 +305,14 @@ class _Device {
       local.syncKey.destroy();
     }
   }
+}
+
+class _UnavailableWorkspaceNote extends SyncV2WorkspaceNote {
+  _UnavailableWorkspaceNote(SyncV2WorkspaceNote source)
+    : super(source.note, source.snapshot, source.attachments);
+
+  @override
+  bool get ready => false;
 }
 
 void main() {
@@ -1001,16 +1055,139 @@ void main() {
       NoteBlockType.photo,
     ]);
     expect(imported.attachments, hasLength(1));
+    await expectLater(
+      a.workspace.saveNote(
+        original: _UnavailableWorkspaceNote(imported),
+        title: imported.note.title,
+        body: syncV2EditableBody(imported.note),
+        isPinned: true,
+      ),
+      throwsA(
+        isA<SyncV2WorkspaceException>().having(
+          (error) => error.code,
+          'code',
+          'conflict',
+        ),
+      ),
+    );
     await a.workspace.saveNote(
       original: imported,
+      title: 'Renamed rich note',
+      body: syncV2EditableBody(imported.note),
+      isPinned: true,
+    );
+    final renamed = a.workspace.notes.single;
+    expect(renamed.note.isPinned, isTrue);
+    expect(renamed.note.blocks, imported.note.blocks);
+    expect(
+      renamed.attachments.map((ref) => ref.toJson()).toList(),
+      imported.attachments.map((ref) => ref.toJson()).toList(),
+    );
+    await expectLater(
+      a.workspace.saveNote(
+        original: renamed,
+        title: 'Unsafe flattened edit',
+        body: 'Updated paragraph',
+      ),
+      throwsA(
+        isA<SyncV2WorkspaceException>().having(
+          (error) => error.code,
+          'code',
+          'rich_blocks_required',
+        ),
+      ),
+    );
+    await expectLater(
+      a.workspace.saveNote(
+        original: renamed,
+        title: 'Dropped attachment',
+        body: syncV2EditableBody(renamed.note),
+        blocks: [renamed.note.blocks[0]],
+      ),
+      throwsA(
+        isA<SyncV2WorkspaceException>().having(
+          (error) => error.code,
+          'code',
+          'rich_blocks_structure_changed',
+        ),
+      ),
+    );
+    await expectLater(
+      a.workspace.saveNote(
+        original: renamed,
+        title: renamed.note.title,
+        body: syncV2EditableBody(renamed.note),
+        blocks: [
+          renamed.note.blocks[1],
+          renamed.note.blocks[1],
+          renamed.note.blocks[0],
+        ],
+      ),
+      throwsA(
+        isA<SyncV2WorkspaceException>().having(
+          (error) => error.code,
+          'code',
+          'rich_blocks_structure_changed',
+        ),
+      ),
+    );
+    await expectLater(
+      a.workspace.saveNote(
+        original: renamed,
+        title: renamed.note.title,
+        body: syncV2EditableBody(renamed.note),
+        blocks: [
+          renamed.note.blocks[0],
+          renamed.note.blocks[1].copyWith(
+            attachment: renamed.note.blocks[1].attachment!.copyWith(
+              label: 'Forged attachment',
+            ),
+          ),
+        ],
+      ),
+      throwsA(
+        isA<SyncV2WorkspaceException>().having(
+          (error) => error.code,
+          'code',
+          'rich_blocks_structure_changed',
+        ),
+      ),
+    );
+    await a.workspace.saveNote(
+      original: renamed,
+      title: renamed.note.title,
+      body: syncV2EditableBody(renamed.note),
+      blocks: [renamed.note.blocks[1], renamed.note.blocks[0]],
+    );
+    final reordered = a.workspace.notes.single;
+    expect(reordered.note.blocks.first.type, NoteBlockType.photo);
+    expect(
+      reordered.note.blocks.first.attachment,
+      renamed.note.blocks[1].attachment,
+    );
+    await a.workspace.saveNote(
+      original: reordered,
       title: 'Edited rich note',
-      body: 'Updated paragraph',
+      body: 'Updated paragraph\n\nSecond paragraph',
+      blocks: [
+        const NoteBlock(
+          type: NoteBlockType.paragraph,
+          text: 'Updated paragraph',
+        ),
+        const NoteBlock(
+          type: NoteBlockType.paragraph,
+          text: 'Second paragraph',
+        ),
+        reordered.note.blocks[0],
+      ],
       removedAttachmentIds: [imported.attachments.single.id],
     );
     final updated = a.workspace.notes.single;
-    expect(updated.note.body, 'Updated paragraph');
+    expect(updated.note.body, 'Updated paragraph\n\nSecond paragraph');
+    expect(updated.note.isPinned, isTrue);
     expect(updated.note.blocks.map((block) => block.text), [
       'Updated paragraph',
+      'Second paragraph',
     ]);
     expect(
       updated.note.blocks.any((block) => block.attachment != null),
@@ -1035,9 +1212,10 @@ void main() {
     final exportedNote = NoteEntry.fromJson(
       Map<String, dynamic>.from((exportedJson['notes'] as List).single as Map),
     );
-    expect(exportedNote.body, 'Updated paragraph');
+    expect(exportedNote.body, 'Updated paragraph\n\nSecond paragraph');
     expect(exportedNote.blocks, [
       const NoteBlock(type: NoteBlockType.paragraph, text: 'Updated paragraph'),
+      const NoteBlock(type: NoteBlockType.paragraph, text: 'Second paragraph'),
     ]);
     expect(exportedNote.attachments, isEmpty);
     await b.workspace.recover(codes.syncCode);
@@ -1047,11 +1225,585 @@ void main() {
       acceptUnlinkedAttachments: false,
     );
     final roundTripped = b.workspace.notes.single;
-    expect(roundTripped.note.body, 'Updated paragraph');
+    expect(roundTripped.note.body, 'Updated paragraph\n\nSecond paragraph');
     expect(roundTripped.note.blocks, exportedNote.blocks);
+    expect(roundTripped.note.isPinned, isTrue);
     expect(roundTripped.attachments, isEmpty);
     expect(roundTripped.note.attachments, isEmpty);
   }, timeout: const Timeout(Duration(minutes: 2)));
+  test('rich edits retain accepted unlinked blocks and existing attachment duplicates', () async {
+    final cloud = _Cloud();
+    final device = _Device(cloud);
+    addTearDown(device.workspace.dispose);
+    await device.workspace.initialize();
+    await device.workspace.prepareNew('administrator password');
+    await device.workspace.confirmSetup();
+    const linkedPhoto = NoteAttachment(
+      type: AttachmentType.photo,
+      label: 'photo',
+      filePath: 'attachments/photo',
+      durationMs: 1234,
+      localPayloadSizeBytes: 321,
+      localPayloadModifiedAtMillis: 456,
+    );
+    const linkedPhotoAlternate = NoteAttachment(
+      type: AttachmentType.photo,
+      label: 'alternate label',
+      filePath: 'attachments/photo',
+    );
+    const unlinkedFile = NoteAttachment(
+      type: AttachmentType.file,
+      label: 'legacy file',
+      durationMs: 987,
+      localPayloadSizeBytes: 654,
+      localPayloadModifiedAtMillis: 321,
+    );
+    final note = NoteEntry(
+      id: 'rich-legacy-attachments',
+      vaultId: 'everyday',
+      title: 'Legacy rich note',
+      body: 'Original body',
+      createdAt: DateTime.utc(2020),
+      attachments: const [linkedPhoto, unlinkedFile],
+      blocks: const [
+        NoteBlock(type: NoteBlockType.paragraph, text: 'Original body'),
+        NoteBlock(type: NoteBlockType.photo, attachment: linkedPhoto),
+        NoteBlock(type: NoteBlockType.photo, attachment: linkedPhotoAlternate),
+        NoteBlock(type: NoteBlockType.file, attachment: unlinkedFile),
+      ],
+    );
+    final archive = Archive()
+      ..addFile(
+        ArchiveFile.string(
+          'manifest.json',
+          jsonEncode({
+            'format': 'org.ruhenheim.himemo.notes.zip',
+            'version': 1,
+            'noteCount': 1,
+            'attachmentCount': 1,
+          }),
+        ),
+      )
+      ..addFile(
+        ArchiveFile.string(
+          'notes.json',
+          jsonEncode({
+            'notes': [note.toJson()],
+          }),
+        ),
+      )
+      ..addFile(ArchiveFile.bytes('attachments/photo', [1, 2, 3]));
+    await device.workspace.importArchive(
+      bytes: Uint8List.fromList(ZipEncoder().encode(archive)),
+      destinations: {},
+      acceptUnlinkedAttachments: true,
+    );
+    final imported = device.workspace.notes.single;
+    // Seed local attachment metadata in the live model, then persist it through
+    // saveNote so the following edits exercise a real encrypted repo payload.
+    NoteAttachment enrich(NoteAttachment attachment) =>
+        switch (attachment.label) {
+          'photo' => attachment.copyWith(
+            durationMs: 1234,
+            localPayloadSizeBytes: 321,
+            localPayloadModifiedAtMillis: 456,
+          ),
+          'legacy file' => attachment.copyWith(
+            durationMs: 987,
+            localPayloadSizeBytes: 654,
+            localPayloadModifiedAtMillis: 321,
+          ),
+          _ => attachment,
+        };
+    final enrichedNote = imported.note.copyWith(
+      attachments: imported.note.attachments.map(enrich).toList(),
+      blocks: [
+        for (final block in imported.note.blocks)
+          if (block.attachment == null)
+            block
+          else
+            block.copyWith(attachment: enrich(block.attachment!)),
+      ],
+    );
+    final original = SyncV2WorkspaceNote(
+      enrichedNote,
+      imported.snapshot,
+      imported.attachments,
+    );
+    device.workspace.notes = [original];
+    final originalLinked = original.note.blocks
+        .where((block) => block.type == NoteBlockType.photo)
+        .toList();
+    expect(originalLinked, hasLength(2));
+    expect(
+      originalLinked[0].attachment!.filePath,
+      originalLinked[1].attachment!.filePath,
+    );
+    expect(originalLinked[0], isNot(originalLinked[1]));
+    final originalUnlinked = original.note.blocks.last;
+    expect(originalUnlinked.attachment?.filePath, isNull);
+
+    await device.workspace.saveNote(
+      original: original,
+      title: original.note.title,
+      body: 'Updated body',
+      blocks: [
+        const NoteBlock(type: NoteBlockType.paragraph, text: 'Updated body'),
+        ...original.note.blocks.where(
+          (block) => block.type != NoteBlockType.paragraph,
+        ),
+      ],
+    );
+    final updated = device.workspace.notes.single;
+    final savedLinked = updated.note.attachments.singleWhere(
+      (attachment) => attachment.label == 'photo',
+    );
+    final savedUnlinked = updated.note.attachments.singleWhere(
+      (attachment) => attachment.label == 'legacy file',
+    );
+    expect(savedLinked.durationMs, 1234);
+    expect(savedLinked.localPayloadSizeBytes, 321);
+    expect(savedLinked.localPayloadModifiedAtMillis, 456);
+    expect(savedUnlinked.durationMs, 987);
+    expect(savedUnlinked.localPayloadSizeBytes, 654);
+    expect(savedUnlinked.localPayloadModifiedAtMillis, 321);
+    expect(
+      updated.note.blocks.where((b) => b.type == NoteBlockType.photo),
+      hasLength(2),
+    );
+    expect(updated.note.blocks.last, originalUnlinked);
+
+    await device.workspace.saveNote(
+      original: updated,
+      title: updated.note.title,
+      body: syncV2EditableBody(updated.note),
+      blocks: updated.note.blocks,
+      addedFiles: [
+        SyncV2PendingAttachment(
+          label: 'new file.txt',
+          type: AttachmentType.file,
+          bytes: Uint8List.fromList([4, 5, 6]),
+        ),
+      ],
+    );
+    final added = device.workspace.notes.single;
+    expect(added.note.attachments, hasLength(3));
+    final keptLinked = added.note.attachments.singleWhere(
+      (attachment) => attachment.label == 'photo',
+    );
+    final keptUnlinked = added.note.attachments.singleWhere(
+      (attachment) => attachment.label == 'legacy file',
+    );
+    final newAttachment = added.note.attachments.singleWhere(
+      (attachment) => attachment.label == 'new file.txt',
+    );
+    expect(keptLinked.durationMs, 1234);
+    expect(keptLinked.label, 'photo');
+    expect(keptLinked.type, AttachmentType.photo);
+    expect(keptLinked.localPayloadSizeBytes, 321);
+    expect(keptLinked.localPayloadModifiedAtMillis, 456);
+    expect(keptLinked.syncAttachmentContentHash, isNotNull);
+    expect(keptUnlinked.durationMs, 987);
+    expect(keptUnlinked.label, 'legacy file');
+    expect(keptUnlinked.type, AttachmentType.file);
+    expect(keptUnlinked.localPayloadSizeBytes, 654);
+    expect(keptUnlinked.localPayloadModifiedAtMillis, 321);
+    final linkedRef = added.attachments.singleWhere(
+      (reference) => 'v2attachment:${reference.id}' == keptLinked.filePath,
+    );
+    final newRef = added.attachments.singleWhere(
+      (reference) => 'v2attachment:${reference.id}' == newAttachment.filePath,
+    );
+    expect(keptLinked.syncAttachmentContentHash, linkedRef.sha256);
+    expect(newAttachment.syncAttachmentContentHash, newRef.sha256);
+    expect(newAttachment.type, AttachmentType.file);
+    expect(newAttachment.label, 'new file.txt');
+
+    await device.workspace.saveNote(
+      original: added,
+      title: added.note.title,
+      body: syncV2EditableBody(added.note),
+      blocks: added.note.blocks,
+      removedAttachmentIds: [newRef.id],
+    );
+    final removed = device.workspace.notes.single;
+    expect(removed.note.attachments, hasLength(2));
+    expect(
+      removed.note.attachments.any(
+        (attachment) => attachment.label == 'legacy file',
+      ),
+      isTrue,
+    );
+    expect(
+      removed.note.attachments
+          .singleWhere((attachment) => attachment.label == 'photo')
+          .durationMs,
+      1234,
+    );
+    expect(
+      removed.note.attachments
+          .singleWhere((attachment) => attachment.label == 'photo')
+          .syncAttachmentContentHash,
+      linkedRef.sha256,
+    );
+
+    await expectLater(
+      device.workspace.saveNote(
+        original: updated,
+        title: updated.note.title,
+        body: syncV2EditableBody(updated.note),
+        blocks: updated.note.blocks.take(3).toList(),
+      ),
+      throwsA(
+        isA<SyncV2WorkspaceException>().having(
+          (error) => error.code,
+          'code',
+          'rich_blocks_structure_changed',
+        ),
+      ),
+    );
+    await expectLater(
+      device.workspace.saveNote(
+        original: updated,
+        title: updated.note.title,
+        body: syncV2EditableBody(updated.note),
+        blocks: updated.note.blocks,
+        removedAttachmentIds: ['unknown-reference'],
+      ),
+      throwsA(
+        isA<SyncV2WorkspaceException>().having(
+          (error) => error.code,
+          'code',
+          'rich_attachment_unlinked',
+        ),
+      ),
+    );
+
+    await expectLater(
+      device.workspace.saveNote(
+        original: updated,
+        title: updated.note.title,
+        body: syncV2EditableBody(updated.note),
+        blocks: [...updated.note.blocks, updated.note.blocks[1]],
+      ),
+      throwsA(
+        isA<SyncV2WorkspaceException>().having(
+          (error) => error.code,
+          'code',
+          'rich_blocks_structure_changed',
+        ),
+      ),
+    );
+    await expectLater(
+      device.workspace.saveNote(
+        original: updated,
+        title: updated.note.title,
+        body: syncV2EditableBody(updated.note),
+        blocks: [
+          ...updated.note.blocks.take(3),
+          updated.note.blocks.last.copyWith(
+            attachment: updated.note.blocks.last.attachment!.copyWith(
+              label: 'changed legacy file',
+            ),
+          ),
+        ],
+      ),
+      throwsA(
+        isA<SyncV2WorkspaceException>().having(
+          (error) => error.code,
+          'code',
+          'rich_blocks_structure_changed',
+        ),
+      ),
+    );
+  }, timeout: const Timeout(Duration(minutes: 2)));
+  test(
+    'quick mode keeps body text out of blocks across repeated edits',
+    () async {
+      final cloud = _Cloud();
+      final device = _Device(cloud);
+      addTearDown(device.workspace.dispose);
+      await device.workspace.initialize();
+      await device.workspace.prepareNew('administrator password');
+      await device.workspace.confirmSetup();
+      final quick = NoteEntry(
+        id: 'quick-body-only',
+        vaultId: 'everyday',
+        title: 'Quick note',
+        body: 'Original body',
+        createdAt: DateTime.utc(2020),
+        editorMode: NoteEditorMode.quick,
+      );
+      final archive = Archive()
+        ..addFile(
+          ArchiveFile.string(
+            'manifest.json',
+            jsonEncode({
+              'format': 'org.ruhenheim.himemo.notes.zip',
+              'version': 1,
+              'noteCount': 1,
+              'attachmentCount': 0,
+            }),
+          ),
+        )
+        ..addFile(
+          ArchiveFile.string(
+            'notes.json',
+            jsonEncode({
+              'notes': [quick.toJson()],
+            }),
+          ),
+        );
+      await device.workspace.importArchive(
+        bytes: Uint8List.fromList(ZipEncoder().encode(archive)),
+        destinations: {},
+        acceptUnlinkedAttachments: false,
+      );
+      var note = device.workspace.notes.single;
+      expect(note.note.editorMode, NoteEditorMode.quick);
+      expect(note.note.blocks, isEmpty);
+      await device.workspace.saveNote(
+        original: note,
+        title: note.note.title,
+        body: 'Updated body',
+      );
+      note = device.workspace.notes.single;
+      expect(note.note.body, 'Updated body');
+      expect(note.note.blocks, isEmpty);
+      await device.workspace.saveNote(
+        original: note,
+        title: 'Edited again',
+        body: note.note.body,
+      );
+      expect(device.workspace.notes.single.note.blocks, isEmpty);
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
+  test('pending rich attachments resolve to encrypted refs and survive archive import', () async {
+    final cloud = _Cloud();
+    final a = _Device(cloud);
+    final b = _Device(cloud);
+    addTearDown(a.workspace.dispose);
+    addTearDown(b.workspace.dispose);
+    await a.workspace.initialize();
+    final codes = await a.workspace.prepareNewBiometric();
+    await a.workspace.confirmSetup();
+    const pendingId = 'pending-draft-01';
+    const textBlock = NoteBlock(
+      type: NoteBlockType.paragraph,
+      text: 'Draft text',
+    );
+    final placeholder = NoteBlock(
+      type: NoteBlockType.file,
+      attachment: const NoteAttachment(
+        type: AttachmentType.file,
+        label: 'private.txt',
+        filePath: 'v2pending:$pendingId',
+      ),
+    );
+    await a.workspace.saveNote(
+      title: 'Pending insertion',
+      body: 'Draft text',
+      blocks: [textBlock, placeholder],
+      addedFiles: [
+        SyncV2PendingAttachment(
+          label: 'private.txt',
+          type: AttachmentType.file,
+          bytes: Uint8List.fromList([4, 5, 6]),
+          draftId: pendingId,
+        ),
+      ],
+    );
+    final saved = a.workspace.notes.single;
+    expect(saved.note.blocks.first, textBlock);
+    expect(
+      saved.note.blocks.last.attachment!.filePath,
+      startsWith('v2attachment:'),
+    );
+    expect(
+      saved.note.blocks.last.attachment!.syncAttachmentContentHash,
+      isNotNull,
+    );
+    expect(
+      saved.note.blocks.any(
+        (block) =>
+            block.attachment?.filePath?.startsWith('v2pending:') ?? false,
+      ),
+      isFalse,
+    );
+
+    for (final invalid in [
+      (
+        blocks: [textBlock, placeholder],
+        files: const <SyncV2PendingAttachment>[],
+      ),
+      (
+        blocks: [textBlock],
+        files: [
+          SyncV2PendingAttachment(
+            label: 'private.txt',
+            type: AttachmentType.file,
+            bytes: Uint8List.fromList([1]),
+            draftId: 'missing-placeholder',
+          ),
+        ],
+      ),
+      (
+        blocks: [textBlock, placeholder, placeholder],
+        files: [
+          SyncV2PendingAttachment(
+            label: 'private.txt',
+            type: AttachmentType.file,
+            bytes: Uint8List.fromList([1]),
+            draftId: pendingId,
+          ),
+        ],
+      ),
+      (
+        blocks: [
+          textBlock,
+          const NoteBlock(
+            type: NoteBlockType.file,
+            attachment: NoteAttachment(
+              type: AttachmentType.file,
+              label: 'private.txt',
+              filePath: 'v2pending:unknown',
+            ),
+          ),
+        ],
+        files: const <SyncV2PendingAttachment>[],
+      ),
+    ]) {
+      await expectLater(
+        a.workspace.saveNote(
+          title: 'Invalid pending',
+          body: 'Draft text',
+          blocks: invalid.blocks,
+          addedFiles: invalid.files,
+        ),
+        throwsA(
+          isA<SyncV2WorkspaceException>().having(
+            (error) => error.code,
+            'code',
+            'rich_attachment_pending_invalid',
+          ),
+        ),
+      );
+    }
+
+    final archive = await a.workspace.exportArchive();
+    await b.workspace.recover(codes.syncCode);
+    await b.workspace.importArchive(
+      bytes: archive,
+      destinations: const {},
+      acceptUnlinkedAttachments: false,
+    );
+    final imported = b.workspace.notes.single;
+    expect(imported.note.blocks.first, saved.note.blocks.first);
+    expect(imported.note.blocks.last.type, NoteBlockType.file);
+    expect(imported.note.blocks.last.attachment!.label, 'private.txt');
+    expect(
+      imported.note.blocks.last.attachment!.filePath,
+      startsWith('v2attachment:'),
+    );
+    expect(
+      imported.note.blocks.last.attachment!.syncAttachmentContentHash,
+      saved.note.blocks.last.attachment!.syncAttachmentContentHash,
+    );
+    expect(imported.attachments, hasLength(1));
+    expect(await b.workspace.readAttachment(imported.attachments.single), [
+      4,
+      5,
+      6,
+    ]);
+    expect(
+      imported.note.blocks.any(
+        (block) =>
+            block.attachment?.filePath?.startsWith('v2pending:') ?? false,
+      ),
+      isFalse,
+    );
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  test(
+    'lock during encrypted attachment storage rolls back note and chunks',
+    () async {
+      late _HeldBatchRepository heldRepository;
+      final cloud = _Cloud();
+      final device = _Device(
+        cloud,
+        repositoryFactory: (inbox, headers, payloads) =>
+            heldRepository = _HeldBatchRepository(inbox, headers, payloads),
+      );
+      addTearDown(device.workspace.dispose);
+      await device.workspace.initialize();
+      await device.workspace.prepareNewBiometric();
+      await device.workspace.confirmSetup();
+      final originalBlock = const NoteBlock(
+        type: NoteBlockType.paragraph,
+        text: 'Protected text',
+      );
+      await device.workspace.saveNote(
+        title: 'Protected note',
+        body: 'Protected text',
+        blocks: [originalBlock],
+      );
+      final original = device.workspace.notes.single;
+      heldRepository
+        ..entered = Completer<void>()
+        ..release = Completer<void>();
+      final draftId = 'pending-during-lock';
+      final saving = device.workspace.saveNote(
+        original: original,
+        title: 'Must roll back',
+        body: 'Protected text',
+        blocks: [
+          originalBlock,
+          const NoteBlock(
+            type: NoteBlockType.file,
+            attachment: NoteAttachment(
+              type: AttachmentType.file,
+              label: 'secret.bin',
+              filePath: 'v2pending:pending-during-lock',
+            ),
+          ),
+        ],
+        addedFiles: [
+          SyncV2PendingAttachment(
+            label: 'secret.bin',
+            type: AttachmentType.file,
+            bytes: Uint8List.fromList([7, 8, 9]),
+            draftId: draftId,
+          ),
+        ],
+      );
+      await heldRepository.entered!.future;
+      device.workspace.background();
+      heldRepository.release!.complete();
+      await expectLater(
+        saving,
+        throwsA(
+          isA<SyncV2WorkspaceException>().having(
+            (error) => error.code,
+            'code',
+            'locked',
+          ),
+        ),
+      );
+      await device.workspace.resume();
+      expect(device.workspace.notes, hasLength(1));
+      expect(device.workspace.notes.single.note.title, 'Protected note');
+      expect(device.workspace.notes.single.attachments, isEmpty);
+      final archive = await device.workspace.exportArchive();
+      final decoded = ZipDecoder().decodeBytes(archive);
+      expect(
+        decoded.files.where((file) => file.name.startsWith('attachments/')),
+        isEmpty,
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
+
   test(
     'attachment previews are quiet, cancellable and keep the queue usable',
     () async {
@@ -1145,6 +1897,40 @@ void main() {
     timeout: const Timeout(Duration(minutes: 2)),
   );
 
+  test(
+    'revoking a workspace clears its unlocked session immediately',
+    () async {
+      final cloud = _Cloud();
+      final device = _Device(cloud);
+      addTearDown(device.workspace.dispose);
+      await device.workspace.initialize();
+      await device.workspace.prepareNewBiometric();
+      await device.workspace.confirmSetup();
+      await device.workspace.saveNote(
+        title: 'private session',
+        body: 'content',
+      );
+      device.syncEntered = Completer<void>();
+      device.syncRelease = Completer<void>();
+      final pendingSync = device.workspace.syncNow();
+      await device.syncEntered!.future;
+      final revision = device.workspace.privateSessionRevision;
+      expect(device.workspace.notes, isNotEmpty);
+      device.workspace.revokeSession();
+      expect(device.workspace.registered, isFalse);
+      expect(device.workspace.accountId, isNull);
+      expect(device.workspace.generationId, isNull);
+      expect(device.workspace.selectedProfileId, isNull);
+      expect(device.workspace.profiles, isEmpty);
+      expect(device.workspace.notes, isEmpty);
+      expect(device.workspace.privateSessionRevision, greaterThan(revision));
+      device.syncRelease!.complete();
+      await pendingSync;
+      expect(device.workspace.notes, isEmpty);
+      expect(device.workspace.registered, isFalse);
+    },
+  );
+
   test('disposed workspace rejects a queued attachment preview', () async {
     final cloud = _Cloud();
     final device = _Device(cloud);
@@ -1198,6 +1984,7 @@ void main() {
     await a.workspace.saveNote(
       title: 'Secret',
       body: 'original',
+      tags: [' Work ', '#work', 'private'],
       addedFiles: [
         SyncV2PendingAttachment(
           label: 'photo',
@@ -1214,23 +2001,102 @@ void main() {
     await b.workspace.unlockPrivate('private password');
     expect(b.workspace.selectedProfileId, privateId);
     expect(b.workspace.notes.single.note.title, 'Secret');
+    expect(b.workspace.notes.single.note.tags, ['Work', 'private']);
+    await a.workspace.updateTag('work', replacement: 'Job');
+    expect(a.workspace.notes.single.note.tags, ['Job', 'private']);
+    await a.workspace.syncNow();
+    await b.workspace.syncNow();
+    expect(b.workspace.notes.single.note.tags, ['Job', 'private']);
+    await a.workspace.updateTag('Job');
+    expect(a.workspace.notes.single.note.tags, ['private']);
+    await a.workspace.syncNow();
+    await b.workspace.syncNow();
+    expect(b.workspace.notes.single.note.tags, ['private']);
+    await a.workspace.deleteNote(a.workspace.notes.single);
+    await a.workspace.syncNow();
+    await b.workspace.syncNow();
+    expect(b.workspace.notes.single.isDeleted, isTrue);
+    await b.workspace.restoreDeletedNote(b.workspace.notes.single);
+    await b.workspace.syncNow();
+    await a.workspace.syncNow();
+    expect(a.workspace.notes.single.note.title, 'Secret');
+    expect(a.workspace.notes.single.note.tags, ['private']);
     expect(
       await b.workspace.readAttachment(
         b.workspace.notes.single.attachments.single,
       ),
       photo,
     );
+    final beforeArchive = a.workspace.notes.single.note;
+    final archiveTarget = a.workspace.notes.single;
+    await a.workspace.setNoteArchived(archiveTarget, archived: true);
+    final archived = a.workspace.notes.single.note;
+    expect(archived.archivedAt, isNotNull);
+    expect(archived.title, beforeArchive.title);
+    expect(archived.body, beforeArchive.body);
+    expect(archived.tags, beforeArchive.tags);
+    expect(archived.blocks, beforeArchive.blocks);
+    expect(archived.attachments, beforeArchive.attachments);
+    await a.workspace.syncNow();
+    await b.workspace.syncNow();
+    expect(b.workspace.notes.single.note.archivedAt, isNotNull);
+    expect(b.workspace.notes.single.note.blocks, beforeArchive.blocks);
+    expect(b.workspace.notes.single.note.tags, beforeArchive.tags);
+    final exportedWhileArchived = ZipDecoder().decodeBytes(
+      await b.workspace.exportArchive(),
+    );
+    final exportedNotes = jsonDecode(
+      utf8.decode(
+        exportedWhileArchived.files
+            .singleWhere((file) => file.name == 'notes.json')
+            .content,
+      ),
+    ) as Map;
+    final archivedExport = NoteEntry.fromJson(
+      Map<String, dynamic>.from((exportedNotes['notes'] as List).single as Map),
+    );
+    expect(archivedExport.archivedAt, isNotNull);
+    expect(archivedExport.title, beforeArchive.title);
+    expect(archivedExport.body, beforeArchive.body);
+    expect(archivedExport.tags, beforeArchive.tags);
+    expect(archivedExport.blocks.first.text, beforeArchive.blocks.first.text);
+    expect(
+      await b.workspace.readAttachment(
+        b.workspace.notes.single.attachments.single,
+      ),
+      photo,
+    );
+    await b.workspace.setNoteArchived(
+      b.workspace.notes.single,
+      archived: false,
+    );
+    expect(b.workspace.notes.single.note.archivedAt, isNull);
+    await b.workspace.syncNow();
+    await a.workspace.syncNow();
+    expect(a.workspace.notes.single.note.archivedAt, isNull);
     final originalA = a.workspace.notes.single;
     final originalB = b.workspace.notes.single;
     await a.workspace.saveNote(
       original: originalA,
       title: 'A version',
       body: 'from a',
+      blocks: [
+        for (final block in originalA.note.blocks)
+          block.type == NoteBlockType.paragraph
+              ? block.copyWith(text: 'from a')
+              : block,
+      ],
     );
     await b.workspace.saveNote(
       original: originalB,
       title: 'B version',
       body: 'from b',
+      blocks: [
+        for (final block in originalB.note.blocks)
+          block.type == NoteBlockType.paragraph
+              ? block.copyWith(text: 'from b')
+              : block,
+      ],
     );
     await a.workspace.syncNow();
     await b.workspace.syncNow();
@@ -1239,24 +2105,65 @@ void main() {
     expect(b.workspace.notes.single.isConflict, isTrue);
     final conflict = a.workspace.notes.single;
     await expectLater(
+      a.workspace.setNoteArchived(conflict, archived: true),
+      throwsA(isA<SyncV2WorkspaceException>()),
+    );
+    await expectLater(
+      a.workspace.updateTag('private'),
+      throwsA(isA<SyncV2WorkspaceException>()),
+    );
+    await expectLater(
       a.workspace.saveNote(original: conflict, title: 'merge', body: 'merged'),
       throwsA(isA<SyncV2WorkspaceException>()),
+    );
+    await expectLater(
+      a.workspace.saveNote(
+        original: conflict,
+        selectedVersionId: conflict.versions.first.change.id,
+        title: conflict.note.title,
+        body: conflict.note.body,
+        isPinned: true,
+      ),
+      throwsA(
+        isA<SyncV2WorkspaceException>().having(
+          (error) => error.code,
+          'code',
+          'conflict',
+        ),
+      ),
     );
     final selected = conflict.versions.singleWhere(
       (v) => (v.body!['note'] as Map)['title'] == 'B version',
     );
+    final selectedNote = NoteEntry.fromJson(
+      Map<String, dynamic>.from(selected.body!['note'] as Map),
+    );
+    final selectedAttachmentId =
+        (selected.body!['attachments'] as List).single['id'] as String;
     await a.workspace.saveNote(
       original: conflict,
       selectedVersionId: selected.change.id,
       title: 'Resolved',
       body: 'from b',
+      blocks: selectedNote.blocks
+          .where((block) => block.type == NoteBlockType.paragraph)
+          .toList(),
+      removedAttachmentIds: [selectedAttachmentId],
     );
     expect(a.workspace.notes.single.isConflict, isFalse);
-    expect(a.workspace.notes.single.attachments.length, 1);
+    expect(a.workspace.notes.single.attachments, isEmpty);
+    expect(
+      a.workspace.notes.single.note.blocks.any(
+        (block) => block.type == NoteBlockType.photo,
+      ),
+      isFalse,
+    );
+    expect(a.workspace.notes.single.note.blocks.last.text, 'from b');
     await a.workspace.syncNow();
     await b.workspace.syncNow();
     expect(b.workspace.notes.single.note.title, 'Resolved');
     expect(b.workspace.notes.single.isConflict, isFalse);
+    expect(b.workspace.notes.single.attachments, isEmpty);
 
     // Export authorization follows the selected profile even while another
     // private profile remains unlocked in the workspace.

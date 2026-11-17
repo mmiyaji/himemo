@@ -681,25 +681,29 @@ class _NoteDayDivider extends StatelessWidget {
           Expanded(
             child: Container(height: 1, color: Theme.of(context).dividerColor),
           ),
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 10),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color:
-                  weekendColor?.withValues(alpha: 0.08) ??
-                  Theme.of(context).colorScheme.surface,
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(
+          Flexible(
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
                 color:
-                    weekendColor?.withValues(alpha: 0.45) ??
-                    Theme.of(context).dividerColor,
+                    weekendColor?.withValues(alpha: 0.08) ??
+                    Theme.of(context).colorScheme.surface,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color:
+                      weekendColor?.withValues(alpha: 0.45) ??
+                      Theme.of(context).dividerColor,
+                ),
               ),
-            ),
-            child: Text(
-              suffix == null ? label : '$label  $suffix',
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                color: effectiveColor,
-                fontWeight: FontWeight.w700,
+              child: Text(
+                suffix == null ? label : '$label  $suffix',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: effectiveColor,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
           ),

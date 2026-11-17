@@ -85,7 +85,6 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
               note.archivedAt != null &&
               visibleVaultIds.contains(note.vaultId),
         );
-    final hasAdvancedFilters = !filters.isDefault;
     final listDensity = ref.watch(notesListDensityControllerProvider);
     final privateModeActive = ref.watch(privacyScreenActiveProvider);
     final availableWidth = MediaQuery.sizeOf(context).width;
@@ -106,147 +105,34 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: ValueListenableBuilder<TextEditingValue>(
-                  valueListenable: _searchController,
-                  builder: (context, searchValue, _) {
-                    final hasSearchText = searchValue.text.isNotEmpty;
-                    return TextFormField(
-                      key: AppShell.notesSearchKey,
-                      controller: _searchController,
-                      decoration: InputDecoration(
-                        labelText: strings.search,
-                        hintText: strings.text(
-                          'home.search.notes.diary.entries.and.attachment.labels',
-                        ),
-                        prefixIcon: const Icon(Icons.search_rounded),
-                        suffixIcon: hasSearchText
-                            ? IconButton(
-                                key: const Key('notes-search-clear-button'),
-                                tooltip: strings.localized(
-                                  en: 'Clear search',
-                                  ja: '検索をクリア',
-                                ),
-                                onPressed: _clearSearchQuery,
-                                icon: const Icon(Icons.clear_rounded),
-                              )
-                            : null,
-                        border: const OutlineInputBorder(),
-                        isDense: true,
-                      ),
-                      onChanged: _scheduleSearchQuery,
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(width: 8),
-              PopupMenuButton<NotesListDensity>(
-                tooltip: strings.text('home.list.layout'),
-                onSelected: ref
-                    .read(notesListDensityControllerProvider.notifier)
-                    .setDensity,
-                itemBuilder: (context) => [
-                  CheckedPopupMenuItem(
-                    value: NotesListDensity.standard,
-                    checked: listDensity == NotesListDensity.standard,
-                    child: Text(strings.text('home.standard.list')),
-                  ),
-                  CheckedPopupMenuItem(
-                    value: NotesListDensity.compact,
-                    checked: listDensity == NotesListDensity.compact,
-                    child: Text(strings.text('home.compact.list')),
-                  ),
-                ],
-                child: Semantics(
-                  button: true,
-                  label: strings.text('home.list.layout'),
-                  child: Tooltip(
-                    message: strings.text('home.list.layout'),
-                    child: Container(
-                      height: 48,
-                      width: 48,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: Theme.of(context).dividerColor,
-                        ),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(Icons.view_agenda_outlined, size: 20),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Semantics(
-                key: AppShell.notesFilterKey,
-                button: true,
-                label: strings.text('home.filters'),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(12),
-                  onTap: () => _openAdvancedFiltersSheet(
-                    context,
-                    hasArchivedNotes: hasArchivedNotes,
-                  ),
-                  child: Container(
-                    height: 48,
-                    width: compactToolbarButtons ? 48 : null,
-                    constraints: BoxConstraints(
-                      minWidth: compactToolbarButtons
-                          ? 48
-                          : activeFilterCount > 0
-                          ? 110
-                          : 84,
-                    ),
-                    alignment: Alignment.center,
-                    padding: EdgeInsets.symmetric(
-                      horizontal: compactToolbarButtons ? 0 : 12,
-                    ),
-                    decoration: BoxDecoration(
-                      color: hasAdvancedFilters
-                          ? Theme.of(context).colorScheme.primaryContainer
-                          : null,
-                      border: Border.all(color: Theme.of(context).dividerColor),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: compactToolbarButtons
-                        ? Stack(
-                            alignment: Alignment.center,
-                            clipBehavior: Clip.none,
-                            children: [
-                              const Icon(Icons.tune_rounded, size: 20),
-                              if (activeFilterCount > 0)
-                                Positioned(
-                                  top: -5,
-                                  right: -5,
-                                  child: _FilterCountBadge(
-                                    count: activeFilterCount,
-                                  ),
-                                ),
-                            ],
-                          )
-                        : Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.tune_rounded, size: 20),
-                              const SizedBox(width: 6),
-                              Text(
-                                strings.text('home.filters'),
-                                style: Theme.of(context).textTheme.labelLarge,
-                              ),
-                              if (activeFilterCount > 0) ...[
-                                const SizedBox(width: 8),
-                                _FilterCountBadge(count: activeFilterCount),
-                              ],
-                            ],
-                          ),
-                  ),
-                ),
-              ),
-            ],
+          HomeSearchToolbar(
+            controller: _searchController,
+            density: listDensity,
+            searchKey: AppShell.notesSearchKey,
+            detailsKey: AppShell.notesFilterKey,
+            clearKey: const Key('notes-search-clear-button'),
+            searchLabel: strings.search,
+            searchHint: strings.text(
+              'home.search.notes.diary.entries.and.attachment.labels',
+            ),
+            clearLabel: strings.localized(en: 'Clear search', ja: '検索をクリア'),
+            layoutLabel: strings.text('home.list.layout'),
+            standardLabel: strings.text('home.standard.list'),
+            compactLabel: strings.text('home.compact.list'),
+            detailsLabel: strings.text('home.filters'),
+            filterCount: activeFilterCount,
+            compactButtons: compactToolbarButtons,
+            activeDetailsMinWidth: 110,
+            detailsTextStyle: Theme.of(context).textTheme.labelLarge,
+            onQueryChanged: _scheduleSearchQuery,
+            onClear: _clearSearchQuery,
+            onDensityChanged: ref
+                .read(notesListDensityControllerProvider.notifier)
+                .setDensity,
+            onDetailsPressed: () => _openAdvancedFiltersSheet(
+              context,
+              hasArchivedNotes: hasArchivedNotes,
+            ),
           ),
           if (privateModeActive) ...[
             const SizedBox(height: 8),
@@ -954,6 +840,26 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
   }
 }
 
+/// V1's tag strip with state and actions provided by the owning workspace.
+class HomeQuickTagStrip extends StatelessWidget {
+  const HomeQuickTagStrip({
+    super.key,
+    required this.summaries,
+    required this.activeTags,
+    required this.onTagSelected,
+  });
+  final List<VisibleTagSummary> summaries;
+  final List<String> activeTags;
+  final ValueChanged<String> onTagSelected;
+
+  @override
+  Widget build(BuildContext context) => _QuickTagStrip(
+    summaries: summaries,
+    activeTags: activeTags,
+    onTagSelected: onTagSelected,
+  );
+}
+
 class _QuickTagStrip extends StatelessWidget {
   const _QuickTagStrip({
     required this.summaries,
@@ -1212,37 +1118,6 @@ IconData _attachmentSearchFilterIcon(SearchAttachmentFilter filter) {
   };
 }
 
-class _FilterCountBadge extends StatelessWidget {
-  const _FilterCountBadge({required this.count});
-
-  final int count;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Container(
-      height: 20,
-      constraints: const BoxConstraints(minWidth: 20),
-      alignment: Alignment.center,
-      padding: const EdgeInsets.symmetric(horizontal: 6),
-      decoration: BoxDecoration(
-        color: colorScheme.primary,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: colorScheme.surface, width: 1.5),
-      ),
-      child: Text(
-        '$count',
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          color: colorScheme.onPrimary,
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-          height: 1.0,
-        ),
-      ),
-    );
-  }
-}
-
 class _InfoChip extends StatelessWidget {
   const _InfoChip({required this.icon, required this.text});
 
@@ -1265,29 +1140,7 @@ class _NoteTagChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final label = _displayNoteTagWithHash(context, tag);
-    final chipLabel = Text(
-      label,
-      style: Theme.of(context).textTheme.labelSmall,
-    );
-    if (onTap == null) {
-      return Chip(
-        visualDensity: VisualDensity.compact,
-        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        labelPadding: const EdgeInsets.symmetric(horizontal: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 2),
-        side: BorderSide(color: Theme.of(context).dividerColor),
-        label: chipLabel,
-      );
-    }
-    return ActionChip(
-      label: chipLabel,
-      onPressed: onTap,
-      visualDensity: VisualDensity.compact,
-      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      labelPadding: const EdgeInsets.symmetric(horizontal: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 2),
-      side: BorderSide(color: Theme.of(context).dividerColor),
-    );
+    return NoteDetailTagChip(label: label, onPressed: onTap);
   }
 }
 

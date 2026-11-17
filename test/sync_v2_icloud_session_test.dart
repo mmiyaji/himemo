@@ -11,9 +11,74 @@ import 'package:himemo/features/sync/data/sync_v2_header_codec.dart';
 import 'package:himemo/features/sync/data/sync_v2_history.dart';
 import 'package:himemo/features/sync/data/sync_v2_icloud_session.dart';
 import 'package:himemo/features/sync/data/sync_v2_inbox.dart';
+import 'package:himemo/features/sync/data/sync_v2_publisher.dart';
+import 'package:himemo/features/sync/data/sync_v2_receiver.dart';
+
+class _WebLikeTransport implements SyncV2ReadTransport, SyncV2WriteTransport {
+  int published = 0;
+
+  @override
+  Future<SyncV2RemotePage> fetchHeaders({
+    required String generationId,
+    required String? cursor,
+    required int limit,
+  }) async =>
+      const SyncV2RemotePage(nextCursor: 'cursor', hasMore: false, headers: []);
+
+  @override
+  Future<void> publish({
+    required String generationId,
+    required SyncV2Publication publication,
+  }) async {
+    published++;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('session uses the injected account and transport', () async {
+    final key = SecretKey(List<int>.filled(32, 9));
+    final enrollments = SyncV2EnrollmentStore(MemorySecureKeyValueStore());
+    await enrollments.saveVerified((
+      accountId: 'web-account',
+      generationId: 'generation',
+      syncKey: key,
+    ));
+    final inbox = SyncV2Inbox(
+      NativeDatabase.memory(),
+      SyncV2HeaderCodec(EncryptionService()),
+    );
+    addTearDown(inbox.close);
+    await inbox.queuePublication(
+      generationId: 'generation',
+      syncKey: key,
+      encryptedPayload: null,
+      change: SyncV2Change(
+        id: 'web-change',
+        profileId: 'profile',
+        noteId: 'note',
+        parentIds: const {},
+        operation: SyncV2Operation.delete,
+      ),
+    );
+    final transport = _WebLikeTransport();
+    final result = await SyncV2ICloudSession(
+      enrollments,
+      inbox,
+      accountReader: () async => 'web-account',
+      transportFactory: (account) {
+        expect(account, 'web-account');
+        return (reader: transport, writer: transport);
+      },
+    ).syncOnce();
+    expect(result.errors, isEmpty);
+    expect(result.publishedChanges, 1);
+    expect(transport.published, 1);
+  });
 
   test('publishes queued changes even when header reception fails', () async {
     const channel = MethodChannel('org.ruhenheim.himemo/cloudkit');

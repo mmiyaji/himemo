@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HiMemo CloudKit 接続確認</title>
+  <style>
+    body { margin: 0; padding: 24px; font: 16px/1.6 system-ui, sans-serif; color: #30272b; background: #fff9fb; }
+    main { max-width: 620px; margin: 0 auto; }
+    label { display: block; margin-top: 16px; }
+    input, select, button { box-sizing: border-box; font: inherit; padding: 9px 12px; }
+    input, select { width: 100%; border: 1px solid #cdbcc2; border-radius: 6px; background: white; }
+    button { margin: 16px 8px 0 0; border: 0; border-radius: 6px; background: #a92950; color: white; cursor: pointer; }
+    button:disabled { opacity: .45; cursor: default; }
+    #status { padding: 12px; background: #f9e9ee; border-radius: 6px; }
+    .auth { margin-top: 16px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>CloudKit 接続確認</h1>
+  <p>CloudKitの開発環境に接続し、暗号化同期の登録情報が読み取れるか確認します。書き込みは行いません。</p>
+  <p id="status" role="status" aria-live="polite">APIトークンを入力して接続してください。</p>
+  <label for="container">コンテナID</label>
+  <input id="container" value="iCloud.org.ruhenheim.himemo" autocomplete="off" spellcheck="false">
+  <label for="environment">環境</label>
+  <select id="environment"><option value="development">開発環境</option><option value="production">本番環境（読み取りのみ）</option></select>
+  <label for="token">CloudKit APIトークン</label>
+  <input id="token" type="password" autocomplete="off" spellcheck="false">
+  <button id="connect" type="button">接続</button>
+  <button id="check" type="button" disabled>登録情報を確認</button>
+  <button id="disconnect" type="button" disabled>ローカル接続を解除</button>
+  <div class="auth" id="apple-sign-in-button"></div>
+  <div class="auth" id="apple-sign-out-button"></div>
+</main>
+<script src="https://cdn.apple-cloudkit.com/ck/2/cloudkit.js"></script>
+<script src="../web/sync_v2_cloudkit.js"></script>
+<script src="cloudkit_v2_probe.js"></script>
+</body>
+</html>

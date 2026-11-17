@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:cryptography/cryptography.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../../home/domain/note_entry.dart';
 import '../../security/data/encryption_service.dart';
@@ -537,15 +538,20 @@ typedef _DecodedLegacyArchive = ({
 
 // These top-level entry points capture only plain data, never a repository,
 // database connection or borrowed profile key.
+// Dart web does not support Isolate.run. Run the same bounded archive logic
+// on the current isolate there; native platforms keep their background worker.
+Future<T> _runArchiveTask<T>(T Function() task) =>
+    kIsWeb ? Future<T>.sync(task) : Isolate.run(task);
+
 Future<_DecodedLegacyArchive> _decodeArchiveInWorker(
   Uint8List bytes,
   String? password,
-) => Isolate.run(() => _decodeLegacyArchive(bytes, password));
+) => _runArchiveTask(() => _decodeLegacyArchive(bytes, password));
 
 Future<SyncV2ArchiveInspection> _inspectArchiveInWorker(
   Uint8List bytes,
   String? password,
-) => Isolate.run(() {
+) => _runArchiveTask(() {
   final decoded = _decodeLegacyArchive(bytes, password).inspection;
   return SyncV2ArchiveInspection(
     decoded.noteCountsByProfile,
@@ -557,7 +563,7 @@ Future<Uint8List> _encodeArchiveInWorker(
   List<({String name, Uint8List bytes})> files,
   List<Map<String, dynamic>> notes,
   String? password,
-) => Isolate.run(() {
+) => _runArchiveTask(() {
   final archive = Archive();
   for (final file in files) {
     archive.addFile(ArchiveFile.bytes(file.name, file.bytes));

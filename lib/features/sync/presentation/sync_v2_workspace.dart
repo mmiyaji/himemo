@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../../home/domain/note_entry.dart';
+import '../../home/domain/note_tags.dart';
 import '../../home/presentation/home_providers.dart';
 import '../../security/data/authentication_throttle.dart';
 import '../../security/data/encryption_service.dart';
@@ -157,10 +158,14 @@ class SyncV2PendingAttachment {
     required this.label,
     required this.type,
     required this.bytes,
+    this.draftId,
   });
   final String label;
   final AttachmentType type;
   final Uint8List bytes;
+
+  /// In-memory identity only; saveNote must replace it with an encrypted ref.
+  final String? draftId;
 }
 
 class SyncV2WorkspaceNote {
@@ -735,6 +740,26 @@ class SyncV2WorkspaceController extends ChangeNotifier {
     _setupAdmin = null;
   }
 
+  /// Immediately revoke the current session after an external sign-out.
+  /// Unlike backgrounding, this also releases the normal profile and sync key.
+  void revokeSession() {
+    if (_disposed) return;
+    background();
+    _discardPrepared();
+    _normal?.destroy();
+    _normal = null;
+    _syncKey?.destroy();
+    _syncKey = null;
+    accountId = null;
+    generationId = null;
+    selectedProfileId = null;
+    registered = false;
+    hasPending = false;
+    biometricEnabled = false;
+    failures = [];
+    _notify();
+  }
+
   void _installProfiles(List<SyncV2UnlockedProfile> unlocked, int epoch) {
     if (_epoch != epoch || _disposed || _paused) {
       for (final profile in unlocked) {
@@ -995,23 +1020,48 @@ class SyncV2WorkspaceController extends ChangeNotifier {
     SyncV2WorkspaceNote? original,
     required String title,
     required String body,
+    List<NoteBlock>? blocks,
+    bool? isPinned,
+    List<String>? tags,
     String? selectedVersionId,
     List<SyncV2PendingAttachment> addedFiles = const [],
     List<String> removedAttachmentIds = const [],
   }) {
+    // The operation is queued by _run. Own a snapshot synchronously so a
+    // screen lock can wipe its draft buffers without racing an active save.
+    final ownedAddedFiles = [
+      for (final file in addedFiles)
+        SyncV2PendingAttachment(
+          label: file.label,
+          type: file.type,
+          bytes: Uint8List.fromList(file.bytes),
+          draftId: file.draftId,
+        ),
+    ];
     final epoch = _epoch;
     final profile = selectedProfileId;
-    return _run(() async {
+    final operation = _run(() async {
       if (epoch != _epoch || profile != selectedProfileId) {
         throw const SyncV2WorkspaceException('locked');
       }
-      if (utf8.encode(title).length + utf8.encode(body).length >
+      void ensureActive() {
+        if (epoch != _epoch || profile != selectedProfileId || _paused) {
+          throw const SyncV2WorkspaceException('locked');
+        }
+      }
+
+      if (utf8.encode(title).length +
+              utf8.encode(body).length +
+              utf8.encode(jsonEncode(tags ?? const <String>[])).length >
           2 * 1024 * 1024) {
         throw const SyncV2WorkspaceException('too_large');
       }
       final access = _selected;
       if (original != null &&
           (!original.ready || original.note.vaultId != access.profileId)) {
+        throw const SyncV2StaleNote();
+      }
+      if (isPinned != null && original?.isConflict == true) {
         throw const SyncV2StaleNote();
       }
       if (original?.isConflict == true && selectedVersionId == null) {
@@ -1037,24 +1087,62 @@ class SyncV2WorkspaceController extends ChangeNotifier {
       }
       final id = original?.note.id ?? _id('note');
       await inbox.transaction(() async {
+        final addedRefs = <SyncV2AttachmentReference>[];
+        final originalReferenceList =
+            selectedAttachments ??
+            original?.attachments ??
+            <SyncV2AttachmentReference>[];
+        final originalReferenceIds = {
+          for (final ref in originalReferenceList) ref.id,
+        };
+        if (removedAttachmentIds.toSet().length !=
+                removedAttachmentIds.length ||
+            removedAttachmentIds.any(
+              (attachmentId) => !originalReferenceIds.contains(attachmentId),
+            )) {
+          throw const SyncV2WorkspaceException('rich_attachment_unlinked');
+        }
         final refs = [
-          for (final ref
-              in selectedAttachments ??
-                  original?.attachments ??
-                  <SyncV2AttachmentReference>[])
+          for (final ref in originalReferenceList)
             if (!removedAttachmentIds.contains(ref.id)) ref,
         ];
-        for (final file in addedFiles) {
-          refs.add(
-            await SyncV2AttachmentService(inbox, repository).store(
-              generationId: generationId!,
-              syncKey: _syncKey!,
-              profileAccess: access,
-              bytes: file.bytes,
-              label: file.label,
-              type: file.type.name,
-            ),
+        final draftIds = <String>{};
+        for (final file in ownedAddedFiles) {
+          final draftId = file.draftId;
+          if (draftId != null &&
+              (draftId.isEmpty ||
+                  draftId.length > 128 ||
+                  !RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(draftId) ||
+                  !draftIds.add(draftId))) {
+            throw const SyncV2WorkspaceException(
+              'rich_attachment_pending_invalid',
+            );
+          }
+        }
+        final addedRefsByDraftId = <String, SyncV2AttachmentReference>{};
+        for (final file in ownedAddedFiles) {
+          ensureActive();
+          final ref = await SyncV2AttachmentService(inbox, repository).store(
+            generationId: generationId!,
+            syncKey: _syncKey!,
+            profileAccess: access,
+            bytes: file.bytes,
+            label: file.label,
+            type: file.type.name,
+            checkActive: ensureActive,
           );
+          ensureActive();
+          refs.add(ref);
+          addedRefs.add(ref);
+          if (file.draftId case final draftId?) {
+            if (originalReferenceIds.contains(ref.id) ||
+                addedRefsByDraftId.values.any((entry) => entry.id == ref.id)) {
+              throw const SyncV2WorkspaceException(
+                'rich_attachment_pending_invalid',
+              );
+            }
+            addedRefsByDraftId[draftId] = ref;
+          }
         }
         final base =
             selectedNote ??
@@ -1066,31 +1154,265 @@ class SyncV2WorkspaceController extends ChangeNotifier {
               body: '',
               createdAt: DateTime.now(),
             );
-        final remainingAttachments = [
-          for (final ref in refs)
-            NoteAttachment(
-              type: AttachmentType.values.byName(ref.type),
-              label: ref.label,
-              filePath: 'v2attachment:${ref.id}',
+        final baseBody = syncV2EditableBody(base);
+        if (blocks == null && base.blocks.isNotEmpty && body != baseBody) {
+          throw const SyncV2WorkspaceException('rich_blocks_required');
+        }
+        var savedBlocks = List<NoteBlock>.of(blocks ?? base.blocks);
+        final newAttachmentBlocksById = <String, NoteBlock>{};
+        final placedAddedRefIds = <String>{};
+        if (blocks != null) {
+          final pendingBlocksById = <String, NoteBlock>{};
+          for (var index = 0; index < savedBlocks.length; index++) {
+            final block = savedBlocks[index];
+            final path = block.attachment?.filePath;
+            if (path == null || !path.startsWith('v2pending:')) continue;
+            final draftId = path.substring('v2pending:'.length);
+            final file = ownedAddedFiles
+                .where((file) => file.draftId == draftId)
+                .firstOrNull;
+            final ref = addedRefsByDraftId[draftId];
+            final expectedDraftAttachment = file == null
+                ? null
+                : NoteAttachment(
+                    type: file.type,
+                    label: file.label,
+                    filePath: 'v2pending:$draftId',
+                  );
+            if (draftId.isEmpty ||
+                file == null ||
+                ref == null ||
+                expectedDraftAttachment != block.attachment ||
+                block.type.name != file.type.name ||
+                pendingBlocksById.containsKey(draftId)) {
+              throw const SyncV2WorkspaceException(
+                'rich_attachment_pending_invalid',
+              );
+            }
+            final resolved = NoteBlock(
+              type: block.type,
+              attachment: NoteAttachment(
+                type: file.type,
+                label: file.label,
+                filePath: 'v2attachment:${ref.id}',
+                syncAttachmentContentHash: ref.sha256,
+              ),
+            );
+            savedBlocks[index] = resolved;
+            pendingBlocksById[draftId] = resolved;
+            newAttachmentBlocksById[ref.id] = resolved;
+            placedAddedRefIds.add(ref.id);
+          }
+          if (draftIds.any(
+            (draftId) => !pendingBlocksById.containsKey(draftId),
+          )) {
+            throw const SyncV2WorkspaceException(
+              'rich_attachment_pending_invalid',
+            );
+          }
+        }
+        if (blocks != null &&
+            syncV2EditableBody(base.copyWith(blocks: blocks)) != body) {
+          throw const SyncV2WorkspaceException('rich_blocks_body_mismatch');
+        }
+        if (blocks != null) {
+          final originalReferencesById = {
+            for (final ref in originalReferenceList) ref.id: ref,
+          };
+          final originalLinkedCountsById = <String, Map<NoteBlock, int>>{};
+          final originalUnlinkedAttachmentCounts = <NoteBlock, int>{};
+          for (final block in base.blocks) {
+            if (block.type == NoteBlockType.paragraph) continue;
+            final attachment = block.attachment;
+            final path = attachment?.filePath;
+            if (attachment == null || block.type.name != attachment.type.name) {
+              throw const SyncV2WorkspaceException(
+                'rich_blocks_structure_changed',
+              );
+            }
+            if (path?.startsWith('v2attachment:') ?? false) {
+              final id = path!.substring('v2attachment:'.length);
+              if (!originalReferencesById.containsKey(id)) {
+                throw const SyncV2WorkspaceException(
+                  'rich_blocks_structure_changed',
+                );
+              }
+              originalLinkedCountsById
+                  .putIfAbsent(id, () => <NoteBlock, int>{})
+                  .update(block, (count) => count + 1, ifAbsent: () => 1);
+            } else {
+              originalUnlinkedAttachmentCounts.update(
+                block,
+                (count) => count + 1,
+                ifAbsent: () => 1,
+              );
+            }
+          }
+
+          final editedLinkedCountsById = <String, Map<NoteBlock, int>>{};
+          final editedUnlinkedAttachmentCounts = <NoteBlock, int>{};
+          var invalidBlock = false;
+          for (final block in savedBlocks) {
+            if (block.type == NoteBlockType.paragraph) {
+              if (block.attachment != null) invalidBlock = true;
+              continue;
+            }
+            final attachment = block.attachment;
+            final path = attachment?.filePath;
+            if (attachment == null || block.type.name != attachment.type.name) {
+              invalidBlock = true;
+              continue;
+            }
+            if (path?.startsWith('v2attachment:') ?? false) {
+              final id = path!.substring('v2attachment:'.length);
+              final reference =
+                  originalReferencesById[id] ??
+                  addedRefs.where((ref) => ref.id == id).firstOrNull;
+              final originalCount = originalLinkedCountsById[id]?[block] ?? 0;
+              final newBlock = newAttachmentBlocksById[id];
+              final count = editedLinkedCountsById
+                  .putIfAbsent(id, () => <NoteBlock, int>{})
+                  .update(block, (count) => count + 1, ifAbsent: () => 1);
+              final isNewPendingBlock = originalCount == 0;
+              if (reference == null ||
+                  block.type.name != reference.type ||
+                  attachment.type.name != reference.type ||
+                  (isNewPendingBlock
+                      ? newBlock == null || block != newBlock || count > 1
+                      : count > originalCount)) {
+                invalidBlock = true;
+              }
+            } else {
+              final count = editedUnlinkedAttachmentCounts.update(
+                block,
+                (count) => count + 1,
+                ifAbsent: () => 1,
+              );
+              if (count > (originalUnlinkedAttachmentCounts[block] ?? 0)) {
+                invalidBlock = true;
+              }
+            }
+          }
+          bool sameBlockCounts(
+            Map<NoteBlock, int> expected,
+            Map<NoteBlock, int> actual,
+          ) =>
+              expected.length == actual.length &&
+              expected.entries.every(
+                (entry) => actual[entry.key] == entry.value,
+              );
+          final linkedAttachmentsMatch = originalLinkedCountsById.entries.every(
+            (entry) {
+              final edited = editedLinkedCountsById[entry.key] ?? const {};
+              if (removedAttachmentIds.contains(entry.key)) {
+                return edited.isEmpty || sameBlockCounts(entry.value, edited);
+              }
+              return sameBlockCounts(entry.value, edited);
+            },
+          );
+          final unlinkedAttachmentsMatch = originalUnlinkedAttachmentCounts
+              .entries
+              .every(
+                (entry) =>
+                    editedUnlinkedAttachmentCounts[entry.key] == entry.value,
+              );
+          if (invalidBlock ||
+              !linkedAttachmentsMatch ||
+              !unlinkedAttachmentsMatch) {
+            throw const SyncV2WorkspaceException(
+              'rich_blocks_structure_changed',
+            );
+          }
+        }
+        if (savedBlocks.isEmpty &&
+            body.isNotEmpty &&
+            base.editorMode == NoteEditorMode.rich) {
+          savedBlocks.add(NoteBlock(type: NoteBlockType.paragraph, text: body));
+        }
+        if (removedAttachmentIds.isNotEmpty) {
+          savedBlocks.removeWhere((block) {
+            final path = block.attachment?.filePath;
+            return path != null &&
+                removedAttachmentIds.contains(
+                  path.substring('v2attachment:'.length),
+                );
+          });
+        }
+        for (final ref in addedRefs) {
+          if (placedAddedRefIds.contains(ref.id)) continue;
+          if (blocks == null && base.editorMode == NoteEditorMode.quick) {
+            continue;
+          }
+          final attachment = NoteAttachment(
+            type: AttachmentType.values.byName(ref.type),
+            label: ref.label,
+            filePath: 'v2attachment:${ref.id}',
+            syncAttachmentContentHash: ref.sha256,
+          );
+          savedBlocks.add(
+            NoteBlock(
+              type: NoteBlockType.values.byName(ref.type),
+              attachment: attachment,
             ),
-        ];
+          );
+        }
+        final refsById = {for (final ref in refs) ref.id: ref};
+        for (final block in savedBlocks) {
+          final path = block.attachment?.filePath;
+          if (path != null && path.startsWith('v2pending:')) {
+            throw const SyncV2WorkspaceException(
+              'rich_attachment_pending_invalid',
+            );
+          }
+          if (path != null &&
+              path.startsWith('v2attachment:') &&
+              !refsById.containsKey(path.substring('v2attachment:'.length))) {
+            throw const SyncV2WorkspaceException('rich_attachment_unlinked');
+          }
+        }
+        // Preserve legacy unlinked attachments and existing per-attachment
+        // metadata when a different attachment is added or removed.
+        final representedIds = <String>{};
+        final remainingAttachments = <NoteAttachment>[];
+        for (final attachment in base.attachments) {
+          final path = attachment.filePath;
+          if (path == null || !path.startsWith('v2attachment:')) {
+            remainingAttachments.add(attachment);
+            continue;
+          }
+          final id = path.substring('v2attachment:'.length);
+          final ref = refsById[id];
+          if (ref == null) continue;
+          representedIds.add(id);
+          remainingAttachments.add(
+            attachment.copyWith(syncAttachmentContentHash: ref.sha256),
+          );
+        }
+        for (final ref in refs) {
+          if (representedIds.add(ref.id)) {
+            remainingAttachments.add(
+              NoteAttachment(
+                type: AttachmentType.values.byName(ref.type),
+                label: ref.label,
+                filePath: 'v2attachment:${ref.id}',
+                syncAttachmentContentHash: ref.sha256,
+              ),
+            );
+          }
+        }
         final note = base.copyWith(
           title: title,
           body: body,
+          isPinned: isPinned ?? base.isPinned,
+          tags: tags == null ? base.tags : dedupeNoteTags(tags),
           updatedAt: DateTime.now(),
           deletedAt: null,
-          attachments: remainingAttachments,
-          blocks: base.blocks.isEmpty
-              ? []
-              : [
-                  NoteBlock(type: NoteBlockType.paragraph, text: body),
-                  for (final attachment in remainingAttachments)
-                    NoteBlock(
-                      type: NoteBlockType.values.byName(attachment.type.name),
-                      attachment: attachment,
-                    ),
-                ],
+          attachments: ownedAddedFiles.isEmpty && removedAttachmentIds.isEmpty
+              ? base.attachments
+              : remainingAttachments,
+          blocks: savedBlocks,
         );
+        ensureActive();
         await repository.save(
           generationId: generationId!,
           profileId: access.profileId,
@@ -1107,6 +1429,146 @@ class SyncV2WorkspaceController extends ChangeNotifier {
           syncKey: _syncKey!,
           profileKey: access,
         );
+        ensureActive();
+      });
+      await _reloadNotes();
+    });
+    return operation.whenComplete(() {
+      for (final file in ownedAddedFiles) {
+        file.bytes.fillRange(0, file.bytes.length, 0);
+      }
+    });
+  }
+
+  /// Atomically updates one tag in the selected unlocked profile.
+  /// Incomplete or conflicting snapshots must be resolved first so that a
+  /// bulk edit cannot silently discard an unseen version.
+  Future<void> updateTag(String source, {String? replacement}) {
+    final epoch = _epoch;
+    final profile = selectedProfileId;
+    return _run(() async {
+      if (epoch != _epoch || profile == null || profile != selectedProfileId) {
+        throw const SyncV2WorkspaceException('locked');
+      }
+      final oldKey = canonicalizeNoteTag(source);
+      final newTag = replacement == null ? null : normalizeNoteTag(replacement);
+      if (oldKey.isEmpty || (replacement != null && newTag!.isEmpty)) {
+        throw const SyncV2WorkspaceException('invalid_tag');
+      }
+      final access = _selected;
+      final selectedNotes = notes
+          .where((entry) => entry.note.vaultId == profile)
+          .toList();
+      if (selectedNotes.any((entry) => !entry.ready || entry.isConflict)) {
+        throw const SyncV2WorkspaceException('tag_conflict');
+      }
+      final targets = selectedNotes
+          .where(
+            (entry) =>
+                !entry.isDeleted &&
+                entry.note.deletedAt == null &&
+                entry.note.normalizedTags.any(
+                  (tag) => canonicalizeNoteTag(tag) == oldKey,
+                ),
+          )
+          .toList();
+      await inbox.transaction(() async {
+        for (final entry in targets) {
+          if (epoch != _epoch || profile != selectedProfileId) {
+            throw const SyncV2WorkspaceException('locked');
+          }
+          final version = entry.versions.single;
+          final body = version.body;
+          if (body == null || version.isDeleted) throw const SyncV2StaleNote();
+          final updatedTags = dedupeNoteTags([
+            for (final tag in entry.note.normalizedTags)
+              if (canonicalizeNoteTag(tag) != oldKey) tag else ?newTag,
+          ]);
+          final original = NoteEntry.fromJson(
+            Map<String, dynamic>.from(body['note'] as Map),
+          );
+          if (original.id != entry.note.id || original.vaultId != profile) {
+            throw const SyncV2StaleNote();
+          }
+          final updated = original.copyWith(
+            tags: updatedTags,
+            updatedAt: DateTime.now(),
+          );
+          await repository.save(
+            generationId: generationId!,
+            profileId: profile,
+            noteId: entry.note.id,
+            changeId: _id('change'),
+            expectedHeadIds: entry.headIds,
+            body: {...body, 'note': updated.toJson()},
+            syncKey: _syncKey!,
+            profileKey: access,
+          );
+        }
+        if (epoch != _epoch || profile != selectedProfileId) {
+          throw const SyncV2WorkspaceException('locked');
+        }
+      });
+      await _reloadNotes();
+    });
+  }
+
+  Future<void> restoreDeletedNote(SyncV2WorkspaceNote note) {
+    final epoch = _epoch;
+    final profile = selectedProfileId;
+    return _run(() async {
+      if (profile == null ||
+          profile != selectedProfileId ||
+          epoch != _epoch ||
+          note.note.vaultId != profile ||
+          !note.ready ||
+          note.isConflict ||
+          (!note.isDeleted && note.note.deletedAt == null)) {
+        throw const SyncV2StaleNote();
+      }
+      final access = _selected;
+      await inbox.transaction(() async {
+        final body = note.isDeleted
+            ? await repository.readDeletedPredecessor(
+                generationId: generationId!,
+                profileId: profile,
+                noteId: note.note.id,
+                expectedHeadIds: note.headIds,
+                syncKey: _syncKey!,
+                profileKey: access,
+              )
+            : note.versions.single.body;
+        if (body == null) throw const SyncV2StaleNote();
+        if (epoch != _epoch ||
+            profile != selectedProfileId ||
+            body['type'] != 'note' ||
+            body['note'] is! Map) {
+          throw const SyncV2StaleNote();
+        }
+        final original = NoteEntry.fromJson(
+          Map<String, dynamic>.from(body['note'] as Map),
+        );
+        if (original.id != note.note.id || original.vaultId != profile) {
+          throw const SyncV2StaleNote();
+        }
+        await repository.save(
+          generationId: generationId!,
+          profileId: profile,
+          noteId: note.note.id,
+          changeId: _id('change'),
+          expectedHeadIds: note.headIds,
+          body: {
+            ...body,
+            'note': original
+                .copyWith(deletedAt: null, updatedAt: DateTime.now())
+                .toJson(),
+          },
+          syncKey: _syncKey!,
+          profileKey: access,
+        );
+        if (epoch != _epoch || profile != selectedProfileId) {
+          throw const SyncV2StaleNote();
+        }
       });
       await _reloadNotes();
     });
@@ -1128,22 +1590,90 @@ class SyncV2WorkspaceController extends ChangeNotifier {
     await _reloadNotes();
   });
 
+  /// Archives or unarchives one complete note in the currently unlocked
+  /// profile. The original encrypted payload is copied so attachments, tags,
+  /// and rich blocks remain intact. Partial and conflicting notes are refused.
+  Future<void> setNoteArchived(
+    SyncV2WorkspaceNote note, {
+    required bool archived,
+  }) {
+    final epoch = _epoch;
+    final profile = selectedProfileId;
+    return _run(() async {
+      if (profile == null ||
+          profile != selectedProfileId ||
+          epoch != _epoch ||
+          note.note.vaultId != profile ||
+          !note.ready ||
+          note.isConflict ||
+          note.isDeleted ||
+          note.note.deletedAt != null ||
+          note.versions.length != 1) {
+        throw const SyncV2StaleNote();
+      }
+      final version = note.versions.single;
+      final body = version.body;
+      if (body == null ||
+          version.isDeleted ||
+          body['type'] != 'note' ||
+          body['note'] is! Map) {
+        throw const SyncV2StaleNote();
+      }
+      final original = NoteEntry.fromJson(
+        Map<String, dynamic>.from(body['note'] as Map),
+      );
+      if (original.id != note.note.id || original.vaultId != profile) {
+        throw const SyncV2StaleNote();
+      }
+      await inbox.transaction(() async {
+        if (epoch != _epoch || profile != selectedProfileId) {
+          throw const SyncV2StaleNote();
+        }
+        await repository.save(
+          generationId: generationId!,
+          profileId: profile,
+          noteId: note.note.id,
+          changeId: _id('change'),
+          expectedHeadIds: note.headIds,
+          body: {
+            ...body,
+            'note': original
+                .copyWith(
+                  archivedAt: archived ? DateTime.now() : null,
+                  updatedAt: DateTime.now(),
+                )
+                .toJson(),
+          },
+          syncKey: _syncKey!,
+          profileKey: _selected,
+        );
+        if (epoch != _epoch || profile != selectedProfileId) {
+          throw const SyncV2StaleNote();
+        }
+      });
+      await _reloadNotes();
+    });
+  }
+
   Future<void> syncNow() => _run(_sync);
   Future<void> _sync() async {
     if (!registered) return;
+    final epoch = _epoch;
     // Verify before doing any work; cached offline access never grants sync.
     if (await registrationTransport.readCurrentAccountId() != accountId) {
+      if (_epoch != epoch || _paused || _disposed || !registered) return;
       lockPrivate();
       throw const SyncV2WorkspaceException('account_changed');
     }
+    if (_epoch != epoch || _paused || _disposed || !registered) return;
     for (var page = 0; page < 20; page++) {
       final progress = await syncOperation();
+      if (_epoch != epoch || _paused || _disposed || !registered) return;
       if (progress.errors.isNotEmpty) {
         throw const SyncV2WorkspaceException('sync_failed');
       }
       if (!progress.hasMoreHeaders && progress.publishedChanges < 50) break;
     }
-    final epoch = _epoch;
     if (_admin != null) {
       await _refreshAdminProfiles(_admin!, epoch);
     }

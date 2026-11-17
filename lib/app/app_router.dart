@@ -6,6 +6,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../features/home/presentation/home_page.dart';
 import '../features/home/presentation/widget_quick_capture_screen.dart';
 import '../features/sync/presentation/sync_v2_workspace_screen.dart';
+import '../features/sync/presentation/sync_v2_cloudkit_web_screen_stub.dart'
+    if (dart.library.js_interop) '../features/sync/presentation/sync_v2_cloudkit_web_screen.dart';
 
 part 'app_router.g.dart';
 
@@ -36,6 +38,11 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: '/sync-v2',
         builder: (context, state) => const SyncV2WorkspaceScreen(),
+      ),
+      GoRoute(
+        path: '/sync-v2-web-readonly',
+        builder: (context, state) =>
+            SyncV2CloudKitReadOnlyScreen(onExit: () => context.go('/settings')),
       ),
       GoRoute(
         path: '/widget-capture',

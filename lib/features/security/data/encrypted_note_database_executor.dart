@@ -11,3 +11,8 @@ QueryExecutor createEncryptedNoteDatabaseExecutor() {
 QueryExecutor createSyncV2DatabaseExecutor() {
   return executor_impl.createSyncV2DatabaseExecutor();
 }
+
+/// Isolated Web-only database for the explicit local preview entrypoint.
+QueryExecutor createSyncV2LocalPreviewDatabaseExecutor() {
+  return executor_impl.createSyncV2LocalPreviewDatabaseExecutor();
+}

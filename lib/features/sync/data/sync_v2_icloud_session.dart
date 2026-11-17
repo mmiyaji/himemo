@@ -12,17 +12,30 @@ typedef SyncV2ICloudProgress = ({
   List<String> errors,
 });
 
+typedef SyncV2SessionTransports = ({
+  SyncV2ReadTransport reader,
+  SyncV2WriteTransport writer,
+});
+
 /// A bounded sync pass for the enrolled account, with no profile-key access.
 class SyncV2ICloudSession {
   SyncV2ICloudSession(
     this._enrollments,
     this._inbox, {
     this.stopOnQuarantine = false,
-  });
+    Future<String> Function()? accountReader,
+    SyncV2SessionTransports Function(String account)? transportFactory,
+  }) : // Keep public parameter names while storing private callbacks.
+       // ignore: prefer_initializing_formals
+       _accountReader = accountReader,
+       // ignore: prefer_initializing_formals
+       _transportFactory = transportFactory;
 
   final SyncV2EnrollmentStore _enrollments;
   final SyncV2Inbox _inbox;
   final bool stopOnQuarantine;
+  final Future<String> Function()? _accountReader;
+  final SyncV2SessionTransports Function(String account)? _transportFactory;
   Future<SyncV2ICloudProgress>? _active;
 
   Future<SyncV2ICloudProgress> syncOnce({int limit = 50}) async {
@@ -38,15 +51,21 @@ class SyncV2ICloudSession {
   }
 
   Future<SyncV2ICloudProgress> _syncOnce(int limit) async {
-    final account = await SyncV2ICloudTransport(accountId: '')
-        .readCurrentAccountId();
+    final account =
+        await (_accountReader?.call() ??
+            SyncV2ICloudTransport(accountId: '').readCurrentAccountId());
     final enrollment = await _enrollments.readForAccount(account);
     if (enrollment == null) {
       throw StateError('This device has no iCloud v2 enrollment');
     }
     try {
-      final transport = SyncV2ICloudTransport(accountId: account);
-      final receiver = SyncV2Receiver(transport, _inbox);
+      final transports =
+          _transportFactory?.call(account) ??
+          (() {
+            final transport = SyncV2ICloudTransport(accountId: account);
+            return (reader: transport, writer: transport);
+          })();
+      final receiver = SyncV2Receiver(transports.reader, _inbox);
       final errors = <String>[];
       var headersStaged = false;
       var hasMoreHeaders = false;
@@ -77,11 +96,12 @@ class SyncV2ICloudSession {
 
       Future<void> publish() async {
         try {
-          published = await SyncV2Publisher(transport, _inbox).publishPage(
-            generationId: enrollment.generationId,
-            limit: limit,
-            stopOnQuarantine: stopOnQuarantine,
-          );
+          published = await SyncV2Publisher(transports.writer, _inbox)
+              .publishPage(
+                generationId: enrollment.generationId,
+                limit: limit,
+                stopOnQuarantine: stopOnQuarantine,
+              );
         } on Exception {
           errors.add('publish_failed');
         }

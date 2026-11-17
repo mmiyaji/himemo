@@ -5784,6 +5784,7 @@ NoteEntry applyAutoTagRules(NoteEntry note, Iterable<AutoTagRule> rules) {
 class NotesListDensityController extends _$NotesListDensityController {
   static const _storageKey = 'notes.list_density';
   bool _restored = false;
+  bool _changedBeforeRestoreCompleted = false;
 
   @override
   NotesListDensity build() {
@@ -5795,6 +5796,7 @@ class NotesListDensityController extends _$NotesListDensityController {
   }
 
   Future<void> setDensity(NotesListDensity density) async {
+    _changedBeforeRestoreCompleted = true;
     state = density;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_storageKey, density.name);
@@ -5802,6 +5804,9 @@ class NotesListDensityController extends _$NotesListDensityController {
 
   Future<void> _restore() async {
     final prefs = await SharedPreferences.getInstance();
+    if (_changedBeforeRestoreCompleted) {
+      return;
+    }
     final stored = prefs.getString(_storageKey);
     if (stored == null || stored.isEmpty) {
       return;
@@ -5881,6 +5886,7 @@ class NotesListSortController extends _$NotesListSortController {
   static const _storageKey = 'notes.list_sort_field';
   static const _defaultSortField = NotesListSortField.createdAt;
   bool _restored = false;
+  bool _changedBeforeRestoreCompleted = false;
 
   @override
   NotesListSortField build() {
@@ -5892,6 +5898,7 @@ class NotesListSortController extends _$NotesListSortController {
   }
 
   Future<void> setSortField(NotesListSortField field) async {
+    _changedBeforeRestoreCompleted = true;
     state = field;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_storageKey, field.name);
@@ -5899,6 +5906,9 @@ class NotesListSortController extends _$NotesListSortController {
 
   Future<void> _restore() async {
     final prefs = await SharedPreferences.getInstance();
+    if (_changedBeforeRestoreCompleted) {
+      return;
+    }
     final stored = prefs.getString(_storageKey);
     if (stored == null || stored.isEmpty) {
       return;

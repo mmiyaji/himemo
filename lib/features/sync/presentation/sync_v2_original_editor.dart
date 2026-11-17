@@ -16,6 +16,9 @@ class SyncV2OriginalEditor extends StatelessWidget {
     this.createdAt,
     this.editing = false,
     this.wide = false,
+    this.richBody,
+    this.titleFocusNode,
+    this.onTitleChanged,
   });
 
   final TextEditingController titleController;
@@ -27,6 +30,9 @@ class SyncV2OriginalEditor extends StatelessWidget {
   final DateTime? createdAt;
   final bool editing;
   final bool wide;
+  final Widget? richBody;
+  final FocusNode? titleFocusNode;
+  final ValueChanged<String>? onTitleChanged;
 
   String _text(BuildContext context, String japanese, String english) =>
       Localizations.localeOf(context).languageCode == 'ja' ? japanese : english;
@@ -152,7 +158,9 @@ class SyncV2OriginalEditor extends StatelessWidget {
                         _pill(
                           context,
                           icon: Icons.notes_outlined,
-                          label: _text(context, 'クイックメモ', 'Quick memo'),
+                          label: richBody == null
+                              ? _text(context, 'クイックメモ', 'Quick memo')
+                              : _text(context, 'リッチメモ', 'Rich memo'),
                           primary: true,
                         ),
                         _pill(
@@ -183,7 +191,9 @@ class SyncV2OriginalEditor extends StatelessWidget {
                             TextField(
                               key: const Key('sync-v2-title'),
                               controller: titleController,
+                              focusNode: titleFocusNode,
                               readOnly: !writable,
+                              onChanged: onTitleChanged,
                               textCapitalization: TextCapitalization.sentences,
                               style: theme.textTheme.titleLarge?.copyWith(
                                 fontWeight: FontWeight.w600,
@@ -198,35 +208,36 @@ class SyncV2OriginalEditor extends StatelessWidget {
                               ),
                             ),
                             const SizedBox(height: 18),
-                            TextField(
-                              key: const Key('sync-v2-body'),
-                              controller: bodyController,
-                              readOnly: !writable,
-                              minLines: 8,
-                              maxLines: null,
-                              textAlignVertical: TextAlignVertical.top,
-                              style: theme.textTheme.bodyLarge?.copyWith(
-                                height: 1.55,
-                              ),
-                              scrollPadding: const EdgeInsets.only(
-                                top: 96,
-                                left: 16,
-                                right: 16,
-                                bottom: 128,
-                              ),
-                              decoration: InputDecoration(
-                                hintText: _text(
-                                  context,
-                                  'メモを書く',
-                                  'Write your note',
+                            richBody ??
+                                TextField(
+                                  key: const Key('sync-v2-body'),
+                                  controller: bodyController,
+                                  readOnly: !writable,
+                                  minLines: 8,
+                                  maxLines: null,
+                                  textAlignVertical: TextAlignVertical.top,
+                                  style: theme.textTheme.bodyLarge?.copyWith(
+                                    height: 1.55,
+                                  ),
+                                  scrollPadding: const EdgeInsets.only(
+                                    top: 96,
+                                    left: 16,
+                                    right: 16,
+                                    bottom: 128,
+                                  ),
+                                  decoration: InputDecoration(
+                                    hintText: _text(
+                                      context,
+                                      'メモを書く',
+                                      'Write your note',
+                                    ),
+                                    border: InputBorder.none,
+                                    enabledBorder: InputBorder.none,
+                                    focusedBorder: InputBorder.none,
+                                    isCollapsed: true,
+                                    contentPadding: EdgeInsets.zero,
+                                  ),
                                 ),
-                                border: InputBorder.none,
-                                enabledBorder: InputBorder.none,
-                                focusedBorder: InputBorder.none,
-                                isCollapsed: true,
-                                contentPadding: EdgeInsets.zero,
-                              ),
-                            ),
                           ],
                         ),
                       ),

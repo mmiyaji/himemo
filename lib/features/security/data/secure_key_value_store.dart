@@ -76,6 +76,9 @@ Object storageCoordinationIdentity(SecureKeyValueStore store) =>
 class MemorySecureKeyValueStore implements SecureKeyValueStore {
   final Map<String, String> _values = <String, String>{};
 
+  /// Drops all retained values at session end. Dart strings cannot be wiped.
+  void clear() => _values.clear();
+
   @override
   Future<String?> read(String key) async => _values[key];
 
