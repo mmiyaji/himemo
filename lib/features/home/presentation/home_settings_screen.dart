@@ -1770,6 +1770,7 @@ class SettingsScreen extends ConsumerWidget {
               _handlePrimarySettingsExpansion(expanded, _syncController),
           children: const [SyncV2DeviceSecuritySettings()],
         ),
+        SizedBox(height: settingsGroupSpacing),
         _SettingsGroup(
           title: strings.text('home.storage'),
           summary: strings.noteCountSummary(noteCount),
@@ -2413,7 +2414,7 @@ class SettingsScreen extends ConsumerWidget {
           ],
         ),
         if (adminMode) ...[
-          const SizedBox(height: 16),
+          SizedBox(height: settingsGroupSpacing),
           _buildAuditLogSettingsGroup(
             context: context,
             ref: ref,
@@ -2422,7 +2423,7 @@ class SettingsScreen extends ConsumerWidget {
           ),
         ],
         if (diagnosticLogSnapshot?.enabled == true) ...[
-          const SizedBox(height: 16),
+          SizedBox(height: settingsGroupSpacing),
           _buildDiagnosticLogSettingsGroup(
             context: context,
             ref: ref,
