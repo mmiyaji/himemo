@@ -3700,7 +3700,9 @@ class AppTutorialController extends Notifier<AppTutorialState?> {
         course == AppTutorialCourse.syncTroubleshooting;
     final syncIsOff =
         isSyncCourse &&
-        ref.read(syncProviderControllerProvider) == SyncProvider.off;
+        (usesSyncV2NoteBackend
+            ? !ref.read(syncV2RegisteredProvider)
+            : ref.read(syncProviderControllerProvider) == SyncProvider.off);
     final steps = syncIsOff
         ? const [AppTutorialStep.syncTroubleshooting]
         : _courseSteps[course] ?? _courseSteps[AppTutorialCourse.basics]!;

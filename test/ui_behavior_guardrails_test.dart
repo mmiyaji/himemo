@@ -860,7 +860,6 @@ void main() {
       'lib/features/sync/data/sync_history_reader.dart',
     ).readAsStringSync();
     final homeProviders = _homeProvidersSource();
-    final homePage = _homePresentationSource();
 
     expect(syncEngine, contains('dart:isolate'));
     expect(syncEngine, contains('TransferableTypedData.fromList'));
@@ -928,50 +927,6 @@ void main() {
     expect(
       homeProviders,
       isNot(contains('math.min(3, pendingUploads.length)')),
-    );
-    expect(homePage, contains('class _HeaderSyncIndicator'));
-    expect(homePage, contains('class _HeaderSyncIndicatorState'));
-    expect(homePage, contains('AnimationController'));
-    expect(homePage, contains('RotationTransition'));
-    expect(homePage, contains('ReverseAnimation(_rotationController)'));
-    expect(homePage, contains('Tap to show sync progress'));
-    expect(homePage, contains('_showHeaderSyncProgressDialog'));
-    expect(homePage, contains('showDialog<void>'));
-    expect(homePage, contains('ProviderScope.containerOf(context)'));
-    expect(homePage, contains('UncontrolledProviderScope'));
-    expect(homePage, contains('LinearProgressIndicator'));
-    expect(homePage, contains('syncTransferControllerProvider'));
-    expect(homePage, contains('state.progressValue'));
-    expect(homePage, contains('_syncProgressItemProgressText'));
-  });
-
-  test('automatic cloud sync does not loop while idle', () {
-    final appShell = File('lib/app/app.dart').readAsStringSync();
-
-    expect(appShell, contains('automatic sync idle without reschedule'));
-    expect(
-      appShell,
-      contains(
-        'static const _automaticCloudSyncRemoteMinInterval = Duration(minutes: 10);',
-      ),
-    );
-    expect(appShell, contains('allowCachedRemoteStatus: !hasPendingChanges'));
-    expect(appShell, contains('if (remainingPendingChanges)'));
-    expect(appShell, contains('_cloudSyncScheduledForLocalChanges = false;'));
-    expect(appShell, contains('_cloudSyncRescheduleRequested = false;'));
-    expect(appShell, contains('_cloudSyncRescheduleDelay = null;'));
-    expect(
-      appShell,
-      isNot(
-        contains(
-          "else {\n"
-          "          _cloudSyncRescheduleRequested = true;\n"
-          "          _cloudSyncRescheduleDelay = _automaticCloudSyncRetryDelay(\n"
-          "            hasPendingChanges: false,\n"
-          "          );\n"
-          "        }",
-        ),
-      ),
     );
   });
 }

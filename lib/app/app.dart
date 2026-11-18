@@ -11,10 +11,8 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../features/home/domain/note_entry.dart';
 import '../features/home/presentation/home_providers.dart';
 import '../features/security/presentation/app_pin_input.dart';
-import '../features/sync/data/sync_engine.dart';
 import '../features/sync/presentation/sync_v2_privacy.dart';
 import '../l10n/app_localizations.dart';
 import '../l10n/app_strings.dart';
@@ -288,37 +286,14 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   static const _privateSessionTimeout = Duration(minutes: 5);
   static const _privacyChannel = MethodChannel('org.ruhenheim.himemo/privacy');
   static const _backgroundedAtStorageKey = 'runtime.app_lock_backgrounded_at';
-  static const _automaticCloudSyncedAtStorageKey =
-      'runtime.cloud_sync_automatic_synced_at';
-  static const _automaticCloudAttemptedAtStorageKey =
-      'runtime.cloud_sync_automatic_attempted_at';
-  static const _cloudSyncDebounceDelay = Duration(seconds: 2);
-  static const _automaticCloudSyncAttemptMinInterval = Duration(seconds: 30);
-  static const _automaticCloudSyncFailureMinInterval = Duration(minutes: 5);
-  static const _automaticCloudSyncRemoteMinInterval = Duration(minutes: 10);
-  static const _automaticCloudSyncLocalChangeMinInterval = Duration(
-    seconds: 30,
-  );
-
   bool _privacyScreenEnabled = false;
   bool _privacyScreenShowCover = false;
   bool _autoPrompted = false;
   bool _updateChecked = false;
-  bool _cloudSyncScheduled = false;
-  bool _cloudSyncRescheduleRequested = false;
-  bool _cloudSyncScheduledForLocalChanges = false;
-  bool _initialPendingCloudSyncScheduled = false;
-  bool _cloudSyncForeground = true;
   bool _lifecyclePrivacyProtectionEnabled = false;
   bool _lifecyclePrivacyCoverVisible = false;
-  Duration? _cloudSyncRescheduleDelay;
   DateTime? _backgroundedAt;
-  DateTime? _lastAutomaticCloudSyncSucceededAt;
-  DateTime? _lastAutomaticCloudSyncAttemptedAt;
-  DateTime? _lastAutomaticCloudSyncFailedAt;
   Timer? _privateSessionTimer;
-  Timer? _cloudSyncDebounceTimer;
-  final List<Timer> _initialCloudSyncProbeTimers = [];
 
   @override
   void initState() {
@@ -328,8 +303,6 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       _syncLockState(triggerPrompt: true);
       _checkForInAppUpdate();
       _cleanupExpiredSharedAttachments();
-      _scheduleSeamlessCloudSync(respectForegroundBurst: true);
-      _scheduleInitialPendingCloudSyncProbe();
     });
   }
 
@@ -337,10 +310,6 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _privateSessionTimer?.cancel();
-    _cloudSyncDebounceTimer?.cancel();
-    for (final timer in _initialCloudSyncProbeTimers) {
-      timer.cancel();
-    }
     unawaited(_setPrivacyScreenEnabled(false));
     super.dispose();
   }
@@ -348,16 +317,12 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _cloudSyncForeground = true;
       unawaited(_handleAppResumed());
       return;
     }
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.paused) {
-      _cloudSyncForeground = false;
-      _cloudSyncDebounceTimer?.cancel();
-      _cloudSyncScheduled = false;
       _activateAppLockPrivacyCoverIfEnabled();
       if (state == AppLifecycleState.inactive &&
           ref.read(syncV2SystemPickerProvider)) {
@@ -386,8 +351,6 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     _deactivateAppLockPrivacyCover();
     _cleanupExpiredSharedAttachments();
     _refreshPrivateSessionTimer();
-    _scheduleSeamlessCloudSync(respectForegroundBurst: true);
-    _scheduleInitialPendingCloudSyncProbe();
   }
 
   void _cleanupExpiredSharedAttachments() {
@@ -687,377 +650,6 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     await controller.startPreferredUpdate();
   }
 
-  void _scheduleSeamlessCloudSync({
-    Duration delay = const Duration(milliseconds: 500),
-    bool respectForegroundBurst = false,
-    bool localChanges = false,
-  }) {
-    if (!_cloudSyncForeground) {
-      return;
-    }
-    if (localChanges) {
-      _cloudSyncScheduledForLocalChanges = true;
-    }
-    if (respectForegroundBurst &&
-        !localChanges &&
-        !_canRunForegroundCloudSync()) {
-      return;
-    }
-    if (_cloudSyncScheduled) {
-      _requestCloudSyncReschedule(delay: delay, localChanges: localChanges);
-      return;
-    }
-    _cloudSyncScheduled = true;
-    _cloudSyncDebounceTimer?.cancel();
-    _cloudSyncDebounceTimer = Timer(delay, () {
-      unawaited(_runSeamlessCloudSync());
-    });
-  }
-
-  void _scheduleInitialPendingCloudSyncProbe() {
-    if (_initialPendingCloudSyncScheduled) {
-      return;
-    }
-    _initialPendingCloudSyncScheduled = true;
-    for (final delay in const [
-      Duration(seconds: 5),
-      Duration(seconds: 20),
-      Duration(seconds: 45),
-    ]) {
-      _initialCloudSyncProbeTimers.add(
-        Timer(delay, () async {
-          if (!mounted || !await _hasPendingCloudSyncChanges()) {
-            return;
-          }
-          _scheduleSeamlessCloudSync(
-            delay: _cloudSyncDebounceDelay,
-            localChanges: true,
-          );
-        }),
-      );
-    }
-  }
-
-  Future<void> _runSeamlessCloudSync() async {
-    var ranSyncAttempt = false;
-    try {
-      if (!mounted) {
-        return;
-      }
-      if (!_cloudSyncForeground) {
-        return;
-      }
-      final provider = ref.read(syncProviderControllerProvider);
-      if (provider == SyncProvider.off) {
-        final hasPendingChanges =
-            _cloudSyncScheduledForLocalChanges ||
-            await _hasPendingCloudSyncChanges();
-        if (hasPendingChanges) {
-          _cloudSyncScheduledForLocalChanges = true;
-          _cloudSyncRescheduleRequested = true;
-          _cloudSyncRescheduleDelay = const Duration(seconds: 10);
-        }
-        return;
-      }
-      final transferState = ref.read(syncTransferControllerProvider);
-      if (transferState.isBusy) {
-        final hasPendingChanges =
-            _cloudSyncScheduledForLocalChanges ||
-            await _hasPendingCloudSyncChanges();
-        if (hasPendingChanges) {
-          _cloudSyncScheduledForLocalChanges = true;
-          _cloudSyncRescheduleRequested = true;
-          _cloudSyncRescheduleDelay = const Duration(seconds: 10);
-        }
-        return;
-      }
-      final hasPendingChanges =
-          _cloudSyncScheduledForLocalChanges ||
-          await _hasPendingCloudSyncChanges();
-      if (!await _canRunAutomaticCloudSync(
-        hasPendingChanges: hasPendingChanges,
-      )) {
-        logDiagnostic(
-          'sync',
-          'automatic sync skipped by interval',
-          data: {
-            'hasPendingChanges': hasPendingChanges,
-            'minIntervalMinutes':
-                (hasPendingChanges
-                        ? _automaticCloudSyncLocalChangeMinInterval
-                        : _automaticCloudSyncRemoteMinInterval)
-                    .inMinutes,
-          },
-        );
-        if (hasPendingChanges) {
-          _cloudSyncScheduledForLocalChanges = true;
-          _cloudSyncRescheduleRequested = true;
-          _cloudSyncRescheduleDelay = _automaticCloudSyncRetryDelay(
-            hasPendingChanges: hasPendingChanges,
-          );
-        }
-        return;
-      }
-      await _recordAutomaticCloudSyncAttempt(
-        hasPendingChanges: hasPendingChanges,
-      );
-      ranSyncAttempt = true;
-      final result = await ref
-          .read(syncTransferControllerProvider.notifier)
-          .syncNow(
-            silentLargeMobileSkip: true,
-            allowCachedRemoteStatus: !hasPendingChanges,
-          );
-      if (result.stage == SyncTransferStage.success) {
-        if (result.message ==
-            'sync.info.private_profile_notes_pending_unlock') {
-          logDiagnostic(
-            'sync',
-            'automatic sync stored encrypted private notes pending unlock',
-          );
-        }
-        final remainingPendingChanges = await _hasPendingCloudSyncChanges();
-        await _recordAutomaticCloudSyncSuccess(
-          hasPendingChanges: remainingPendingChanges,
-        );
-        if (remainingPendingChanges) {
-          _cloudSyncRescheduleRequested = true;
-        } else {
-          _cloudSyncScheduledForLocalChanges = false;
-          _cloudSyncRescheduleRequested = false;
-          _cloudSyncRescheduleDelay = null;
-          logDiagnostic('sync', 'automatic sync idle without reschedule');
-        }
-      } else {
-        _recordAutomaticCloudSyncFailure();
-      }
-    } finally {
-      if (ranSyncAttempt) {
-        await _recordAutomaticCloudSyncAttemptFinished();
-      }
-      final rescheduleForLocalChanges = _cloudSyncScheduledForLocalChanges;
-      final rescheduleDelay =
-          _cloudSyncRescheduleDelay ?? _cloudSyncDebounceDelay;
-      _cloudSyncScheduled = false;
-      _cloudSyncScheduledForLocalChanges = false;
-      if (_cloudSyncRescheduleRequested) {
-        _cloudSyncRescheduleRequested = false;
-        _cloudSyncRescheduleDelay = null;
-        _scheduleSeamlessCloudSync(
-          delay: rescheduleDelay,
-          localChanges: rescheduleForLocalChanges,
-        );
-      }
-    }
-  }
-
-  void _requestCloudSyncReschedule({
-    required Duration delay,
-    required bool localChanges,
-  }) {
-    if (localChanges) {
-      _cloudSyncScheduledForLocalChanges = true;
-    }
-    _cloudSyncRescheduleRequested = true;
-    final currentDelay = _cloudSyncRescheduleDelay;
-    if (currentDelay == null || delay < currentDelay) {
-      _cloudSyncRescheduleDelay = delay;
-    }
-  }
-
-  bool _canRunForegroundCloudSync() {
-    final last = _lastAutomaticCloudSyncSucceededAt;
-    if (last == null) {
-      return true;
-    }
-    return DateTime.now().difference(last) >=
-        _automaticCloudSyncRemoteMinInterval;
-  }
-
-  Future<bool> _canRunAutomaticCloudSync({
-    required bool hasPendingChanges,
-  }) async {
-    final minInterval = hasPendingChanges
-        ? _automaticCloudSyncLocalChangeMinInterval
-        : _automaticCloudSyncRemoteMinInterval;
-    final now = DateTime.now();
-    final lastAttemptInMemory = _lastAutomaticCloudSyncAttemptedAt;
-    if (lastAttemptInMemory != null &&
-        now.difference(lastAttemptInMemory) <
-            _automaticCloudSyncAttemptMinInterval) {
-      return false;
-    }
-    final lastFailureInMemory = _lastAutomaticCloudSyncFailedAt;
-    if (lastFailureInMemory != null &&
-        now.difference(lastFailureInMemory) <
-            _automaticCloudSyncFailureMinInterval) {
-      return false;
-    }
-    final lastSuccessInMemory = _lastAutomaticCloudSyncSucceededAt;
-    if (lastSuccessInMemory != null &&
-        now.difference(lastSuccessInMemory) < minInterval) {
-      return false;
-    }
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final storedAttempt = prefs.getInt(_automaticCloudAttemptedAtStorageKey);
-      if (storedAttempt != null) {
-        final lastAttempt = DateTime.fromMillisecondsSinceEpoch(storedAttempt);
-        _lastAutomaticCloudSyncAttemptedAt = lastAttempt;
-        if (now.difference(lastAttempt) <
-            _automaticCloudSyncAttemptMinInterval) {
-          return false;
-        }
-      }
-      final stored = prefs.getInt(_automaticCloudSyncedAtStorageKey);
-      if (stored == null) {
-        return true;
-      }
-      final last = DateTime.fromMillisecondsSinceEpoch(stored);
-      _lastAutomaticCloudSyncSucceededAt = last;
-      return now.difference(last) >= minInterval;
-    } catch (_) {
-      logDiagnostic('sync', 'automatic sync schedule preference read failed');
-      return true;
-    }
-  }
-
-  Duration _automaticCloudSyncRetryDelay({required bool hasPendingChanges}) {
-    final now = DateTime.now();
-    final retryAfter = <Duration>[];
-    final lastAttempt = _lastAutomaticCloudSyncAttemptedAt;
-    if (lastAttempt != null) {
-      retryAfter.add(
-        _remainingInterval(
-          now: now,
-          last: lastAttempt,
-          minInterval: _automaticCloudSyncAttemptMinInterval,
-        ),
-      );
-    }
-    final lastFailure = _lastAutomaticCloudSyncFailedAt;
-    if (lastFailure != null) {
-      retryAfter.add(
-        _remainingInterval(
-          now: now,
-          last: lastFailure,
-          minInterval: _automaticCloudSyncFailureMinInterval,
-        ),
-      );
-    }
-    final lastSuccess = _lastAutomaticCloudSyncSucceededAt;
-    if (lastSuccess != null) {
-      retryAfter.add(
-        _remainingInterval(
-          now: now,
-          last: lastSuccess,
-          minInterval: hasPendingChanges
-              ? _automaticCloudSyncLocalChangeMinInterval
-              : _automaticCloudSyncRemoteMinInterval,
-        ),
-      );
-    }
-    final positiveRetryAfter = retryAfter
-        .where((duration) => duration > Duration.zero)
-        .fold<Duration?>(null, (previous, duration) {
-          if (previous == null || duration > previous) {
-            return duration;
-          }
-          return previous;
-        });
-    return positiveRetryAfter ?? _cloudSyncDebounceDelay;
-  }
-
-  Duration _remainingInterval({
-    required DateTime now,
-    required DateTime last,
-    required Duration minInterval,
-  }) {
-    final elapsed = now.difference(last);
-    if (elapsed >= minInterval) {
-      return Duration.zero;
-    }
-    return minInterval - elapsed;
-  }
-
-  Future<bool> _hasPendingCloudSyncChanges() async {
-    try {
-      return (await ref.read(syncQueueSummaryProvider.future))
-          .hasPendingChanges;
-    } catch (_) {
-      logDiagnostic('sync', 'sync queue status read failed');
-      return false;
-    }
-  }
-
-  Future<void> _recordAutomaticCloudSyncAttempt({
-    required bool hasPendingChanges,
-  }) async {
-    final now = DateTime.now();
-    _lastAutomaticCloudSyncAttemptedAt = now;
-    logDiagnostic(
-      'sync',
-      'automatic sync attempt recorded',
-      data: {'hasPendingChanges': hasPendingChanges},
-    );
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt(
-        _automaticCloudAttemptedAtStorageKey,
-        now.millisecondsSinceEpoch,
-      );
-    } catch (_) {
-      logDiagnostic('sync', 'automatic sync attempt persistence failed');
-    }
-  }
-
-  Future<void> _recordAutomaticCloudSyncAttemptFinished() async {
-    final now = DateTime.now();
-    _lastAutomaticCloudSyncAttemptedAt = now;
-    logDiagnostic('sync', 'automatic sync attempt finished');
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt(
-        _automaticCloudAttemptedAtStorageKey,
-        now.millisecondsSinceEpoch,
-      );
-    } catch (_) {
-      logDiagnostic('sync', 'automatic sync completion persistence failed');
-    }
-  }
-
-  void _recordAutomaticCloudSyncFailure() {
-    _lastAutomaticCloudSyncFailedAt = DateTime.now();
-    logDiagnostic(
-      'sync',
-      'automatic sync failure backoff started',
-      data: {
-        'retryAfterSeconds': _automaticCloudSyncFailureMinInterval.inSeconds,
-      },
-    );
-  }
-
-  Future<void> _recordAutomaticCloudSyncSuccess({
-    required bool hasPendingChanges,
-  }) async {
-    final now = DateTime.now();
-    _lastAutomaticCloudSyncSucceededAt = now;
-    logDiagnostic(
-      'sync',
-      'automatic sync success recorded',
-      data: {'hasPendingChanges': hasPendingChanges},
-    );
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt(
-        _automaticCloudSyncedAtStorageKey,
-        now.millisecondsSinceEpoch,
-      );
-    } catch (_) {
-      logDiagnostic('sync', 'automatic sync success persistence failed');
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
@@ -1095,45 +687,10 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     ref.listen<bool>(syncV2PrivacyActiveProvider, (previous, next) {
       unawaited(_refreshNativePrivacyScreen());
     });
-    ref.listen<SyncProvider>(syncProviderControllerProvider, (previous, next) {
-      if (next != SyncProvider.off && next != previous) {
-        _scheduleSeamlessCloudSync(respectForegroundBurst: true);
-      }
-    });
-    ref.listen<AsyncValue<SyncQueueSummary>>(syncQueueSummaryProvider, (
-      previous,
-      next,
-    ) {
-      final summary = next.asData?.value;
-      if (summary == null || !summary.hasPendingChanges) {
-        return;
-      }
-      _scheduleSeamlessCloudSync(
-        delay: _cloudSyncDebounceDelay,
-        localChanges: true,
-      );
-    });
-    ref.listen<List<NoteEntry>>(notesControllerProvider, (previous, next) {
-      if (!_hasPendingNotes(next)) {
-        return;
-      }
-      _scheduleSeamlessCloudSync(
-        delay: _cloudSyncDebounceDelay,
-        localChanges: true,
-      );
-    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(
         _refreshNativePrivacyScreen(privatePrivacyActive: privacyScreenActive),
       );
-      if (!_initialPendingCloudSyncScheduled &&
-          _hasPendingNotes(ref.read(notesControllerProvider))) {
-        _initialPendingCloudSyncScheduled = true;
-        _scheduleSeamlessCloudSync(
-          delay: _cloudSyncDebounceDelay,
-          localChanges: true,
-        );
-      }
     });
 
     if (!enabled || unlocked || bypassForQuickCapture) {
@@ -1458,15 +1015,6 @@ class _AppLockIcon extends StatelessWidget {
       child: image,
     );
   }
-}
-
-bool _hasPendingNotes(List<NoteEntry> notes) {
-  return notes.any(
-    (note) =>
-        note.syncState == NoteSyncState.pendingUpload ||
-        note.syncState == NoteSyncState.pendingDelete ||
-        note.syncState == NoteSyncState.conflict,
-  );
 }
 
 class _ResolvedAppLockPolicy {

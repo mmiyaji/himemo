@@ -1,4 +1,5 @@
 import 'package:drift/native.dart';
+import 'package:himemo/features/sync/data/sync_v2_icloud_session.dart';
 import 'package:himemo/features/security/data/encryption_service.dart';
 import 'package:himemo/features/security/data/secure_key_value_store.dart';
 import 'package:himemo/features/sync/data/sync_v2_enrollment_store.dart';
@@ -12,6 +13,7 @@ import 'package:himemo/features/sync/testing/sync_v2_local_preview.dart';
 
 Future<SyncV2WorkspaceController> createSyncV2TestWorkspace({
   bool register = true,
+  Future<SyncV2ICloudProgress> Function()? syncOperation,
 }) async {
   final encryption = EncryptionService();
   final store = MemorySecureKeyValueStore();
@@ -31,13 +33,15 @@ Future<SyncV2WorkspaceController> createSyncV2TestWorkspace({
     registrationTransport: registration,
     registrationFactory: (_) =>
         SyncV2GenerationRegistration(registration, enrollments),
-    syncOperation: () async => (
-      headersStaged: false,
-      hasMoreHeaders: false,
-      downloadedPayloads: 0,
-      publishedChanges: 0,
-      errors: <String>[],
-    ),
+    syncOperation:
+        syncOperation ??
+        () async => (
+          headersStaged: false,
+          hasMoreHeaders: false,
+          downloadedPayloads: 0,
+          publishedChanges: 0,
+          errors: <String>[],
+        ),
     activate: () async {},
     deactivate: () async {},
     supported: true,

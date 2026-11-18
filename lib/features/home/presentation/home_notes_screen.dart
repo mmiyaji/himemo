@@ -68,7 +68,6 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     );
     final query = ref.watch(searchQueryProvider).trim();
     final selectedNoteId = ref.watch(selectedNoteIdProvider);
-    final syncProvider = ref.watch(syncProviderControllerProvider);
     final adminMode = ref.watch(adminModeSessionControllerProvider);
 
     if (!useSplitView) {
@@ -86,9 +85,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         sortField: sortField,
         attachmentPreviewFit: attachmentPreviewFit,
         query: query,
-        onRefresh: !usesSyncV2NoteBackend && syncProvider == SyncProvider.off
-            ? null
-            : () => _refreshNotesFromCloud(context),
+        onRefresh: () => _refreshNotesFromCloud(context),
         onUnlockPrivateProfile: () => _showProfileAccessDialog(context, ref),
         onExitAdminMode: () => _exitAdminMode(ref),
         onTogglePinned: (note) =>
@@ -143,10 +140,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                 attachmentPreviewFit: attachmentPreviewFit,
                 query: query,
                 onAddNote: () => showNoteEditorSheet(context, ref),
-                onRefresh:
-                    !usesSyncV2NoteBackend && syncProvider == SyncProvider.off
-                    ? null
-                    : () => _refreshNotesFromCloud(context),
+                onRefresh: () => _refreshNotesFromCloud(context),
                 onUnlockPrivateProfile: () =>
                     _showProfileAccessDialog(context, ref),
                 onExitAdminMode: () => _exitAdminMode(ref),
@@ -282,56 +276,23 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
 
   Future<void> _refreshNotesFromCloud(BuildContext context) async {
     final strings = context.strings;
-    if (usesSyncV2NoteBackend) {
-      final workspace = ref.read(syncV2WorkspaceProvider);
-      if (!workspace.registered || workspace.busy) return;
-      try {
-        await workspace.syncNow();
-      } catch (_) {
-        if (!context.mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              strings.localized(
-                en: 'Could not sync. Check your iCloud sign-in and connection.',
-                ja: '同期できませんでした。iCloudのサインインと通信状態を確認してください。',
-              ),
+    final workspace = ref.read(syncV2WorkspaceProvider);
+    if (!workspace.registered || workspace.busy) return;
+    try {
+      await workspace.syncNow();
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            strings.localized(
+              en: 'Could not sync. Check your iCloud sign-in and connection.',
+              ja: '同期できませんでした。iCloudのサインインと通信状態を確認してください。',
             ),
           ),
-        );
-      }
-      return;
+        ),
+      );
     }
-    final warning = await ref
-        .read(syncTransferControllerProvider.notifier)
-        .largeMobileTransferWarning(includeUpload: true, includeDownload: true);
-    if (!context.mounted) {
-      return;
-    }
-    final confirmed = warning == null
-        ? true
-        : await _showLargeMobileSyncConfirmDialog(context, warning) ?? false;
-    if (!confirmed || !context.mounted) {
-      return;
-    }
-    final result = await ref
-        .read(syncTransferControllerProvider.notifier)
-        .syncNow(allowLargeMobileTransfer: true);
-    if (!context.mounted) {
-      return;
-    }
-    final syncProvider = ref.read(syncProviderControllerProvider);
-    if (syncProvider == SyncProvider.off) {
-      return;
-    }
-    final message = _cloudSyncSnackBarMessage(
-      strings,
-      result,
-      _CloudSyncSnackBarAction.syncNow,
-      syncProvider,
-    );
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(showCloseIcon: true, content: Text(message)));
   }
 
   Future<void> _deleteNote(BuildContext context, NoteEntry note) async {

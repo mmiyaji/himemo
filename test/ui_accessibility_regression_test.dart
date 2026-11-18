@@ -1,4 +1,7 @@
 import 'dart:io';
+
+import 'package:himemo/features/sync/data/sync_v2_icloud_session.dart';
+
 import 'dart:math';
 import 'dart:ui' as ui;
 
@@ -35,6 +38,108 @@ import 'support/sync_v2_conflict_fixture.dart';
 import 'package:himemo/features/sync/data/sync_v2_note_store.dart';
 
 void main() {
+  testWidgets(
+    'v2 shell opens sync settings after a sync failure without legacy services',
+    (tester) async {
+      final harness = await _createHarness(
+        preferences: const {
+          'settings.locale': 'english',
+          'app.onboarding_completed': true,
+          'app.onboarding_completed_version': 2,
+        },
+        overrides: [
+          unseenReleaseNoteProvider.overrideWith((ref) async => null),
+        ],
+        syncOperation: () async => throw StateError('offline'),
+      );
+      _configureView(tester, size: const Size(1024, 900));
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: harness.container,
+          child: const HiMemoApp(flavor: AppFlavor.development),
+        ),
+      );
+      await tester.pump();
+      await tester.runAsync(
+        () => harness.container
+            .read(notesControllerProvider.notifier)
+            .restoreCompleted,
+      );
+      harness.container
+          .read(appSessionUnlockControllerProvider.notifier)
+          .unlock();
+      await tester.pumpAndSettle();
+      // Pass the last (45-second) probe of the retired startup scheduler.
+      await tester.pump(const Duration(seconds: 46));
+      final tutorial = harness.container.read(
+        appTutorialControllerProvider.notifier,
+      );
+      tutorial.start(AppTutorialCourse.sync);
+      expect(
+        harness.container.read(appTutorialControllerProvider)!.steps,
+        contains(AppTutorialStep.syncStatus),
+      );
+      tutorial.close();
+      expect(harness.container.exists(syncProviderControllerProvider), isFalse);
+      expect(harness.container.exists(syncTransferControllerProvider), isFalse);
+      expect(harness.container.exists(syncQueueSummaryProvider), isFalse);
+      expect(find.byKey(AppShell.syncIndicatorKey), findsNothing);
+      final workspace = harness.container.read(syncV2WorkspaceProvider);
+      await tester.runAsync(() async {
+        await expectLater(
+          workspace.syncNow(),
+          throwsA(
+            isA<SyncV2WorkspaceException>().having(
+              (error) => error.code,
+              'code',
+              'operation_failed',
+            ),
+          ),
+        );
+      });
+      await tester.pumpAndSettle();
+      final indicator = find.byKey(AppShell.syncIndicatorKey);
+      expect(indicator, findsOneWidget);
+      expect(
+        find.descendant(
+          of: indicator,
+          matching: find.byIcon(Icons.sync_problem_outlined),
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(indicator);
+      await tester.pumpAndSettle();
+      expect(
+        harness.container
+            .read(appRouterProvider)
+            .routeInformationProvider
+            .value
+            .uri
+            .path,
+        '/settings',
+      );
+      expect(find.text('Retry sync'), findsOneWidget);
+      expect(harness.container.exists(syncProviderControllerProvider), isFalse);
+      expect(harness.container.exists(syncTransferControllerProvider), isFalse);
+      expect(harness.container.exists(syncQueueSummaryProvider), isFalse);
+      final syncSection = tester.widget<ExpansionTile>(
+        find
+            .ancestor(
+              of: find.text('Sync and security'),
+              matching: find.byType(ExpansionTile),
+            )
+            .first,
+      );
+      syncSection.controller!.collapse();
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      harness.container.dispose();
+      await tester.pump();
+    },
+    skip: !usesSyncV2NoteBackend,
+  );
+
   testWidgets(
     'v2 note detail resolves a real concurrent edit and refreshes the list',
     (tester) async {
@@ -931,6 +1036,7 @@ Future<_TestHarness> _createHarness({
   required Map<String, Object> preferences,
   bool keepAppLockSettingsPending = false,
   bool registerWorkspace = true,
+  Future<SyncV2ICloudProgress> Function()? syncOperation,
   AppFlavor flavor = AppFlavor.development,
   List<Override> overrides = const [],
 }) async {
@@ -945,7 +1051,10 @@ Future<_TestHarness> _createHarness({
   final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
   final workspace = usesSyncV2NoteBackend
       ? await TestWidgetsFlutterBinding.instance.runAsync(
-          () => createSyncV2TestWorkspace(register: registerWorkspace),
+          () => createSyncV2TestWorkspace(
+            register: registerWorkspace,
+            syncOperation: syncOperation,
+          ),
         )
       : null;
   if (workspace != null) addTearDown(workspace.dispose);

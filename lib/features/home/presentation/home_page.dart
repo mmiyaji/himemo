@@ -285,14 +285,8 @@ class _AppShellState extends ConsumerState<AppShell> {
     final effectiveProfileAccessTooltip = profileUnlocking
         ? profileAccessBusyTooltip
         : profileAccessTooltip;
-    final syncTransferState = ref.watch(syncTransferControllerProvider);
-    final syncProvider = ref.watch(syncProviderControllerProvider);
     final tutorialState = ref.watch(appTutorialControllerProvider);
     final tutorialStep = tutorialState?.step;
-    final showSyncIndicator =
-        syncTransferState.stage == SyncTransferStage.busy ||
-        tutorialStep == AppTutorialStep.syncStatus;
-
     final shell = Scaffold(
       appBar: AppBar(
         // With the side rail, line the brand mark up with the rail icons
@@ -303,16 +297,6 @@ class _AppShellState extends ConsumerState<AppShell> {
           if (usesSyncV2NoteBackend)
             _HeaderV2SyncIndicator(
               forceVisible: tutorialStep == AppTutorialStep.syncStatus,
-            )
-          else if (showSyncIndicator)
-            Padding(
-              padding: EdgeInsetsDirectional.only(
-                end: privateProfileActive || adminMode ? 8 : 4,
-              ),
-              child: _HeaderSyncIndicator(
-                state: syncTransferState,
-                provider: ref.watch(syncProviderControllerProvider),
-              ),
             ),
           if (useRail)
             Padding(
@@ -585,7 +569,6 @@ class _AppShellState extends ConsumerState<AppShell> {
           _AppTutorialOverlay(
             state: tutorialState!,
             useRail: useRail,
-            syncProvider: syncProvider,
             onPrevious: () {
               final latest = ref.read(appTutorialControllerProvider);
               if (latest != null) {
@@ -801,7 +784,6 @@ class _AppTutorialOverlay extends StatefulWidget {
   const _AppTutorialOverlay({
     required this.state,
     required this.useRail,
-    required this.syncProvider,
     required this.onPrevious,
     required this.onNext,
     required this.onClose,
@@ -809,7 +791,6 @@ class _AppTutorialOverlay extends StatefulWidget {
 
   final AppTutorialState state;
   final bool useRail;
-  final SyncProvider syncProvider;
   final VoidCallback onPrevious;
   final VoidCallback onNext;
   final VoidCallback onClose;
@@ -1321,27 +1302,13 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
         en: 'Unlock a private profile from the header before writing private memos. In the editor, choose the private save destination before saving.',
         ja: 'プライベートメモを書く前に、ヘッダーからプロファイルを解除します。編集画面では保存先がプライベートになっていることを確認して保存します。',
       ),
-      AppTutorialStep.syncTroubleshooting when usesSyncV2NoteBackend =>
-        strings.localized(
-          en: 'Notes sync automatically through iCloud. Check sync status, add another device, or save your recovery file here.',
-          ja: 'メモはiCloudで自動同期されます。ここで同期状態の確認、別の端末の追加、復元用ファイルの保存ができます。',
-        ),
       AppTutorialStep.syncTroubleshooting => strings.localized(
-        en: widget.syncProvider == SyncProvider.off
-            ? 'Sync is turned off. Choose a backup provider here to get started. Progress appears in the header while a sync is running.'
-            : 'Manage your backup provider and sync actions here. While a sync is running, its progress and item counts appear in the header.',
-        ja: widget.syncProvider == SyncProvider.off
-            ? '現在、同期はオフです。ここで保存先を選ぶと利用を始められます。同期中は画面上部に進捗が表示されます。'
-            : 'ここで保存先や同期の操作を管理できます。同期中は画面上部に進捗と件数が表示されます。',
+        en: 'Notes sync automatically through iCloud. Check sync status, add another device, or save your recovery file here.',
+        ja: 'メモはiCloudで自動同期されます。ここで同期状態の確認、別の端末の追加、復元用ファイルの保存ができます。',
       ),
-      AppTutorialStep.syncStatus when usesSyncV2NoteBackend =>
-        strings.localized(
-          en: 'This indicator shows when syncing or when sync needs attention. Tap it to open sync settings.',
-          ja: '同期中や確認が必要なときに表示されます。タップすると同期の設定を開けます。',
-        ),
       AppTutorialStep.syncStatus => strings.localized(
-        en: 'When sync is running, this indicator rotates and shows progress. Tap it to see the current step and item counts.',
-        ja: '同期中はこのインジケーターが回転し、進捗を表示します。タップすると現在の処理や件数進捗を確認できます。',
+        en: 'This indicator shows when syncing or when sync needs attention. Tap it to open sync settings.',
+        ja: '同期中や確認が必要なときに表示されます。タップすると同期の設定を開けます。',
       ),
       AppTutorialStep.settings => strings.localized(
         en: 'Settings is where you manage sync, app protection, private profiles, appearance, storage, release notes, and help.',
@@ -1462,184 +1429,6 @@ class _HeaderV2SyncIndicator extends ConsumerWidget {
                       ? Icons.sync
                       : Icons.sync_problem_outlined,
                 ),
-        );
-      },
-    );
-  }
-}
-
-class _HeaderSyncIndicator extends StatefulWidget {
-  const _HeaderSyncIndicator({required this.state, required this.provider});
-
-  final SyncTransferState state;
-  final SyncProvider provider;
-
-  @override
-  State<_HeaderSyncIndicator> createState() => _HeaderSyncIndicatorState();
-}
-
-class _HeaderSyncIndicatorState extends State<_HeaderSyncIndicator>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _rotationController;
-
-  @override
-  void initState() {
-    super.initState();
-    _rotationController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1400),
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _rotationController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final strings = context.strings;
-    final colorScheme = Theme.of(context).colorScheme;
-    final label = _syncProgressLabel(strings, widget.state);
-    final description = _syncProgressDescription(
-      strings,
-      widget.state,
-      widget.provider,
-    );
-    final tooltip = strings.localized(
-      en: '$label\n$description\nTap to show sync progress.',
-      ja: '$label\n$description\nタップすると同期の進捗を表示します。',
-      zh: '$label\n$description\n点按可显示同步进度。',
-      ko: '$label\n$description\n탭하면 동기화 진행 상황을 표시합니다.',
-      es: '$label\n$description\nToca para ver el progreso de sincronización.',
-      de: '$label\n$description\nTippe, um den Synchronisierungsfortschritt anzuzeigen.',
-    );
-    final disableAnimations = MediaQuery.disableAnimationsOf(context);
-    return Tooltip(
-      message: tooltip,
-      child: Semantics(
-        button: true,
-        label: label,
-        value: description,
-        onTap: () => _showHeaderSyncProgressDialog(context),
-        child: SizedBox.square(
-          dimension: 40,
-          child: InkResponse(
-            key: AppShell.syncIndicatorKey,
-            radius: 20,
-            onTap: () => _showHeaderSyncProgressDialog(context),
-            child: Center(
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  SizedBox.square(
-                    dimension: 24,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.2,
-                      value: widget.state.progressValue,
-                      color: colorScheme.primary,
-                      backgroundColor: colorScheme.primary.withValues(
-                        alpha: 0.12,
-                      ),
-                    ),
-                  ),
-                  RotationTransition(
-                    turns: disableAnimations
-                        ? const AlwaysStoppedAnimation<double>(0)
-                        : ReverseAnimation(_rotationController),
-                    child: Icon(
-                      Icons.sync_rounded,
-                      size: 14,
-                      color: colorScheme.primary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _showHeaderSyncProgressDialog(BuildContext context) {
-    final strings = context.strings;
-    final container = ProviderScope.containerOf(context);
-    return showDialog<void>(
-      context: context,
-      builder: (context) {
-        return UncontrolledProviderScope(
-          container: container,
-          child: Consumer(
-            builder: (context, ref, _) {
-              final state = ref.watch(syncTransferControllerProvider);
-              final provider = ref.watch(syncProviderControllerProvider);
-              final label = _syncProgressLabel(strings, state);
-              final description = _syncProgressDescription(
-                strings,
-                state,
-                provider,
-              );
-              final itemProgress = _syncProgressItemProgressText(
-                strings,
-                state,
-              );
-              final progressValue = state.progressValue;
-              return AlertDialog(
-                title: Text(
-                  strings.localized(
-                    en: 'Sync progress',
-                    ja: '同期の進捗',
-                    zh: '同步进度',
-                    ko: '동기화 진행 상황',
-                    es: 'Progreso de sincronización',
-                    de: 'Synchronisierungsfortschritt',
-                  ),
-                ),
-                content: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 420),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        label,
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        description,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      LinearProgressIndicator(value: progressValue),
-                      if (itemProgress != null) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          itemProgress,
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onSurfaceVariant,
-                              ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: Text(strings.cancel),
-                  ),
-                ],
-              );
-            },
-          ),
         );
       },
     );
