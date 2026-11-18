@@ -226,8 +226,14 @@ class SyncV2NoteStore implements NoteStore {
         if (parsed.id != snapshot.key || parsed.vaultId != entry.key) {
           continue;
         }
-        final note = parsed.copyWith(id: v1NoteId(parsed.id), vaultId: vaultId);
-        if (snapshot.value.hasConflict || !snapshot.value.canCompareVersions) {
+        final unresolved =
+            snapshot.value.hasConflict || !snapshot.value.canCompareVersions;
+        final note = parsed.copyWith(
+          id: v1NoteId(parsed.id),
+          vaultId: vaultId,
+          syncState: unresolved ? NoteSyncState.conflict : parsed.syncState,
+        );
+        if (unresolved) {
           _unresolved.add(snapshot.key);
         }
         _references[snapshot.key] = [
@@ -246,6 +252,113 @@ class SyncV2NoteStore implements NoteStore {
     }
     return loaded;
   });
+
+  Future<SyncV2NoteSnapshot> readConflict(NoteEntry note) {
+    final session = _requireSession();
+    final profileId = profileIdFor(session, note.vaultId);
+    final access = session.profiles[profileId];
+    if (access == null) throw SyncV2NoteStoreLocked(note.vaultId);
+    return _serial(() async {
+      _checkActive(session, access);
+      final snapshot = await repository.readNote(
+        generationId: session.generationId,
+        profileId: profileId,
+        noteId: v2NoteId(note.id),
+        syncKey: session.syncKey,
+        profileKey: access,
+      );
+      _checkActive(session, access);
+      for (final version in snapshot.versions) {
+        if (!version.isDeleted && version.body != null) {
+          _conflictNote(version, v2NoteId(note.id), profileId);
+        }
+      }
+      return snapshot;
+    });
+  }
+
+  NoteEntry _conflictNote(
+    SyncV2NoteVersion version,
+    String id,
+    String profileId,
+  ) {
+    final body = version.body;
+    if (body == null || body['type'] != 'note' || body['note'] is! Map) {
+      throw const FormatException('Invalid conflict note');
+    }
+    final parsed = NoteEntry.fromJson(
+      Map<String, dynamic>.from(body['note'] as Map),
+    );
+    if (parsed.id != id || parsed.vaultId != profileId) {
+      throw const FormatException('Invalid conflict note identity');
+    }
+    return parsed;
+  }
+
+  /// Consume exactly the reviewed heads, preserving the selected version's
+  /// fields and encrypted attachment references. Never pick a version silently.
+  Future<void> resolveConflict(
+    NoteEntry note, {
+    required Set<String> reviewedHeads,
+    required String selectedChangeId,
+  }) {
+    final session = _requireSession();
+    final profileId = profileIdFor(session, note.vaultId);
+    final access = session.profiles[profileId];
+    if (access == null) throw SyncV2NoteStoreLocked(note.vaultId);
+    final heads = Set<String>.of(reviewedHeads);
+    return _serial(
+      () => repository.transaction(() async {
+        _checkActive(session, access);
+        final id = v2NoteId(note.id);
+        final snapshot = await repository.readNote(
+          generationId: session.generationId,
+          profileId: profileId,
+          noteId: id,
+          syncKey: session.syncKey,
+          profileKey: access,
+        );
+        _checkActive(session, access);
+        if (!snapshot.hasConflict ||
+            !snapshot.canCompareVersions ||
+            snapshot.headIds.length != heads.length ||
+            !snapshot.headIds.containsAll(heads) ||
+            !heads.contains(selectedChangeId)) {
+          throw const SyncV2StaleNote();
+        }
+        final selected = snapshot.versions.singleWhere(
+          (v) => v.change.id == selectedChangeId,
+        );
+        if (selected.isDeleted) {
+          await repository.delete(
+            generationId: session.generationId,
+            profileId: profileId,
+            noteId: id,
+            changeId: _changeId(),
+            expectedHeadIds: heads,
+            syncKey: session.syncKey,
+            profileKey: access,
+          );
+        } else {
+          final parsed = _conflictNote(selected, id, profileId);
+          await repository.save(
+            generationId: session.generationId,
+            profileId: profileId,
+            noteId: id,
+            changeId: _changeId(),
+            expectedHeadIds: heads,
+            body: {
+              ...selected.body!,
+              'note': parsed.copyWith(updatedAt: DateTime.now()).toJson(),
+            },
+            syncKey: session.syncKey,
+            profileKey: access,
+          );
+        }
+        _checkActive(session, access);
+      }),
+    );
+  }
 
   Future<NoteEntry> _write(
     SyncV2NoteStoreSession session,

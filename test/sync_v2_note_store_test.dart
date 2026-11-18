@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
 
@@ -501,6 +502,252 @@ void main() {
     ]);
   });
 
+  final branchPayloads = <String, Uint8List>{};
+  Future<void> branch(
+    String changeId, {
+    bool payload = true,
+    bool deleted = false,
+    String vaultId = 'everyday',
+    NoteEntry? note,
+    List<Map<String, Object?>> attachments = const [],
+  }) async {
+    final encryption = EncryptionService();
+    final peer = SyncV2Inbox(
+      NativeDatabase.memory(),
+      SyncV2HeaderCodec(encryption),
+    );
+    addTearDown(peer.close);
+    final repo = SyncV2NoteRepository(
+      peer,
+      SyncV2HeaderCodec(encryption),
+      SyncV2PayloadCodec(encryption),
+    );
+    final profileId = vaultId == 'everyday' ? _normalId : vaultId;
+    final access = profileId == _normalId ? normal : private;
+    if (deleted) {
+      await repo.delete(
+        generationId: 'g',
+        profileId: profileId,
+        noteId: 'note_c',
+        changeId: changeId,
+        expectedHeadIds: {},
+        syncKey: sync,
+        profileKey: access,
+      );
+    } else {
+      await repo.save(
+        generationId: 'g',
+        profileId: profileId,
+        noteId: 'note_c',
+        changeId: changeId,
+        expectedHeadIds: {},
+        body: {
+          'type': 'note',
+          'note': (note ?? _note('note_c', title: changeId))
+              .copyWith(vaultId: profileId)
+              .toJson(),
+          'attachments': attachments,
+        },
+        syncKey: sync,
+        profileKey: access,
+      );
+    }
+    final records = await peer.readOutbox(generationId: 'g', limit: 100);
+    await inbox.stagePage(
+      generationId: 'g',
+      expectedCursor: await inbox.readCursor('g'),
+      nextCursor: changeId,
+      records: [
+        for (final r in records) (id: r.id, encryptedHeader: r.encryptedHeader),
+      ],
+      syncKey: sync,
+    );
+    for (final r in records) {
+      if (r.encryptedPayload != null) {
+        branchPayloads[r.id] = r.encryptedPayload!;
+      }
+    }
+    if (payload && !deleted) {
+      for (final r in records) {
+        await inbox.storePayload(
+          generationId: 'g',
+          recordId: r.id,
+          encryptedPayload: r.encryptedPayload!,
+          syncKey: sync,
+        );
+      }
+    }
+  }
+
+  test(
+    'reviewed conflict resolution keeps chosen rich content and attachments',
+    () async {
+      final service = SyncV2AttachmentService(inbox, repository);
+      final bytes = Uint8List.fromList([1, 3, 5]);
+      final ref = await service.store(
+        generationId: 'g',
+        syncKey: sync,
+        profileAccess: normal,
+        bytes: bytes,
+        label: 'keep.png',
+        type: 'photo',
+      );
+      final attachment = NoteAttachment(
+        type: AttachmentType.photo,
+        label: ref.label,
+        filePath: 'v2attachment:${ref.id}',
+        syncAttachmentContentHash: ref.sha256,
+      );
+      final chosen = _note('note_c', title: 'Chosen rich version').copyWith(
+        tags: ['keep'],
+        attachments: [attachment],
+        blocks: [NoteBlock(type: NoteBlockType.photo, attachment: attachment)],
+      );
+      await branch('left', note: chosen, attachments: [ref.toJson()]);
+      await branch('right');
+      final store = newStore();
+      final visible = (await store.load(fallbackNotes: [])).single;
+      expect(visible.syncState, NoteSyncState.conflict);
+      final snapshot = await store.readConflict(visible);
+      await store.resolveConflict(
+        visible,
+        reviewedHeads: snapshot.headIds,
+        selectedChangeId: 'left',
+      );
+      final resolved = (await store.load(fallbackNotes: [])).single;
+      expect(resolved.syncState, isNot(NoteSyncState.conflict));
+      expect(resolved.title, chosen.title);
+      expect(resolved.tags, chosen.tags);
+      expect(resolved.blocks, chosen.blocks);
+      expect(resolved.attachments, chosen.attachments);
+      expect(
+        await service.read(
+          reference: ref,
+          generationId: 'g',
+          syncKey: sync,
+          profileAccess: normal,
+        ),
+        bytes,
+      );
+    },
+  );
+
+  test(
+    'resolution refuses newly arrived heads and incomplete bodies',
+    () async {
+      await branch('left');
+      await branch('right', payload: false);
+      final store = newStore();
+      final visible = (await store.load(fallbackNotes: [])).single;
+      final partial = await store.readConflict(visible);
+      expect(partial.canCompareVersions, isFalse);
+      await expectLater(
+        store.resolveConflict(
+          visible,
+          reviewedHeads: partial.headIds,
+          selectedChangeId: 'left',
+        ),
+        throwsA(isA<SyncV2StaleNote>()),
+      );
+      await inbox.storePayload(
+        generationId: 'g',
+        recordId: 'right',
+        encryptedPayload: branchPayloads['right']!,
+        syncKey: sync,
+      );
+      final reviewed = await store.readConflict(visible);
+      await branch('third');
+      await expectLater(
+        store.resolveConflict(
+          visible,
+          reviewedHeads: reviewed.headIds,
+          selectedChangeId: 'left',
+        ),
+        throwsA(isA<SyncV2StaleNote>()),
+      );
+      expect((await store.readConflict(visible)).headIds, {
+        'left',
+        'right',
+        'third',
+      });
+    },
+  );
+
+  test('explicitly choosing a deletion consumes all conflict heads', () async {
+    await branch('left');
+    await branch('deleted', deleted: true);
+    final store = newStore();
+    final visible = (await store.load(fallbackNotes: [])).single;
+    final snapshot = await store.readConflict(visible);
+    await store.resolveConflict(
+      visible,
+      reviewedHeads: snapshot.headIds,
+      selectedChangeId: 'deleted',
+    );
+    expect(await store.load(fallbackNotes: []), isEmpty);
+    final saved = await repository.readNote(
+      generationId: 'g',
+      profileId: _normalId,
+      noteId: 'note_c',
+      syncKey: sync,
+      profileKey: normal,
+    );
+    expect(saved.versions.single.isDeleted, isTrue);
+    expect(saved.hasConflict, isFalse);
+  });
+
+  test('locking a reviewed private conflict prevents resolution', () async {
+    privateUnlocked = true;
+    await branch('left', vaultId: _privateId);
+    await branch('right', vaultId: _privateId);
+    final store = newStore();
+    final visible = (await store.load(fallbackNotes: [])).single;
+    final snapshot = await store.readConflict(visible);
+    privateUnlocked = false;
+    expect(
+      () => store.resolveConflict(
+        visible,
+        reviewedHeads: snapshot.headIds,
+        selectedChangeId: 'left',
+      ),
+      throwsA(isA<SyncV2NoteStoreLocked>()),
+    );
+    privateUnlocked = true;
+    expect((await store.readConflict(visible)).hasConflict, isTrue);
+  });
+
+  test(
+    'locking during conflict commit rolls back the selected version',
+    () async {
+      privateUnlocked = true;
+      await branch('left', vaultId: _privateId);
+      await branch('right', vaultId: _privateId);
+      final encryption = EncryptionService();
+      final held = _HeldResolutionRepository(
+        inbox,
+        SyncV2HeaderCodec(encryption),
+        SyncV2PayloadCodec(encryption),
+      );
+      repository = held;
+      final store = newStore();
+      final visible = (await store.load(fallbackNotes: [])).single;
+      final snapshot = await store.readConflict(visible);
+      held.release = Completer<void>();
+      final resolving = store.resolveConflict(
+        visible,
+        reviewedHeads: snapshot.headIds,
+        selectedChangeId: 'left',
+      );
+      await held.entered.future;
+      privateUnlocked = false;
+      held.release!.complete();
+      await expectLater(resolving, throwsA(isA<SyncV2NoteStoreLocked>()));
+      privateUnlocked = true;
+      expect((await store.readConflict(visible)).headIds, snapshot.headIds);
+      expect(await inbox.readOutbox(generationId: 'g', limit: 100), isEmpty);
+    },
+  );
+
   test('conflicted notes load but refuse edits and deletes', () async {
     SyncV2NoteVersion version(String id) => SyncV2NoteVersion(
       change: SyncV2Change(
@@ -569,4 +816,42 @@ class _FixedRepository extends SyncV2NoteRepository {
     SyncV2UnlockedProfileKey? profileKey,
     String? noteIdPrefix,
   }) async => profileId == _normalId ? snapshots : const {};
+}
+
+class _HeldResolutionRepository extends SyncV2NoteRepository {
+  // ignore: use_super_parameters
+  _HeldResolutionRepository(
+    SyncV2Inbox inbox,
+    SyncV2HeaderCodec headers,
+    SyncV2PayloadCodec payloads,
+  ) : super(inbox, headers, payloads);
+  final entered = Completer<void>();
+  Completer<void>? release;
+  @override
+  Future<SyncV2Change> save({
+    required String generationId,
+    required String profileId,
+    required String noteId,
+    required String changeId,
+    required Set<String> expectedHeadIds,
+    required Map<String, Object?> body,
+    required SecretKey syncKey,
+    required SyncV2UnlockedProfileKey profileKey,
+  }) async {
+    final change = await super.save(
+      generationId: generationId,
+      profileId: profileId,
+      noteId: noteId,
+      changeId: changeId,
+      expectedHeadIds: expectedHeadIds,
+      body: body,
+      syncKey: syncKey,
+      profileKey: profileKey,
+    );
+    if (release != null) {
+      entered.complete();
+      await release!.future;
+    }
+    return change;
+  }
 }

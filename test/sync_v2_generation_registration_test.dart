@@ -104,7 +104,26 @@ void main() {
       await service.exportRecoveryCode(accountId: 'account'),
       prepared.recoveryCode,
     );
-    await service.verifyAdminKey(accountId: 'account', adminKey: admin);
+    await service.verifyAdminKey(
+      accountId: 'account',
+      adminKey: admin,
+      expectedGenerationId: prepared.generationId,
+    );
+    // Valid proof and key: only the explicit generation guard can reject this.
+    await expectLater(
+      service.verifyAdminKey(
+        accountId: 'account',
+        adminKey: admin,
+        expectedGenerationId: 'different_generation',
+      ),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          'Enrollment generation changed',
+        ),
+      ),
+    );
     final wrong = SecretKey(List.filled(32, 33));
     addTearDown(wrong.destroy);
     await expectLater(

@@ -295,17 +295,22 @@ class SyncV2WorkspaceController extends ChangeNotifier {
     }
     final epoch = _epoch;
     final revision = _settingsAdminRevision;
+    final account = accountId!;
+    final generation = generationId!;
+    var deviceKeyRead = false;
     SecretKey? admin;
     var profilesInstalled = false;
     try {
       admin = await deviceAdminStore.read(
-        accountId: accountId!,
-        generationId: generationId!,
+        accountId: account,
+        generationId: generation,
       );
+      deviceKeyRead = true;
       if (admin == null) return false;
       await _registration.verifyAdminKey(
-        accountId: accountId!,
+        accountId: account,
         adminKey: admin,
+        expectedGenerationId: generation,
       );
       void checkSession() {
         if (!settingsAdminActive ||
@@ -332,11 +337,16 @@ class SyncV2WorkspaceController extends ChangeNotifier {
       if (failure is SyncV2WorkspaceException && failure.code == 'locked') {
         rethrow;
       }
-      if (failure is FormatException || failure is HimemoDecryptionException) {
+      if (!deviceKeyRead &&
+          epoch == _epoch &&
+          accountId == account &&
+          generationId == generation &&
+          (failure is FormatException ||
+              failure is HimemoDecryptionException)) {
         try {
           await deviceAdminStore.delete(
-            accountId: accountId!,
-            generationId: generationId!,
+            accountId: account,
+            generationId: generation,
           );
         } catch (_) {
           // A failed shortcut still falls back to the original credential.

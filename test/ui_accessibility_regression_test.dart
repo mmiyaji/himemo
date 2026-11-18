@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,6 +15,7 @@ import 'package:himemo/app/app.dart';
 import 'package:himemo/app/app_flavor.dart';
 import 'package:himemo/app/app_router.dart';
 import 'package:himemo/features/home/presentation/home_page.dart';
+import 'package:himemo/features/home/domain/note_entry.dart';
 import 'package:himemo/features/home/presentation/home_providers.dart';
 import 'package:himemo/features/security/data/encrypted_note_database.dart';
 import 'package:himemo/features/security/data/encrypted_note_store.dart';
@@ -28,8 +30,113 @@ import 'package:himemo/features/sync/presentation/sync_v2_workspace.dart';
 import 'package:himemo/features/sync/presentation/sync_v2_note_store_provider.dart';
 
 import 'support/sync_v2_workspace_fixture.dart';
+import 'support/sync_v2_conflict_fixture.dart';
+
+import 'package:himemo/features/sync/data/sync_v2_note_store.dart';
 
 void main() {
+  testWidgets(
+    'v2 note detail resolves a real concurrent edit and refreshes the list',
+    (tester) async {
+      final temp = (await tester.runAsync(
+        () => Directory.systemTemp.createTemp('himemo-conflict-ui-'),
+      ))!;
+      const paths = MethodChannel('plugins.flutter.io/path_provider');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(paths, (call) async => temp.path);
+      addTearDown(() async {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(paths, null);
+        await temp.delete(recursive: true);
+      });
+      final harness = await _createHarness(
+        preferences: {
+          'settings.locale': 'english',
+          'app.onboarding_completed': true,
+          'app.onboarding_completed_version': 2,
+        },
+        overrides: [
+          unseenReleaseNoteProvider.overrideWith((ref) async => null),
+        ],
+      );
+      final workspace = harness.container.read(syncV2WorkspaceProvider);
+      final fixture = (await tester.runAsync(
+        () => createSyncV2TestConflict(workspace),
+      ))!;
+      harness.container
+          .read(selectedNoteIdProvider.notifier)
+          .select(fixture.note.id);
+      _configureView(tester, size: const Size(1400, 1000));
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: harness.container,
+          child: const HiMemoApp(flavor: AppFlavor.development),
+        ),
+      );
+      await tester.pump();
+      final notes = harness.container.read(notesControllerProvider.notifier);
+      await tester.runAsync(
+        () => notes.restoreCompleted.timeout(const Duration(seconds: 15)),
+      );
+      await tester.pumpAndSettle();
+      harness.container
+          .read(appSessionUnlockControllerProvider.notifier)
+          .unlock();
+      await tester.pumpAndSettle();
+      expect(
+        harness.container.read(notesControllerProvider).single.syncState,
+        NoteSyncState.conflict,
+      );
+      final store =
+          harness.container.read(noteStoreProvider) as SyncV2NoteStore;
+      await tester.runAsync(() async {
+        await tester.tap(find.text('Resolve'));
+        await tester.pump();
+        await store
+            .readConflict(fixture.note)
+            .timeout(const Duration(seconds: 15));
+      });
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.textContaining('Remote version'),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.text('Keep this version'));
+      var settledFrames = 0;
+      for (var frame = 0; frame < 100 && settledFrames < 3; frame++) {
+        await tester.pump(const Duration(milliseconds: 20));
+        // Native SQLite completes outside the fake frame clock. Let its
+        // callbacks run, then render the resulting UI before checking again.
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 5)),
+        );
+        final current = harness.container.read(notesControllerProvider);
+        final done =
+            !workspace.busy &&
+            find.text('Choose the version to keep').evaluate().isEmpty &&
+            current.length == 1 &&
+            current.single.title == 'Remote version' &&
+            current.single.syncState != NoteSyncState.conflict;
+        settledFrames = done ? settledFrames + 1 : 0;
+      }
+      expect(settledFrames, 3);
+      expect(
+        harness.container.read(notesControllerProvider).single.title,
+        'Remote version',
+      );
+      expect(
+        harness.container.read(notesControllerProvider).single.syncState,
+        isNot(NoteSyncState.conflict),
+      );
+      expect(find.text('Choose the version to keep'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+    skip: !usesSyncV2NoteBackend,
+  );
+
   testWidgets('settings adapts across repeated fold and unfold sizes', (
     tester,
   ) async {

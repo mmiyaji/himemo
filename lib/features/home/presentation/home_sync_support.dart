@@ -1509,6 +1509,15 @@ Future<void> _showNoteConflictResolver(
   WidgetRef ref,
   NoteEntry localNote,
 ) async {
+  if (usesSyncV2NoteBackend) {
+    final notes = ref.read(notesControllerProvider.notifier);
+    final workspace = ref.read(syncV2WorkspaceProvider);
+    if (await showSyncV2ConflictDialog(context, ref, localNote)) {
+      await notes.reloadFromStorage();
+      unawaited(workspace.syncNow().catchError((Object _) {}));
+    }
+    return;
+  }
   final strings = context.strings;
   final messenger = ScaffoldMessenger.of(context);
   final outcome = await showDialog<NoteConflictResolutionOutcome>(

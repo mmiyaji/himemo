@@ -139,8 +139,13 @@ jobs:
       - name: Analyze Flutter sources
         run: flutter analyze --fatal-infos
 
-      - name: Run Flutter unit and widget tests
-        run: flutter test test --concurrency=2
+      - name: Run legacy compatibility tests
+        run: >-
+          flutter test test --concurrency=2 --tags legacy
+          --dart-define=HIMEMO_NOTE_BACKEND=v1
+
+      - name: Test default v2 and shared code
+        run: flutter test test --concurrency=2 --exclude-tags legacy
 
       - name: Build development Web app
         run: >-

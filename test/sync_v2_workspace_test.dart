@@ -234,6 +234,7 @@ class _ProjectedNotesRepository extends SyncV2NoteRepository {
 
   Map<String, SyncV2NoteSnapshot>? projection;
   bool failRead = false;
+  Object? catalogFailure;
 
   @override
   Future<Map<String, SyncV2NoteSnapshot>> readProfile({
@@ -243,6 +244,9 @@ class _ProjectedNotesRepository extends SyncV2NoteRepository {
     SyncV2UnlockedProfileKey? profileKey,
     String? noteIdPrefix,
   }) async {
+    if (noteIdPrefix == 'profile_' && catalogFailure != null) {
+      throw catalogFailure!;
+    }
     if (failRead) throw StateError('profile read failed');
     return projection ??
         super.readProfile(
@@ -870,6 +874,108 @@ void main() {
     );
     expect(second.workspace.error, 'admin_required');
   }, timeout: const Timeout(Duration(minutes: 2)));
+
+  for (final failure in [
+    const FormatException('unsupported catalog'),
+    const HimemoDecryptionException(),
+  ]) {
+    test(
+      'catalog failure preserves a verified settings ADMIN key ($failure)',
+      () async {
+        late _ProjectedNotesRepository repository;
+        final device = _Device(
+          _Cloud(),
+          settingsAdminAuthenticated: () => true,
+          repositoryFactory: (inbox, headers, payloads) =>
+              repository = _ProjectedNotesRepository(inbox, headers, payloads),
+        );
+        final c = device.workspace;
+        addTearDown(c.dispose);
+        await c.initialize();
+        await c.prepareNew('1234');
+        await c.confirmSetup();
+        c.lockPrivate();
+        repository.catalogFailure = failure;
+        expect(await c.unlockAdminFromSettings(), isFalse);
+        expect(c.adminUnlocked, isFalse);
+        final remembered = await c.deviceAdminStore.read(
+          accountId: c.accountId!,
+          generationId: c.generationId!,
+        );
+        expect(remembered, isNotNull);
+        remembered?.destroy();
+        repository.catalogFailure = null;
+        expect(await c.unlockAdminFromSettings(), isTrue);
+      },
+    );
+  }
+
+  for (final corruptEnvelope in [true, false]) {
+    test(
+      'registration proof failure keeps a valid device ADMIN key (envelope=$corruptEnvelope)',
+      () async {
+        final device = _Device(
+          _Cloud(),
+          settingsAdminAuthenticated: () => true,
+        );
+        final c = device.workspace;
+        addTearDown(c.dispose);
+        await c.initialize();
+        await c.prepareNew('1234');
+        await c.confirmSetup();
+        c.lockPrivate();
+        const proofKey = 'security.icloud_sync_v2.verified_proof.v1';
+        final proof = (await device.store.read(proofKey))!;
+        await device.store.write(
+          proofKey,
+          corruptEnvelope
+              ? '{invalid'
+              : jsonEncode({
+                  ...jsonDecode(proof) as Map,
+                  'proof': 'invalid ciphertext',
+                }),
+        );
+        expect(await c.unlockAdminFromSettings(), isFalse);
+        final key = await c.deviceAdminStore.read(
+          accountId: c.accountId!,
+          generationId: c.generationId!,
+        );
+        expect(key, isNotNull);
+        key?.destroy();
+        await device.store.write(proofKey, proof);
+        expect(await c.unlockAdminFromSettings(), isTrue);
+      },
+    );
+  }
+
+  test('settings ADMIN verification rejects a different enrolled generation without deleting its key', () async {
+    final device = _Device(_Cloud(), settingsAdminAuthenticated: () => true);
+    final c = device.workspace;
+    addTearDown(c.dispose);
+    await c.initialize();
+    await c.prepareNew('1234');
+    await c.confirmSetup();
+    c.lockPrivate();
+    final originalGeneration = c.generationId!;
+    const enrollmentKey = 'security.icloud_sync_v2.enrollment.v1';
+    final original = (await device.store.read(enrollmentKey))!;
+    await device.store.write(
+      enrollmentKey,
+      jsonEncode({
+        ...jsonDecode(original) as Map,
+        'generation': 'other_generation',
+      }),
+    );
+    expect(await c.unlockAdminFromSettings(), isFalse);
+    final retained = await c.deviceAdminStore.read(
+      accountId: c.accountId!,
+      generationId: originalGeneration,
+    );
+    expect(retained, isNotNull);
+    retained?.destroy();
+    await device.store.write(enrollmentKey, original);
+    expect(await c.unlockAdminFromSettings(), isTrue);
+  });
 
   test(
     'invalid device grant is deleted and falls back to original credentials',

@@ -63,6 +63,10 @@ class SyncV2NoteRepository {
   final SyncV2HeaderCodec _headers;
   final SyncV2PayloadCodec _payloads;
 
+  /// Keep session checks in the same transaction as a caller's mutation.
+  Future<T> transaction<T>(Future<T> Function() action) =>
+      _inbox.transaction(action);
+
   Future<List<SyncV2Change>> _history(
     String generationId,
     SecretKey syncKey, {

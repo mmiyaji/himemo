@@ -630,11 +630,16 @@ class SyncV2GenerationRegistration {
   Future<void> verifyAdminKey({
     required String accountId,
     required SecretKey adminKey,
+    String? expectedGenerationId,
   }) async {
     final enrolled = await enrollments.readForAccount(accountId);
     if (enrolled == null) throw StateError('No verified enrollment');
     SyncV2UnlockedProfileKey? normal;
     try {
+      if (expectedGenerationId != null &&
+          enrolled.generationId != expectedGenerationId) {
+        throw StateError('Enrollment generation changed');
+      }
       final proof = await enrollments.readCachedProof(accountId);
       if (proof == null) throw StateError('No verified registration proof');
       final manifest = await _openManifest(

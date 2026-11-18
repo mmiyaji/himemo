@@ -7830,7 +7830,8 @@ class NotesController extends _$NotesController {
           .toList(growable: false);
       var next = restoredWithoutDeletedSeeds;
       var changed = restoredWithoutDeletedSeeds.length != restored.length;
-      if (!kIsWeb &&
+      if (!usesSyncV2NoteBackend &&
+          !kIsWeb &&
           next.any((note) => note.syncState == NoteSyncState.conflict)) {
         final pendingChanges = await ref
             .read(encryptedNoteDatabaseProvider)
