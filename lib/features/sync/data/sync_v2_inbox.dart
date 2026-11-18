@@ -1,4 +1,4 @@
-import 'dart:convert' show utf8;
+import 'dart:convert' show utf8, jsonEncode, base64UrlEncode;
 
 import 'package:crypto/crypto.dart' show sha256;
 import 'package:cryptography/cryptography.dart';
@@ -33,7 +33,7 @@ class SyncV2Inbox extends GeneratedDatabase {
   static final _publicationIdPattern = RegExp(r'^[a-zA-Z0-9_-]{1,80}$');
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   Iterable<TableInfo<Table, Object?>> get allTables => const [];
@@ -72,6 +72,7 @@ class SyncV2Inbox extends GeneratedDatabase {
       ''');
       await _createPendingPayloads();
       await _createFailures();
+      await _createNoteIndex();
     },
     onUpgrade: (_, from, _) async {
       await transaction(() async {
@@ -81,9 +82,263 @@ class SyncV2Inbox extends GeneratedDatabase {
           await customStatement('DELETE FROM sync_v2_cursors');
         }
         if (from < 3) await _createFailures();
+        if (from < 4) await _createNoteIndex();
       });
     },
   );
+
+  // Identities and latest-state snapshots stay encrypted. Keyed lookup tokens
+  // and opaque parent edges reveal local grouping/graph structure, but never
+  // profile/note names or contents.
+  Future<void> _createNoteIndex() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS sync_v2_header_index (
+        generation_id TEXT NOT NULL, record_id TEXT NOT NULL,
+        profile_token TEXT NOT NULL, note_token TEXT NOT NULL,
+        PRIMARY KEY (generation_id, record_id)
+      ) WITHOUT ROWID
+    ''');
+    await customStatement('''
+      CREATE INDEX IF NOT EXISTS sync_v2_headers_by_note
+      ON sync_v2_header_index (generation_id, note_token, record_id)
+    ''');
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS sync_v2_note_parents (
+        generation_id TEXT NOT NULL, record_id TEXT NOT NULL,
+        parent_id TEXT NOT NULL,
+        PRIMARY KEY (generation_id, parent_id, record_id)
+      ) WITHOUT ROWID
+    ''');
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS sync_v2_note_states (
+        generation_id TEXT NOT NULL, profile_token TEXT NOT NULL,
+        note_token TEXT NOT NULL, first_record_id TEXT NOT NULL,
+        encrypted_state TEXT,
+        PRIMARY KEY (generation_id, profile_token, note_token)
+      ) WITHOUT ROWID
+    ''');
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS sync_v2_unindexed_headers (
+        generation_id TEXT NOT NULL, record_id TEXT NOT NULL,
+        PRIMARY KEY (generation_id, record_id)
+      ) WITHOUT ROWID
+    ''');
+    // Migration needs no key. Authentication/backfill happens on first read.
+    await customStatement('''
+      INSERT OR IGNORE INTO sync_v2_unindexed_headers
+      SELECT i.generation_id, i.record_id FROM sync_v2_inbox i
+      LEFT JOIN sync_v2_header_index x
+        ON x.generation_id = i.generation_id AND x.record_id = i.record_id
+      WHERE x.record_id IS NULL
+    ''');
+  }
+
+  Future<String> noteIndexToken({
+    required String generationId,
+    required String profileId,
+    String? noteId,
+    required SecretKey syncKey,
+  }) async => base64UrlEncode(
+    (await Hmac.sha256().calculateMac(
+      utf8.encode(
+        jsonEncode([
+          'himemo.sync.v2.note-index.1',
+          generationId,
+          profileId,
+          noteId,
+        ]),
+      ),
+      secretKey: syncKey,
+    )).bytes,
+  );
+
+  Future<void> _indexChange(
+    String generationId,
+    SyncV2Change change,
+    SecretKey syncKey,
+  ) async {
+    final profile = await noteIndexToken(
+      generationId: generationId,
+      profileId: change.profileId,
+      syncKey: syncKey,
+    );
+    final note = await noteIndexToken(
+      generationId: generationId,
+      profileId: change.profileId,
+      noteId: change.noteId,
+      syncKey: syncKey,
+    );
+    await customStatement(
+      '''
+      INSERT INTO sync_v2_header_index VALUES (?, ?, ?, ?)
+      ON CONFLICT(generation_id, record_id) DO NOTHING
+    ''',
+      [generationId, change.id, profile, note],
+    );
+    for (final parent in change.parentIds) {
+      await customStatement(
+        '''
+        INSERT OR IGNORE INTO sync_v2_note_parents VALUES (?, ?, ?)
+      ''',
+        [generationId, change.id, parent],
+      );
+    }
+    await customStatement(
+      '''
+      INSERT INTO sync_v2_note_states VALUES (?, ?, ?, ?, NULL)
+      ON CONFLICT(generation_id, profile_token, note_token) DO UPDATE SET
+        first_record_id = MIN(first_record_id, excluded.first_record_id),
+        encrypted_state = NULL
+    ''',
+      [generationId, profile, note, change.id],
+    );
+    // A missing parent can arrive later in another note/profile. Its children
+    // must be revalidated instead of silently keeping their pending snapshot.
+    await customStatement(
+      '''
+      UPDATE sync_v2_note_states SET encrypted_state = NULL
+      WHERE generation_id = ? AND (profile_token, note_token) IN (
+        SELECT x.profile_token, x.note_token FROM sync_v2_note_parents p
+        JOIN sync_v2_header_index x
+          ON x.generation_id = p.generation_id AND x.record_id = p.record_id
+        WHERE p.generation_id = ? AND p.parent_id = ?
+      )
+    ''',
+      [generationId, generationId, change.id],
+    );
+    await customStatement(
+      '''
+      DELETE FROM sync_v2_unindexed_headers
+      WHERE generation_id = ? AND record_id = ?
+    ''',
+      [generationId, change.id],
+    );
+  }
+
+  Future<
+    List<({String noteToken, String firstRecordId, String? encryptedState})>
+  >
+  readNoteStates({
+    required String generationId,
+    required String profileId,
+    required SecretKey syncKey,
+  }) async {
+    while (true) {
+      final rows = await customSelect(
+        '''
+        SELECT i.record_id, i.encrypted_header FROM sync_v2_unindexed_headers u
+        JOIN sync_v2_inbox i
+          ON i.generation_id = u.generation_id AND i.record_id = u.record_id
+        WHERE u.generation_id = ? ORDER BY u.record_id LIMIT 100
+      ''',
+        variables: [Variable.withString(generationId)],
+      ).get();
+      for (final row in rows) {
+        final change = await _codec.open(
+          row.read<String>('encrypted_header'),
+          generationId: generationId,
+          recordId: row.read<String>('record_id'),
+          syncKey: syncKey,
+        );
+        await _indexChange(generationId, change, syncKey);
+      }
+      if (rows.length < 100) break;
+    }
+    final token = await noteIndexToken(
+      generationId: generationId,
+      profileId: profileId,
+      syncKey: syncKey,
+    );
+    final rows = await customSelect(
+      '''
+      SELECT note_token, first_record_id, encrypted_state FROM sync_v2_note_states
+      WHERE generation_id = ? AND profile_token = ? ORDER BY first_record_id
+    ''',
+      variables: [
+        Variable.withString(generationId),
+        Variable.withString(token),
+      ],
+    ).get();
+    // A wrong SYNC key must fail even when its opaque lookup matches no notes.
+    if (rows.isEmpty) {
+      final first = await readPage(generationId: generationId, limit: 1);
+      if (first.isNotEmpty) {
+        await _codec.open(
+          first.single.encryptedHeader,
+          generationId: generationId,
+          recordId: first.single.id,
+          syncKey: syncKey,
+        );
+      }
+    }
+    return [
+      for (final row in rows)
+        (
+          noteToken: row.read<String>('note_token'),
+          firstRecordId: row.read<String>('first_record_id'),
+          encryptedState: row.readNullable<String>('encrypted_state'),
+        ),
+    ];
+  }
+
+  Future<List<SyncV2RemoteHeader>> readIndexedNoteHistory({
+    required String generationId,
+    required String noteToken,
+  }) async {
+    final rows = await customSelect(
+      '''
+      SELECT i.record_id, i.encrypted_header FROM sync_v2_header_index x
+      JOIN sync_v2_inbox i
+        ON i.generation_id = x.generation_id AND i.record_id = x.record_id
+      WHERE x.generation_id = ? AND x.note_token = ? ORDER BY x.record_id
+    ''',
+      variables: [
+        Variable.withString(generationId),
+        Variable.withString(noteToken),
+      ],
+    ).get();
+    return [
+      for (final row in rows)
+        (
+          id: row.read<String>('record_id'),
+          encryptedHeader: row.read<String>('encrypted_header'),
+        ),
+    ];
+  }
+
+  Future<SyncV2RemoteHeader?> readHeader(String generationId, String id) async {
+    final row = await customSelect(
+      '''
+      SELECT encrypted_header FROM sync_v2_inbox
+      WHERE generation_id = ? AND record_id = ?
+    ''',
+      variables: [Variable.withString(generationId), Variable.withString(id)],
+    ).getSingleOrNull();
+    return row == null
+        ? null
+        : (id: id, encryptedHeader: row.read<String>('encrypted_header'));
+  }
+
+  Future<void> writeNoteState({
+    required String generationId,
+    required String profileId,
+    required String noteToken,
+    required String encryptedState,
+    required SecretKey syncKey,
+  }) async {
+    final token = await noteIndexToken(
+      generationId: generationId,
+      profileId: profileId,
+      syncKey: syncKey,
+    );
+    await customStatement(
+      '''
+      UPDATE sync_v2_note_states SET encrypted_state = ?
+      WHERE generation_id = ? AND profile_token = ? AND note_token = ?
+    ''',
+      [encryptedState, generationId, token, noteToken],
+    );
+  }
 
   Future<void> _createFailures() => customStatement('''
     CREATE TABLE sync_v2_failures (
@@ -206,6 +461,7 @@ class SyncV2Inbox extends GeneratedDatabase {
             ''',
             [generationId, record.id, record.encryptedHeader],
           );
+          await _indexChange(generationId, incoming, syncKey);
         }
         await customStatement(
           "DELETE FROM sync_v2_failures WHERE generation_id = ? AND record_id = ? AND phase = 'header' AND reason != 'change_id_collision'",
@@ -525,6 +781,7 @@ class SyncV2Inbox extends GeneratedDatabase {
         ''',
         [generationId, change.id, header, bytes],
       );
+      await _indexChange(generationId, change, syncKey);
       await customStatement(
         '''
         INSERT INTO sync_v2_outbox (

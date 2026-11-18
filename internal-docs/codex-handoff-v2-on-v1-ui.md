@@ -31,7 +31,7 @@
 
 - `lib/features/home/data/note_store.dart` — `NoteStore` インターフェース。`NotesController` は `noteStoreProvider` 経由で保存。
 - `lib/features/sync/data/sync_v2_note_store.dart` — v2 実装。ID 変換: v1 `X` ⇔ v2 `note_X`、`everyday` ⇔ v2 通常プロファイル、プライベートは `private_profile:...` のまま。競合中・本文未着のノートは保存・削除を拒否（`SyncV2StaleNote`）。添付はv2チャンク参照としてノートと同じトランザクションで保存。
-- `lib/features/sync/presentation/sync_v2_note_store_provider.dart` — `HIMEMO_NOTE_BACKEND`（`v2` 既定 / 開発用 `v2-local`（`v1` は旧互換テストのみ））で切替。ワークスペースの変化（プロファイル解除・同期受信）で `NotesController.reloadFromStorage()`。
+- `lib/features/sync/presentation/sync_v2_note_store_provider.dart` — `HIMEMO_NOTE_BACKEND`（`v2` 既定 / 開発用 `v2-local`）で切替。ワークスペースの変化（プロファイル解除・同期受信）で `NotesController.reloadFromStorage()`。
 - `SyncV2WorkspaceController.noteStoreSession`、`debugResetUnlockThrottle()` を追加。
 - `home_providers.dart`: v2 モード時、`PrivateProfileUnlockController` / `AdminModeSessionController` / `UnlockedPrivateProfileVaultIdController` / `PrivateMemoProfilesController` が v2 ワークスペースに委譲（関数 `_unlockSyncV2`、`_addSyncV2Profile` など）。プロファイル作成は端末認証 → 管理者モード → `createProfile`。
 - `app_router.dart`: v2 バックエンド時は iOS の `/notes` → `/sync-v2` 転送をしない。
@@ -68,22 +68,22 @@
 ### フェーズ 5: 整理と削除
 - v2 固有操作（QR ペアリング・復元コード・生体登録・プロファイル作成）を v1 設定画面の「同期とセキュリティ」に集約。
 - v1 ローカルノート DB、Google Drive 同期、旧 iCloud 同期、`sync_v2_legacy_import.dart`、v1 アーカイブ取り込み、v2 専用画面の重複部分を削除。
-- v2既定化と旧画面の通常ルート撤去は実装済み。`HIMEMO_NOTE_BACKEND=v1` は旧回帰テストのみで使用し、実アプリ起動では拒否する。旧実装・旧テストの削除後にv1分岐も撤去する。
+- 完了: 旧DB・旧同期・旧資格情報・専用テストとv1バックエンド分岐を撤去。実アプリとテストはv2へ統一し、v2-localだけを開発用途に残す。移行処理は追加していない。
 
 ### フェーズ 6: 性能と実機
-- `SyncV2NoteRepository.readProfile` が毎回全履歴を走査している → プロファイル別の最新状態テーブル＋インデックス。
-- 解除時の KDF はプロファイル数に比例 → 必要なら Isolate で並列化。
-- GitHub Actions の iOS で CloudKit・生体認証を確認。
+- 実装済み: schema v4の匿名HMAC索引・暗号化最新状態でreadProfileの全履歴復号を回避。初回索引構築と変更ノートの再構築時は履歴を認証する。
+- 評価済み: KDFは既存のnative Isolateを利用。1/3/10プロファイルをホストで計測し、暗号化パラメータと逐次実行を維持。実機での遅延・メモリ評価は未完了。
+- 未完了: iOS実機のCloudKit・生体認証・カメラ・メディア再生。既存CIのビルド／シミュレータsmokeだけでは実機受入の代替にならない。Windowsホストでは実行できず、接続先の提示待ち。
 
 ## 5. 開発・確認の手順
 
 ### テスト
 ```bash
 flutter analyze --fatal-infos
-flutter test --exclude-tags legacy
-flutter test --tags legacy --dart-define=HIMEMO_NOTE_BACKEND=v1
+flutter test test --concurrency=2
 flutter test test/sync_v2_default_configuration_test.dart --dart-define=HIMEMO_NOTE_BACKEND=v2-local
-flutter test test/sync_v2_default_configuration_test.dart --dart-define=HIMEMO_NOTE_BACKEND=v1
+flutter test test/sync_v2_profile_projection_test.dart
+flutter test test/sync_v2_key_performance_test.dart
 ```
 - 2026-11-18 フェーズ2完了時: `flutter test` 全817件成功。`flutter analyze lib` と変更テストの解析は指摘なし。development / `v2-local` のWebビルド成功。iOS実機の生体認証・CloudKitは未確認。
 - フェーズ3: 全体823件成功（v2専用テスト1件は通常実行時スキップし、`--dart-define=HIMEMO_NOTE_BACKEND=v2-local` を付けて別途成功）。静的解析・Webビルド成功。
@@ -235,3 +235,21 @@ python -m http.server 8765 --directory build/web
 - 進捗: フェーズ5の旧アーカイブ処理の撤去は完了。旧DB・Google Drive／旧iCloudの同期エンジン・資格情報／互換テスト・v1バックエンド分岐の撤去は残る。フェーズ6の性能評価とiOS実機検証は未着手。
 - 依存解決後の翻訳生成を明示するため、通常CI・iOS／Android配布workflowにpub get直後のflutter gen-l10nを追加。YAML構文とstep順序を検証した。workflow自体の実行や配布は行っていない。
 - 最終検証: v2全505件、旧互換241件成功（旧ZIP専用1件を退役）。静的解析指摘なし、Dart format／diff確認、development/v2-localのWebビルド成功。Opus再レビューでも重大・中程度の問題なし。翻訳生成物の実質差分はなく、今回のコミットには含めない。iOS実機・実CloudKit・ネイティブ配布は未実施。
+
+
+### 2026-11-18: フェーズ5の撤去完了・フェーズ6のホスト評価
+
+- 旧EncryptedNoteDatabase/EncryptedNoteStore、Google Drive・旧iCloud同期エンジン、旧資格情報・プロフィール鍵・名前競合・端末専用PIN・同期除外ストアと専用テストを撤去。既存のNoteStoreと通常UIはv2だけへ接続する。過去データの取り込み・移行は作らない。
+- v1バックエンドと旧同期先の復元・切替を削除。v2-localはdevelopment限定で維持し、v1など未対応値の起動は拒否する。CIのlegacy専用テストstep、Google認証依存4種と不要になった推移依存、旧CloudKitの15channel handler・共有されないSwift処理を撤去。v2の6handlerと共有container/error helperは維持。
+- プロフィール作成は4文字以上のパスコードへ一本化。古い復旧パスワード/PIN/名前競合の操作を除き、管理者一覧の選択・名前変更・削除をv2へ接続する。v2で効かない「この端末のみ」タグの操作と予約扱いも撤去。タグ文字列自体は普通のタグとして扱う。作成日時が存在しないv2プロフィールに1970年を表示する旧代替表示も削除。
+- Opusで複数回実レビューし、ロック中の保存準備からprivate平文が戻る競合、待機中の解除の失効、一括保存と同期再読込の競合を修正。公開ノート変更と再読込を同じキューで直列化し、locked placeholderを変更・保存対象から除外する。回帰テストでは処理を意図的に停止し、ロック後の非露出、新セッションの保持、新着メモの非削除を確認する。
+- フェーズ6の一覧索引をschema v4として実装。匿名HMAC索引、暗号化した最新head/pending、親の後着による依存無効化を使用し、保存/CASは元の全履歴認証を維持。関連テストとOpusレビューで競合・欠落親・本文後着・循環・rollback・AAD差替え・旧v2 DBの索引構築を確認した。
+- 一覧600履歴の復号は600回→10回（観測55.2→2.0ms）。既存のIsolate KDFを1/3/10プロフィールで計測し、19MiB/t2/p1と逐次実行を維持した。8MiB添付は保存/復元の一致を確認し、debugホスト上では同一DBの別操作が約2秒待つ制約を計測した。方法・値・限界は `sync-v2-performance.md` に記録。
+- 計画評価: フェーズ2〜4の統合実装とフェーズ5の撤去は完了。フェーズ6の一覧改善とホストで可能なKDF/添付評価は完了。iOS実機のCloudKit・生体認証・カメラ・音声/動画再生、およびrelease性能受入は未完了。Mac/iPhoneの接続先が未提示でWindowsホストでは実行できない。実クラウドの変更、push、配布、workflow実行はしていない。
+
+- 追加レビューで、遅延動画プレビューによるゴミ箱からの復活／編集上書きと、期限切れの競合メモの自動整理失敗で一覧全体が空になる既存問題も修正。プレビュー反映を同じキュー内で最新状態に適用し、自動整理は競合を保留・個別失敗を読み込み失敗へ波及させない。添付掃除の未使用旧APIは撤去した。両修正の追加5テストが成功し、限定Opusレビューで退行・デッドロックなし。
+- 旧Web E2EのGoogle Drive/除外タグspecと旧ブラウザ添付テスト専用wrapperを退役。共有Playwrightはv2-localの実UI保存を使い、初回案内・登録完了とメモリ鍵の寿命を考慮したfixtureへ更新した。ストア撮影器のv2-local/プロフィール作成もソース更新したが実撮影は実行せず、ユーザーの生成物は変更していない。
+
+- 最終検証: 全406件成功、静的解析は指摘なし、lib/test/integration_test/patrol_test/test_driverの229ファイルformat確認成功。v1指定の拒否とproductionのv2-local拒否/development許可を個別確認。CloudKit Web protocolのNodeテスト18件とschema/source定数照合も成功。
+- Webは最終ソースのv2-localプレビューをビルドし、実ブラウザの暗号化保存→鍵破棄→再登録→添付復元・プロフィール解除smokeが成功。共有Playwrightの作成・編集・検索・設定・PIN/ロック・プロフィール・日英表示の主要20件に成功実績（fixture修正後の再実行を含む）。長時間monkey8件と240件のUI投入による検索性能ケースは今回実行していない。共有fixtureの移行確認は主要20件で行い、性能評価は実repository/KDF/8MiB計測を使用した。
+- 翻訳生成物の内容差分と無関係なルーター生成hashはコミットから除外。新しい翻訳表現は旧「初回だけプロフィールパスワードが必要」の説明を6言語で撤去した部分のみ。ユーザー所有の未追跡AGENTS.md/.claude/artifacts/store-assetsは維持する。

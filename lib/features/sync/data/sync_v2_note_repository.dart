@@ -62,6 +62,7 @@ class SyncV2NoteRepository {
   final SyncV2Inbox _inbox;
   final SyncV2HeaderCodec _headers;
   final SyncV2PayloadCodec _payloads;
+  final _projectionEncryption = EncryptionService();
 
   /// Keep session checks in the same transaction as a caller's mutation.
   Future<T> transaction<T>(Future<T> Function() action) =>
@@ -117,7 +118,9 @@ class SyncV2NoteRepository {
     );
   });
 
-  /// One header scan for a profile. Prefixes keep attachment bytes out of lists.
+  /// Authenticated per-note projections keep list reads proportional to current
+  /// heads, rather than the generation's entire history. A changed note is
+  /// rebuilt from its immutable log; prefixes never open attachment bodies.
   Future<Map<String, SyncV2NoteSnapshot>> readProfile({
     required String generationId,
     required String profileId,
@@ -127,23 +130,178 @@ class SyncV2NoteRepository {
   }) => _inbox.transaction(() async {
     _validateIdentity(generationId, profileId, 'profile');
     _validateProfileKey(profileKey, generationId, profileId);
-    final history = await _history(generationId, syncKey);
-    final ids = {
-      for (final change in history)
-        if (change.profileId == profileId &&
-            (noteIdPrefix == null || change.noteId.startsWith(noteIdPrefix)))
-          change.noteId,
-    };
-    return {
-      for (final id in ids)
-        id: await _readFromHistory(
-          history,
+    final states = await _inbox.readNoteStates(
+      generationId: generationId,
+      profileId: profileId,
+      syncKey: syncKey,
+    );
+    final result = <String, SyncV2NoteSnapshot>{};
+    for (final state in states) {
+      final context = utf8.encode(
+        jsonEncode([
+          'himemo.sync.v2.note-state.1',
           generationId,
           profileId,
-          id,
-          profileKey,
+          state.noteToken,
+        ]),
+      );
+      String? encrypted = state.encryptedState;
+      if (encrypted == null) {
+        var matchesPrefix = true;
+        // A prefix-filtered list must not resolve an unrelated attachment's
+        // invalid history as a fatal error. Validate its indexed identity too.
+        if (noteIdPrefix != null) {
+          final first = await _inbox.readHeader(
+            generationId,
+            state.firstRecordId,
+          );
+          if (first == null) {
+            throw const FormatException('Missing v2 note history');
+          }
+          final identity = await _headers.open(
+            first.encryptedHeader,
+            generationId: generationId,
+            recordId: first.id,
+            syncKey: syncKey,
+          );
+          if (identity.profileId != profileId ||
+              await _inbox.noteIndexToken(
+                    generationId: generationId,
+                    profileId: profileId,
+                    noteId: identity.noteId,
+                    syncKey: syncKey,
+                  ) !=
+                  state.noteToken) {
+            throw const FormatException('Invalid v2 note index');
+          }
+          matchesPrefix = identity.noteId.startsWith(noteIdPrefix);
+        }
+        final history = <SyncV2Change>[];
+        for (final record in await _inbox.readIndexedNoteHistory(
+          generationId: generationId,
+          noteToken: state.noteToken,
+        )) {
+          history.add(
+            await _headers.open(
+              record.encryptedHeader,
+              generationId: generationId,
+              recordId: record.id,
+              syncKey: syncKey,
+            ),
+          );
+        }
+        if (history.isEmpty) {
+          throw const FormatException('Missing v2 note history');
+        }
+        final noteId = history.first.noteId;
+        if (history.any(
+              (change) =>
+                  change.profileId != profileId || change.noteId != noteId,
+            ) ||
+            await _inbox.noteIndexToken(
+                  generationId: generationId,
+                  profileId: profileId,
+                  noteId: noteId,
+                  syncKey: syncKey,
+                ) !=
+                state.noteToken) {
+          throw const FormatException('Invalid v2 note index');
+        }
+        // Authenticate external parents too, including a parent which arrived
+        // after this pending child and belongs to another note/profile.
+        final ownIds = {for (final change in history) change.id};
+        final externalIds = {for (final change in history) ...change.parentIds}
+          ..removeAll(ownIds);
+        for (final id in externalIds) {
+          final record = await _inbox.readHeader(generationId, id);
+          if (record != null) {
+            history.add(
+              await _headers.open(
+                record.encryptedHeader,
+                generationId: generationId,
+                recordId: record.id,
+                syncKey: syncKey,
+              ),
+            );
+          }
+        }
+        final Map<String, Object?> projection;
+        try {
+          final resolved = _resolveNote(history, profileId, noteId);
+          projection = {
+            'v': 1,
+            'note': noteId,
+            'heads': [
+              for (final c in history)
+                if (resolved.headIds.contains(c.id)) c.id,
+            ],
+            'pending': resolved.pendingIds.toList(),
+          };
+        } on FormatException {
+          if (matchesPrefix) rethrow;
+          // Invalid histories outside the selected prefix keep their original
+          // ignored behavior; never turn an error into an empty valid state.
+          continue;
+        }
+        encrypted = await _projectionEncryption.encryptBytes(
+          clearBytes: utf8.encode(jsonEncode(projection)),
+          secretKey: syncKey,
+          additionalData: context,
+        );
+        await _inbox.writeNoteState(
+          generationId: generationId,
+          profileId: profileId,
+          noteToken: state.noteToken,
+          encryptedState: encrypted,
+          syncKey: syncKey,
+        );
+      }
+      final decoded = jsonDecode(
+        utf8.decode(
+          await _projectionEncryption.decryptBytes(
+            encodedPayload: encrypted,
+            secretKey: syncKey,
+            additionalData: context,
+          ),
         ),
-    };
+      );
+      if (decoded
+          case {
+            'v': 1,
+            'note': final String noteId,
+            'heads': final List<Object?> headIds,
+            'pending': final List<Object?> pendingIds,
+          }
+          when headIds.every((id) => id is String) &&
+              pendingIds.every((id) => id is String)) {
+        if (noteIdPrefix != null && !noteId.startsWith(noteIdPrefix)) continue;
+        final heads = <SyncV2Change>[];
+        for (final id in headIds.cast<String>()) {
+          final record = await _inbox.readHeader(generationId, id);
+          if (record == null) throw const FormatException('Missing v2 head');
+          final change = await _headers.open(
+            record.encryptedHeader,
+            generationId: generationId,
+            recordId: record.id,
+            syncKey: syncKey,
+          );
+          if (change.profileId != profileId || change.noteId != noteId) {
+            throw const FormatException('Invalid v2 note state');
+          }
+          heads.add(change);
+        }
+        result[noteId] = await _readVersions(
+          heads,
+          headIds.cast<String>().toSet(),
+          pendingIds.cast<String>().toSet(),
+          generationId,
+          profileKey,
+        );
+      } else {
+        throw const FormatException('Invalid v2 note state');
+      }
+    }
+    return result;
   });
 
   Future<Map<String, SyncV2NoteSnapshot>> readMany({
@@ -237,12 +395,27 @@ class SyncV2NoteRepository {
     void Function()? checkActive,
   }) async {
     final resolved = _resolveNote(history, profileId, noteId);
+    return _readVersions(
+      history.where((c) => c.profileId == profileId && c.noteId == noteId),
+      resolved.headIds,
+      resolved.pendingIds,
+      generationId,
+      profileKey,
+      checkActive: checkActive,
+    );
+  }
+
+  Future<SyncV2NoteSnapshot> _readVersions(
+    Iterable<SyncV2Change> changes,
+    Set<String> headIds,
+    Set<String> pendingIds,
+    String generationId,
+    SyncV2UnlockedProfileKey? profileKey, {
+    void Function()? checkActive,
+  }) async {
     final versions = <SyncV2NoteVersion>[];
-    final pending = <String>{};
-    for (final change in history) {
-      if (change.profileId != profileId || change.noteId != noteId) continue;
-      if (resolved.pendingIds.contains(change.id)) pending.add(change.id);
-      if (!resolved.headIds.contains(change.id)) continue;
+    for (final change in changes) {
+      if (!headIds.contains(change.id)) continue;
       final payload = change.operation == SyncV2Operation.delete
           ? null
           : await _inbox.readPayload(
@@ -272,7 +445,7 @@ class SyncV2NoteRepository {
         ),
       );
     }
-    return SyncV2NoteSnapshot(versions: versions, pendingIds: pending);
+    return SyncV2NoteSnapshot(versions: versions, pendingIds: pendingIds);
   }
 
   /// Reads the sole authenticated immediate predecessor of a tombstone.
