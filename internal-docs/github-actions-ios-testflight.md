@@ -8,6 +8,18 @@ Codemagic の `ios-testflight-production` と並行運用する前提。
 - [ios-testflight.yml](../.github/workflows/ios-testflight.yml)
 - [ios-verify.yml](../.github/workflows/ios-verify.yml)
 
+## 統合v2版の配信結果（2026-11-19 JST）
+
+[GitHub Actions run 44327979347](https://github.com/mmiyaji/himemo/actions/runs/44327979347) は成功。対象は `feature/v2-on-v1-ui` の `06ba338`、アプリ **1.0.0 / build 2611181449**。IPA内のInfo.plistでも同じバージョン・ビルド番号を照合した。
+
+- iOS simulator build、production初回画面、network/privacy channel、Quick Look open/closeが成功。初回画面の画像証拠を取得した。
+- format・静的解析・全406テスト・Web build・配信ツールとFunctionsの検証が成功。
+- 署名済みIPAの生成とCloudKit entitlement確認、App Store Connectへのアップロードが成功（UPLOAD SUCCEEDED）。
+- Apple処理状態 `VALID`、内部テスト状態 `IN_BETA_TESTING`、`ruhenheim` の自動ビルドアクセス、日本語What to Testの保存を確認した。
+- IPA artifactは `himemo-ios-159`、起動証拠は `ios-launch-smoke-159`。ローカル取得物はユーザー所有の `artifacts/ios-release-44327979347/` に保管し、Gitには含めない。
+
+iOS実機のCloudKit・生体認証・カメラ・メディア再生・性能の受入は未実施であり、配信後に [受入手順](sync-v2-acceptance.md) で確認する。App Store本番公開やブランチのmergeは行っていない。
+
 ## v2の配布しない検証（2026-11-18）
 
 このページには旧版の配布履歴も含む。現在のv2受入は [sync-v2-acceptance.md](sync-v2-acceptance.md) に従う。旧ZIP・Google Drive・別々の端末追加QRは現在の検証対象ではない。

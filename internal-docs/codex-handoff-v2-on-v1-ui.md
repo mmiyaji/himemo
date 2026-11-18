@@ -263,3 +263,13 @@ python -m http.server 8765 --directory build/web
 - GitHubを読み取り確認。直近の既存iOS成功runは `44073695139`、別ブランチの `696eea7`。現在のローカル変更の検証済み証拠ではない。今回はpush・workflow dispatch・配布を実行していない。
 - ホストのiOS補助ツール36テスト成功。YAML、Bash構文、verification/finalizeの全4組合せ、検証jobの署名/公開資材への非依存を確認。iOSビルド・simulator起動・実機項目は引き続き未実施。
 - Opus実レビューでP1/P2なし。新規workflowの既定ブランチ未登録への対処、既存の配布動作維持、検証時の両release job除外、権限・秘密情報・concurrency・helper引数を確認。アプリコードは変更せず、前回の406件の結果は据え置く。次はこのブランチのpushと検証専用dispatchについて許可を得て、run結果を回収する。
+
+
+### 2026-11-19: 統合v2版をTestFlightへ配信
+
+- ユーザーの「テストフライト配信してください」を受け、ブランチをpushし、通常配信経路（verification_only=false / finalize_only=false / upload_to_testflight=true）を実行した。
+- 配信対象コミット `06ba338`。バージョン **1.0.0**、build **2611181449**。[run 44327979347](https://github.com/mmiyaji/himemo/actions/runs/44327979347) はsuccess。
+- macOS上でiOS simulator buildとproduction起動/native channel/Quick Look、format・静的解析・全406テスト・Web build・配信ツール・Functions検証、署名済みIPAとCloudKit entitlement確認が成功。
+- App Store Connect upload成功後、Apple処理VALID・内部テストIN_BETA_TESTING・内部グループruhenheimのアクセス・日本語確認項目の保存を確認した。ダウンロードしたIPAのInfo.plistともバージョン／ビルド番号が一致。
+- テスター向け説明から旧ZIP・別QR・6文字条件を撤去し、現行の統合UI、4文字パスコード、統合QR/復元ファイル、競合とロックの修正点へ更新した。
+- フェーズ6のiOSビルド・simulator確認まで完了。物理端末での実CloudKit・生体認証・カメラ・メディア再生とrelease性能は引き続き未完了。App Store本番公開とmergeはしていない。

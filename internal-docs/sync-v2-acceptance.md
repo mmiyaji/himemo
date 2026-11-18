@@ -1,6 +1,6 @@
 # Sync v2 統合UIの受入手順
 
-2026-11-18更新。対象ブランチは `feature/v2-on-v1-ui`。通常UIはv2のみを使い、旧DB・Google Drive・旧iCloud・ZIP入出力・旧専用画面・旧同期先への切替は撤去済み。これらの復元や移行を受入項目にしない。過去の製品データを使わず、テスト用のメモ・写真・動画・音声を用意する。
+2026-11-19更新。対象ブランチは `feature/v2-on-v1-ui`。通常UIはv2のみを使い、旧DB・Google Drive・旧iCloud・ZIP入出力・旧専用画面・旧同期先への切替は撤去済み。これらの復元や移行を受入項目にしない。過去の製品データを使わず、テスト用のメモ・写真・動画・音声を用意する。
 
 ## 現在の確認状況
 
@@ -8,11 +8,11 @@
 |---|---|---|
 | ホストの単体・ウィジェット | 成功 | 406件、静的解析指摘なし。実CloudKitではない |
 | Web開発プレビュー | 成功 | ビルド、暗号化保存・復元smoke、主要操作20件。iOS実装の代替ではない |
-| iOSシミュレータ・今回のコミット | 未実施 | 下記の検証専用workflowで実行する |
+| iOSシミュレータ・今回の配信候補 | 成功 | `06ba338` のproduction起動/native channel/Quick Look。[run](https://github.com/mmiyaji/himemo/actions/runs/44327979347) |
 | iOS実機・実CloudKit | 未実施 | Mac、Development署名の端末とiCloudアカウントが必要 |
 | 二台の物理端末・実機性能 | 未実施 | 下記チェックリストを端末・OS・ビルド番号とともに記録する |
 
-直近の既存iOS成功runは2026-11-17の別ブランチ／コミット `696eea7`。今回の変更の検証結果として流用しない。最新の実装・ホスト検証は [引継ぎ記録](codex-handoff-v2-on-v1-ui.md)、性能値は [性能確認](sync-v2-performance.md) を参照。
+2026-11-19 JST、配信候補 `06ba338` のiOSビルド・simulator起動・署名・CloudKit entitlement確認が成功し、TestFlight **1.0.0（2611181449）** を内部グループ `ruhenheim` へ配信した（[run](https://github.com/mmiyaji/himemo/actions/runs/44327979347)）。Appleの処理状態VALID・内部テスト状態IN_BETA_TESTINGを確認済み。検証専用workflowを別途実行した結果ではなく、通常の配信workflowに含まれる検証結果。実機・実CloudKitの未実施項目は残る。最新の実装・ホスト検証は [引継ぎ記録](codex-handoff-v2-on-v1-ui.md)、性能値は [性能確認](sync-v2-performance.md) を参照。
 
 ## 1. 配布しないiOSビルド・起動確認
 
