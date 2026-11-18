@@ -409,6 +409,64 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('settings overview updates when v2 setup completes', (
+    tester,
+  ) async {
+    final harness = await _createHarness(
+      preferences: const {'settings.locale': 'english'},
+      registerWorkspace: false,
+    );
+    _configureView(tester, size: const Size(1024, 900));
+    await _pumpSettingsScreen(tester, harness.container);
+    final overview = find.byKey(SettingsScreen.overviewKey);
+    expect(
+      find.descendant(of: overview, matching: find.text('Not set up')),
+      findsOneWidget,
+    );
+    final workspace = harness.container.read(syncV2WorkspaceProvider);
+    var setupCompleted = false;
+    Object? setupError;
+    Future<void> setupWorkspace() async {
+      try {
+        await workspace.prepareNew('1234');
+        await workspace.confirmSetup();
+      } catch (error) {
+        setupError = error;
+      } finally {
+        setupCompleted = true;
+      }
+    }
+
+    final setup = setupWorkspace();
+    // Workspace notifications queue native SQLite work in the fake frame zone.
+    // Keep rendering while allowing the real I/O callbacks to finish.
+    for (var frame = 0; frame < 200 && !setupCompleted; frame++) {
+      await tester.pump(const Duration(milliseconds: 20));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+    expect(setupCompleted, isTrue);
+    expect(setupError, isNull);
+    await setup;
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(
+        of: overview,
+        matching: find.text('Automatic iCloud sync'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: overview, matching: find.text('Not set up')),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    harness.container.dispose();
+    await tester.pump();
+  }, skip: !usesSyncV2NoteBackend);
+
   testWidgets('wide settings retains the status overview', (tester) async {
     final harness = await _createHarness(
       preferences: const {'settings.locale': 'english'},
@@ -416,6 +474,11 @@ void main() {
     _configureView(tester, size: const Size(1024, 900));
     await _pumpSettingsScreen(tester, harness.container);
 
+    // Opening v2 settings must not initialize the retired sync pipeline.
+    expect(harness.container.exists(syncTransferControllerProvider), isFalse);
+    expect(harness.container.exists(syncQueueSummaryProvider), isFalse);
+    expect(harness.container.exists(syncHistoryProvider), isFalse);
+    expect(harness.container.exists(syncBundleFingerprintProvider), isFalse);
     final overview = find.byKey(SettingsScreen.overviewKey);
     expect(overview, findsOneWidget);
     expect(
@@ -424,105 +487,6 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
-
-  testWidgets('sync setup shows a clear next step before advanced tools', (
-    tester,
-  ) async {
-    final harness = await _createHarness(
-      preferences: const {'settings.locale': 'english'},
-    );
-    _configureView(tester, size: const Size(800, 900));
-    await _pumpSettingsScreen(tester, harness.container);
-
-    final section = find.text('Device sync');
-    await tester.scrollUntilVisible(section, 500);
-    await tester.tap(section);
-    await tester.pumpAndSettle();
-
-    expect(find.text('Sync with'), findsOneWidget);
-    expect(find.byKey(SettingsScreen.syncNowKey), findsNothing);
-    await tester.scrollUntilVisible(
-      find.byKey(SettingsScreen.syncGoogleDriveKey),
-      250,
-    );
-    await tester.tap(find.byKey(SettingsScreen.syncGoogleDriveKey));
-    await tester.pumpAndSettle();
-
-    expect(
-      find.text('Connect to Google Drive to start syncing.'),
-      findsOneWidget,
-    );
-    expect(find.byKey(SettingsScreen.syncConnectKey), findsOneWidget);
-    expect(find.byKey(SettingsScreen.syncNowKey), findsNothing);
-    expect(tester.takeException(), isNull);
-  }, tags: ['legacy']);
-
-  testWidgets('sync button stays in place through a transfer', (tester) async {
-    final transfer = _TestSyncTransferController();
-    final harness = await _createHarness(
-      preferences: const {'settings.locale': 'english'},
-      overrides: [
-        syncProviderControllerProvider.overrideWith(
-          _GoogleDriveSyncProviderController.new,
-        ),
-        syncAuthControllerProvider.overrideWith(
-          _ConnectedSyncAuthController.new,
-        ),
-        syncTransferControllerProvider.overrideWith(() => transfer),
-      ],
-    );
-    _configureView(tester, size: const Size(1024, 900));
-    await _pumpSettingsScreen(tester, harness.container);
-    final section = find.text('Device sync');
-    await tester.scrollUntilVisible(section, 500);
-    final tile = tester.widget<ExpansionTile>(
-      find.ancestor(of: section, matching: find.byType(ExpansionTile)).first,
-    );
-    if (!tile.controller!.isExpanded) {
-      await tester.tap(section);
-      await tester.pumpAndSettle();
-    }
-
-    final button = find.byKey(SettingsScreen.syncNowKey);
-    await tester.scrollUntilVisible(button, 250);
-    final start = tester.getTopLeft(button);
-    transfer.show(SyncTransferStage.busy, SyncTransferProgress.applyingBundle);
-    await tester.pump();
-    expect(tester.getTopLeft(button).dx, start.dx);
-    expect(
-      tester
-          .widget<LinearProgressIndicator>(find.byType(LinearProgressIndicator))
-          .value,
-      0.78,
-    );
-
-    transfer.show(
-      SyncTransferStage.busy,
-      SyncTransferProgress.downloadingBundle,
-    );
-    await tester.pump();
-    expect(tester.getTopLeft(button).dx, start.dx);
-    expect(
-      tester
-          .widget<LinearProgressIndicator>(find.byType(LinearProgressIndicator))
-          .value,
-      0.78,
-    );
-
-    transfer.show(SyncTransferStage.success, SyncTransferProgress.none);
-    await tester.pumpAndSettle();
-    expect(tester.getTopLeft(button).dx, start.dx);
-    expect(find.byType(LinearProgressIndicator), findsNothing);
-
-    transfer.show(SyncTransferStage.busy, SyncTransferProgress.checkingRemote);
-    await tester.pump();
-    expect(
-      tester
-          .widget<LinearProgressIndicator>(find.byType(LinearProgressIndicator))
-          .value,
-      0.18,
-    );
-  }, tags: ['legacy']);
 
   testWidgets('bottom-navigation widths keep the compact settings layout', (
     tester,
@@ -791,7 +755,8 @@ void main() {
 
     expect(find.byKey(SettingsScreen.createDemoNotesKey), findsNothing);
     expect(find.byKey(SettingsScreen.deleteDemoNotesKey), findsNothing);
-    expect(find.text('Danger zone'), findsOneWidget);
+    expect(find.text('Danger zone'), findsNothing);
+    expect(find.text('Initialize storage'), findsNothing);
     await tester.tap(storage);
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
@@ -962,33 +927,10 @@ class _PendingAppLockSettingsController extends AppLockSettingsReadyController {
   void markReady() {}
 }
 
-class _GoogleDriveSyncProviderController extends SyncProviderController {
-  @override
-  SyncProvider build() => SyncProvider.googleDrive;
-}
-
-class _ConnectedSyncAuthController extends SyncAuthController {
-  @override
-  Map<SyncProvider, SyncAuthState> build() => const {
-    SyncProvider.googleDrive: SyncAuthState(
-      provider: SyncProvider.googleDrive,
-      stage: SyncAuthStage.authenticated,
-    ),
-  };
-}
-
-class _TestSyncTransferController extends SyncTransferController {
-  @override
-  SyncTransferState build() => const SyncTransferState.idle();
-
-  void show(SyncTransferStage stage, SyncTransferProgress progress) {
-    state = state.copyWith(stage: stage, progress: progress);
-  }
-}
-
 Future<_TestHarness> _createHarness({
   required Map<String, Object> preferences,
   bool keepAppLockSettingsPending = false,
+  bool registerWorkspace = true,
   AppFlavor flavor = AppFlavor.development,
   List<Override> overrides = const [],
 }) async {
@@ -1003,7 +945,7 @@ Future<_TestHarness> _createHarness({
   final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
   final workspace = usesSyncV2NoteBackend
       ? await TestWidgetsFlutterBinding.instance.runAsync(
-          createSyncV2TestWorkspace,
+          () => createSyncV2TestWorkspace(register: registerWorkspace),
         )
       : null;
   if (workspace != null) addTearDown(workspace.dispose);

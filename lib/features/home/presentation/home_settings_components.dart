@@ -2,42 +2,6 @@ part of 'home_page.dart';
 
 extension _SettingsWidgetExtensions on Widget {
   Widget visibleWhen(bool visible) => visible ? this : const SizedBox.shrink();
-
-  Widget asSyncMaintenanceSection(
-    BuildContext context,
-    AppStrings strings, {
-    Widget? status,
-  }) {
-    return Theme(
-      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-      child: ExpansionTile(
-        leading: const Icon(Icons.build_outlined),
-        tilePadding: EdgeInsets.zero,
-        childrenPadding: const EdgeInsets.only(bottom: 8),
-        title: Text(
-          strings.localized(
-            en: 'Repair and maintenance',
-            ja: '修復とメンテナンス',
-            zh: '修复与维护',
-            ko: '복구 및 유지 관리',
-            es: 'Reparación y mantenimiento',
-            de: 'Reparatur und Wartung',
-          ),
-        ),
-        subtitle: Text(
-          strings.localized(
-            en: 'Use these tools only when sync is not working as expected.',
-            ja: '同期が正常に動かない場合にだけ使用するツールです。',
-            zh: '仅在同步未按预期工作时使用这些工具。',
-            ko: '동기화가 정상적으로 작동하지 않을 때만 사용하세요.',
-            es: 'Usa estas herramientas solo si la sincronización no funciona correctamente.',
-            de: 'Diese Werkzeuge nur verwenden, wenn die Synchronisierung nicht wie erwartet funktioniert.',
-          ),
-        ),
-        children: [?status, this],
-      ),
-    );
-  }
 }
 
 class _SettingsOverviewItem {
@@ -181,13 +145,11 @@ class _SettingsGroup extends StatelessWidget {
     required this.icon,
     required this.children,
     this.sectionKey,
-    this.visible = true,
     this.controller,
     this.semanticLabel,
     this.onExpansionChanged,
   });
 
-  final bool visible;
   final String title;
   final String summary;
   final IconData icon;
@@ -199,7 +161,6 @@ class _SettingsGroup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!visible) return const SizedBox.shrink();
     final theme = Theme.of(context);
     final compact = MediaQuery.sizeOf(context).width < 840;
     final borderRadius = BorderRadius.circular(6);
@@ -355,50 +316,6 @@ class _SettingsWarningBox extends StatelessWidget {
                   ?.copyWith(color: colorScheme.onErrorContainer),
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SettingsDangerZone extends StatelessWidget {
-  const _SettingsDangerZone({
-    required this.title,
-    required this.description,
-    required this.action,
-  });
-
-  final String title;
-  final String description;
-  final Widget action;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: colorScheme.errorContainer.withValues(alpha: 0.45),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: colorScheme.error.withValues(alpha: 0.55)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: Theme.of(context).textTheme.titleSmall
-                ?.copyWith(color: colorScheme.onErrorContainer),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            description,
-            style: Theme.of(context).textTheme.bodySmall
-                ?.copyWith(color: colorScheme.onErrorContainer),
-          ),
-          const SizedBox(height: 12),
-          action,
         ],
       ),
     );

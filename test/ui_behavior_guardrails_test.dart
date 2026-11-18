@@ -20,7 +20,6 @@ String _homePresentationSource() =>
           'lib/features/home/presentation/home_insights_screen.dart',
           'lib/features/home/presentation/home_notes_screen.dart',
           'lib/features/home/presentation/home_trash_screen.dart',
-          'lib/features/home/presentation/home_google_drive_panel.dart',
         ]
         .map((path) => File(path).readAsStringSync().replaceAll('\r\n', '\n'))
         .join('\n');
@@ -351,62 +350,24 @@ void main() {
     expect(createNoteIcon, contains('#9F5261'));
   });
 
-  test(
-    'sync settings keep recovery and repair tools out of the default flow',
-    () {
-      final homePage = _homePresentationSource();
-      final settings = File(
-        'lib/features/home/presentation/home_settings_screen.dart',
-      ).readAsStringSync();
-      final syncSupport = File(
-        'lib/features/home/presentation/home_sync_support.dart',
-      ).readAsStringSync();
-      final strings = File('lib/l10n/app_strings.dart').readAsStringSync();
+  test('settings keep one section open', () {
+    final settings = File(
+      'lib/features/home/presentation/home_settings_screen.dart',
+    ).readAsStringSync();
+    final components = File(
+      'lib/features/home/presentation/home_settings_components.dart',
+    ).readAsStringSync();
 
-      expect(
-        settings,
-        contains(
-          RegExp(
-            r'if \(syncProvider != SyncProvider\.off &&\s+'
-            r'syncAuthState\.isAuthenticated\)',
-          ),
-        ),
-      );
-      expect(strings, contains("en: 'Sync details'"));
-      expect(settings, contains("en: 'Sync status'"));
-      expect(settings, contains("en: 'Recovery key'"));
-      expect(settings, contains("en: 'History'"));
-      expect(homePage, contains("en: 'Repair and maintenance'"));
-      expect(settings, isNot(contains("en: 'Show QR'")));
-      expect(settings, isNot(contains("en: 'Scan QR'")));
-      expect(settings, isNot(contains("'home.last.sync.activity'")));
-      expect(syncSupport, contains("en: 'Scan QR'"));
-    },
-  );
-
-  test(
-    'settings keep one section open and separate dangerous storage work',
-    () {
-      final settings = File(
-        'lib/features/home/presentation/home_settings_screen.dart',
-      ).readAsStringSync();
-      final components = File(
-        'lib/features/home/presentation/home_settings_components.dart',
-      ).readAsStringSync();
-
-      expect(settings, contains('_primarySettingsControllers'));
-      expect(settings, contains('_handlePrimarySettingsExpansion'));
-      expect(components, contains('explicitChildNodes: true'));
-      expect(settings, contains("en: 'Lock screen and widgets'"));
-      expect(
-        settings,
-        isNot(contains("title: strings.text('home.external.quick.memo')")),
-      );
-      expect(settings, contains('if (showFlavorInfo)'));
-      expect(settings, contains('_SettingsDangerZone('));
-      expect(components, contains('class _SettingsDangerZone'));
-    },
-  );
+    expect(settings, contains('_primarySettingsControllers'));
+    expect(settings, contains('_handlePrimarySettingsExpansion'));
+    expect(components, contains('explicitChildNodes: true'));
+    expect(settings, contains("en: 'Lock screen and widgets'"));
+    expect(
+      settings,
+      isNot(contains("title: strings.text('home.external.quick.memo')")),
+    );
+    expect(settings, contains('if (showFlavorInfo)'));
+  });
 
   test('private profile access action uses Material icons', () {
     final homePage = _homePresentationSource();
@@ -722,22 +683,15 @@ void main() {
     );
   });
 
-  test('diagnostic mode exposes iCloud storage maintenance actions', () {
+  test('diagnostic logs include attachment and network failures', () {
     final homePage = _homePresentationSource();
-    final iCloudTransport = File(
-      'lib/features/sync/data/icloud_sync_transport.dart',
-    ).readAsStringSync();
     final networkConnection = File('lib/app/network_connection.dart')
         .readAsStringSync();
 
-    expect(homePage, contains('diagnosticICloudStorageBreakdownKey'));
-    expect(homePage, contains('diagnosticICloudPruneBundlesKey'));
     expect(homePage, contains("'attachment'"));
     expect(homePage, contains('image decode failed'));
     expect(networkConnection, contains("'network'"));
     expect(networkConnection, contains('connection kind read'));
-    expect(iCloudTransport, contains('fetchStorageBreakdown'));
-    expect(iCloudTransport, contains('pruneObsoleteData'));
   });
 
   test('native attachment sharing keeps materialized files readable', () {
@@ -934,8 +888,6 @@ void main() {
       contains('_decodeLocalZipArchivePayloadInBackground'),
     );
     expect(homeProviders, contains('onProgress: (progress) async'));
-    expect(homePage, contains('includeUpload: false'));
-    expect(homePage, contains('includeDownload: true'));
     expect(homeProviders, contains('detail'));
     expect(homeProviders, contains('completedItems'));
     expect(homeProviders, contains('totalItems'));

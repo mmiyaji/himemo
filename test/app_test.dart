@@ -47,6 +47,9 @@ import 'package:himemo/l10n/app_localizations.dart';
 import 'package:himemo/l10n/app_strings.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:himemo/features/sync/presentation/sync_v2_workspace.dart';
+
+import 'support/sync_v2_workspace_fixture.dart';
 
 void main() {
   driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
@@ -6826,8 +6829,13 @@ void main() {
       keyFactory: encryptionService.generateKeyBytes,
     );
     final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final workspace = (await tester.runAsync(
+      () => createSyncV2TestWorkspace(register: false),
+    ))!;
+    addTearDown(workspace.dispose);
     final container = ProviderContainer(
       overrides: [
+        syncV2WorkspaceProvider.overrideWithValue(workspace),
         secureKeyValueStoreProvider.overrideWithValue(secureStore),
         encryptionServiceProvider.overrideWithValue(encryptionService),
         masterKeyServiceProvider.overrideWithValue(masterKeyService),
@@ -6932,8 +6940,13 @@ void main() {
       keyFactory: encryptionService.generateKeyBytes,
     );
     final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final workspace = (await tester.runAsync(
+      () => createSyncV2TestWorkspace(register: false),
+    ))!;
+    addTearDown(workspace.dispose);
     final container = ProviderContainer(
       overrides: [
+        syncV2WorkspaceProvider.overrideWithValue(workspace),
         secureKeyValueStoreProvider.overrideWithValue(secureStore),
         encryptionServiceProvider.overrideWithValue(encryptionService),
         masterKeyServiceProvider.overrideWithValue(masterKeyService),
@@ -7016,8 +7029,13 @@ void main() {
       keyFactory: encryptionService.generateKeyBytes,
     );
     final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final workspace = (await tester.runAsync(
+      () => createSyncV2TestWorkspace(register: false),
+    ))!;
+    addTearDown(workspace.dispose);
     final container = ProviderContainer(
       overrides: [
+        syncV2WorkspaceProvider.overrideWithValue(workspace),
         secureKeyValueStoreProvider.overrideWithValue(secureStore),
         encryptionServiceProvider.overrideWithValue(encryptionService),
         masterKeyServiceProvider.overrideWithValue(masterKeyService),
@@ -7180,8 +7198,13 @@ void main() {
       seedBaseDate: DateTime(2026, 4, 12, 23, 30),
       useEnglishSeedData: true,
     );
+    final workspace = (await tester.runAsync(
+      () => createSyncV2TestWorkspace(register: false),
+    ))!;
+    addTearDown(workspace.dispose);
     final container = ProviderContainer(
       overrides: [
+        syncV2WorkspaceProvider.overrideWithValue(workspace),
         homeRepositoryProvider.overrideWithValue(homeRepository),
         notesControllerProvider.overrideWithValue(
           homeRepository.seededNotes

@@ -150,6 +150,20 @@ final syncV2WorkspaceProvider = Provider<SyncV2WorkspaceController>((ref) {
   return workspace;
 });
 
+// The workspace provider owns a stable controller; expose registration changes
+// without rebuilding note stores on every controller notification.
+final syncV2RegisteredProvider = Provider<bool>((ref) {
+  final workspace = ref.watch(syncV2WorkspaceProvider);
+  final registered = workspace.registered;
+  void changed() {
+    if (ref.mounted && workspace.registered != registered) ref.invalidateSelf();
+  }
+
+  workspace.addListener(changed);
+  ref.onDispose(() => workspace.removeListener(changed));
+  return registered;
+});
+
 Future<String?> _syncV2AdminInstallationId(bool create) async {
   final preferences = await SharedPreferences.getInstance();
   const key = 'security.sync_v2.admin_installation.v1';

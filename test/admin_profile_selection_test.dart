@@ -19,6 +19,9 @@ import 'package:himemo/features/security/data/secure_key_value_store.dart';
 import 'package:himemo/l10n/app_localizations.dart';
 import 'package:himemo/l10n/app_strings.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:himemo/features/sync/presentation/sync_v2_workspace.dart';
+
+import 'support/sync_v2_workspace_fixture.dart';
 
 void main() {
   testWidgets('admin entry lets the user choose which profile to unlock', (
@@ -56,53 +59,33 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets(
-    'profile actions share one menu and can stop syncing a locked profile',
-    (tester) async {
-      final (:container, :admin) = await _pumpAdminProfileList(
-        tester,
-        const Size(390, 844),
-      );
-      final familyRow = find.byKey(
-        SettingsScreen.privateProfileOpenKey('family'),
-      );
-      await tester.ensureVisible(familyRow);
-      // Only the overflow menu remains beside the row on a phone.
-      expect(
-        find.descendant(of: familyRow, matching: find.byType(IconButton)),
-        findsOneWidget,
-      );
+  testWidgets('profile actions share one menu without legacy sync controls', (
+    tester,
+  ) async {
+    final (:admin, container: _) = await _pumpAdminProfileList(
+      tester,
+      const Size(390, 844),
+    );
+    final familyRow = find.byKey(
+      SettingsScreen.privateProfileOpenKey('family'),
+    );
+    await tester.ensureVisible(familyRow);
+    // Only the overflow menu remains beside the row on a phone.
+    expect(
+      find.descendant(of: familyRow, matching: find.byType(IconButton)),
+      findsOneWidget,
+    );
 
-      await tester.tap(
-        find.byKey(SettingsScreen.privateProfileMenuKey('family')),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text('プロファイル名を変更'), findsOneWidget);
-      expect(find.text('プロファイルを削除'), findsOneWidget);
-      await tester.tap(
-        find.ancestor(
-          of: find.text('ロック中は同期しない'),
-          matching: find.byWidgetPredicate(
-            (widget) => widget is CheckedPopupMenuItem,
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, '同期しない'));
-      await tester.pumpAndSettle();
-
-      expect(
-        container.read(privateProfileSyncExclusionsProvider),
-        contains('private_profile:family'),
-      );
-      expect(
-        find.descendant(of: familyRow, matching: find.text('ロック中は同期しない')),
-        findsOneWidget,
-      );
-      expect(admin.requestedVault, isNull);
-      expect(tester.takeException(), isNull);
-    },
-  );
+    await tester.tap(
+      find.byKey(SettingsScreen.privateProfileMenuKey('family')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('プロファイル名を変更'), findsOneWidget);
+    expect(find.text('プロファイルを削除'), findsOneWidget);
+    expect(find.text('ロック中は同期しない'), findsNothing);
+    expect(admin.requestedVault, isNull);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 Future<({ProviderContainer container, _AdminWithMissingProfiles admin})>
@@ -133,8 +116,13 @@ _pumpAdminProfileList(WidgetTester tester, Size size) async {
   );
   final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
   final admin = _AdminWithMissingProfiles();
+  final workspace = (await tester.runAsync(
+    () => createSyncV2TestWorkspace(register: false),
+  ))!;
+  addTearDown(workspace.dispose);
   final container = ProviderContainer(
     overrides: [
+      syncV2WorkspaceProvider.overrideWithValue(workspace),
       secureKeyValueStoreProvider.overrideWithValue(secureStore),
       encryptionServiceProvider.overrideWithValue(encryption),
       masterKeyServiceProvider.overrideWithValue(master),

@@ -23,7 +23,6 @@ import 'package:himemo/features/security/data/private_vault_secret_store.dart';
 import 'package:himemo/features/security/data/secure_key_value_store.dart';
 import 'package:himemo/features/security/data/web_attachment_payload_store_stub.dart';
 import 'package:himemo/features/sync/data/sync_bundle_key_service.dart';
-import 'package:himemo/features/sync/presentation/src/google_sign_in_web_button_stub.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -94,11 +93,6 @@ void main() {
         isNull,
       );
       revokeWebVideoObjectUrl('blob:video');
-
-      await tester.pumpWidget(
-        MaterialApp(home: buildGoogleSignInWebButton(locale: 'ja')),
-      );
-      expect(find.byType(SizedBox), findsOneWidget);
     });
   });
 
