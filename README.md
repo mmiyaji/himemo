@@ -67,6 +67,8 @@ For the encrypted save/recovery browser smoke, build `tools/v2_web_local_preview
 
 Unit/widget and two-store tests cover protocol and UI behavior. Actual CloudKit, biometrics, camera scanning, and media playback still require [iOS acceptance checks](internal-docs/sync-v2-acceptance.md). Build/simulator CI does not replace physical-device acceptance. Performance measurements and their limits are in [sync-v2-performance.md](internal-docs/sync-v2-performance.md).
 
+For an unsigned iOS simulator check, the existing `iOS TestFlight` dispatcher supports `verification_only=true`, which calls `ios-verify.yml` and skips signing, upload, and distribution. Push and remote execution require authorization; see the [iOS workflow guide](internal-docs/github-actions-ios-testflight.md).
+
 ## Architecture
 
 - Flutter/Dart, Riverpod, go_router, Drift/SQLite, cryptography, secure storage, Firebase observability, and Playwright

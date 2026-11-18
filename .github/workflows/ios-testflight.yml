@@ -3,6 +3,11 @@ name: iOS TestFlight
 on:
   workflow_dispatch:
     inputs:
+      verification_only:
+        description: "Only run the unsigned simulator verification; ignore all release inputs."
+        required: false
+        default: false
+        type: boolean
       build_number:
         description: "Optional CFBundleVersion. Defaults to UTC yyMMddHHmm."
         required: false
@@ -37,8 +42,12 @@ env:
   KEYCHAIN_NAME: "himemo-build.keychain-db"
 
 jobs:
+  verify-only:
+    if: ${{ inputs.verification_only }}
+    uses: ./.github/workflows/ios-verify.yml
+
   build-and-upload:
-    if: ${{ !inputs.finalize_only }}
+    if: ${{ !inputs.finalize_only && !inputs.verification_only }}
     name: Build iOS IPA and upload to TestFlight
     runs-on: xcode-27
     timeout-minutes: 90
@@ -454,7 +463,7 @@ jobs:
           rm -rf "$HOME/.appstoreconnect/private_keys" || true
 
   finalize-existing:
-    if: ${{ inputs.finalize_only }}
+    if: ${{ inputs.finalize_only && !inputs.verification_only }}
     name: Verify uploaded TestFlight build and internal distribution
     runs-on: ubuntu-latest
     timeout-minutes: 25

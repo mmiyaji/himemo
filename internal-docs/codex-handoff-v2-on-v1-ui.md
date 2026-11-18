@@ -253,3 +253,13 @@ python -m http.server 8765 --directory build/web
 - 最終検証: 全406件成功、静的解析は指摘なし、lib/test/integration_test/patrol_test/test_driverの229ファイルformat確認成功。v1指定の拒否とproductionのv2-local拒否/development許可を個別確認。CloudKit Web protocolのNodeテスト18件とschema/source定数照合も成功。
 - Webは最終ソースのv2-localプレビューをビルドし、実ブラウザの暗号化保存→鍵破棄→再登録→添付復元・プロフィール解除smokeが成功。共有Playwrightの作成・編集・検索・設定・PIN/ロック・プロフィール・日英表示の主要20件に成功実績（fixture修正後の再実行を含む）。長時間monkey8件と240件のUI投入による検索性能ケースは今回実行していない。共有fixtureの移行確認は主要20件で行い、性能評価は実repository/KDF/8MiB計測を使用した。
 - 翻訳生成物の内容差分と無関係なルーター生成hashはコミットから除外。新しい翻訳表現は旧「初回だけプロフィールパスワードが必要」の説明を6言語で撤去した部分のみ。ユーザー所有の未追跡AGENTS.md/.claude/artifacts/store-assetsは維持する。
+
+
+### 2026-11-18: iOS受入の準備と配布しない検証経路
+
+- `sync-v2-acceptance.md` を現行仕様へ更新。撤去済みZIP移行、旧QR、旧6文字条件、旧UI切替の確認を外し、統合QR/復元ファイル、4文字パスコード、二端末、ロック競合、競合解消、添付、実機release性能へ揃えた。合成データ試験のdev_名前空間とDevelopment署名を区別し、skipを成功扱いしない。
+- 新規 `ios-verify.yml` は無署名simulator buildと既存のproduction起動/native channel/Quick Look smokeだけを実施し、コミットSHAと証拠artifactを残す。Apple署名資材・IPA作成・アップロード・配布は含まない。
+- GitHub上に登録済みの `ios-testflight.yml` に既定falseの `verification_only` を追加。true時は新しいreusable workflowへ進み、署名/アップロードと既存build配布jobの両方をskipする。既定ブランチにない新規workflowを直接dispatchできない場合にも既存の入口を使える。既定falseの配布動作は変更しない。
+- GitHubを読み取り確認。直近の既存iOS成功runは `44073695139`、別ブランチの `696eea7`。現在のローカル変更の検証済み証拠ではない。今回はpush・workflow dispatch・配布を実行していない。
+- ホストのiOS補助ツール36テスト成功。YAML、Bash構文、verification/finalizeの全4組合せ、検証jobの署名/公開資材への非依存を確認。iOSビルド・simulator起動・実機項目は引き続き未実施。
+- Opus実レビューでP1/P2なし。新規workflowの既定ブランチ未登録への対処、既存の配布動作維持、検証時の両release job除外、権限・秘密情報・concurrency・helper引数を確認。アプリコードは変更せず、前回の406件の結果は据え置く。次はこのブランチのpushと検証専用dispatchについて許可を得て、run結果を回収する。

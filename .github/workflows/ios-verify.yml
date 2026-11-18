@@ -1,0 +1,95 @@
+name: iOS Verification
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-verification-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FLUTTER_VERSION: "3.47.8"
+  BUNDLE_ID: "org.ruhenheim.himemo"
+
+jobs:
+  simulator:
+    name: Build and verify production startup without publishing
+    runs-on: xcode-27
+    timeout-minutes: 80
+    steps:
+      - name: Check out the selected revision
+        uses: actions/checkout@v5
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Select and verify the iOS toolchain
+        run: |
+          set -euo pipefail
+          sudo xcode-select --switch /Applications/Xcode_27.1.app/Contents/Developer
+          flutter --version
+          pod --version
+          python3 tools/check_ios_toolchain.py
+
+      - name: Resolve dependencies and localization
+        run: |
+          set -euo pipefail
+          flutter pub get
+          flutter gen-l10n
+
+      - name: Validate CloudKit schema constants
+        run: python3 tools/cloudkit/check_expected_schema.py
+
+      - name: Install CocoaPods dependencies
+        run: |
+          set -euo pipefail
+          find ios -name "Podfile" -execdir pod install \;
+
+      - name: Build the simulator candidate without signing
+        timeout-minutes: 30
+        run: |
+          set -euo pipefail
+          flutter build ios --simulator --debug --no-codesign --no-pub \
+            --target=test_driver/ios_launch_app.dart
+
+      - name: Verify startup and native channels on a fresh simulator
+        timeout-minutes: 30
+        run: |
+          set -euo pipefail
+          xcrun simctl list runtimes -j > "$RUNNER_TEMP/ios-runtimes.json"
+          xcrun simctl list devicetypes -j > "$RUNNER_TEMP/ios-device-types.json"
+          python3 tools/ios_launch_smoke.py \
+            --device-name "himemo-verify-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --runtimes-file "$RUNNER_TEMP/ios-runtimes.json" \
+            --device-types-file "$RUNNER_TEMP/ios-device-types.json" \
+            --bundle-id "$BUNDLE_ID" \
+            --app-path build/ios/iphonesimulator/Runner.app \
+            --target=test_driver/ios_launch_app.dart \
+            --driver=test_driver/ios_launch_test.dart \
+            --evidence-dir build/ios-launch-smoke \
+            --boot-timeout-seconds 150 \
+            --install-timeout-seconds 600 \
+            --startup-timeout-seconds 180 \
+            --driver-timeout-seconds 480 \
+            --operation-timeout-seconds 1500
+
+      - name: Record the tested revision
+        if: always()
+        run: |
+          mkdir -p build/ios-launch-smoke
+          git rev-parse HEAD > build/ios-launch-smoke/source-commit.txt
+
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ios-verification-${{ github.run_number }}
+          path: build/ios-launch-smoke/
+          if-no-files-found: warn

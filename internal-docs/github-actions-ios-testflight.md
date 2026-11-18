@@ -4,8 +4,23 @@ HiMemo の iOS production IPA を GitHub Actions でもビルドし、App Store 
 Codemagic の `ios-testflight-production` と並行運用する前提。
 
 関連ファイル:
-- [codemagic.yaml](/C:/Users/mail/Documents/git/himemo/codemagic.yaml)
-- [.github/workflows/ios-testflight.yml](/C:/Users/mail/Documents/git/himemo/.github/workflows/ios-testflight.yml)
+- [codemagic.yaml](../codemagic.yaml)
+- [ios-testflight.yml](../.github/workflows/ios-testflight.yml)
+- [ios-verify.yml](../.github/workflows/ios-verify.yml)
+
+## v2の配布しない検証（2026-11-18）
+
+このページには旧版の配布履歴も含む。現在のv2受入は [sync-v2-acceptance.md](sync-v2-acceptance.md) に従う。旧ZIP・Google Drive・別々の端末追加QRは現在の検証対象ではない。
+
+pushとworkflow実行の許可後、対象ブランチで以下を実行する。
+
+```sh
+gh workflow run ios-testflight.yml --ref feature/v2-on-v1-ui --field verification_only=true --field upload_to_testflight=false
+```
+
+`verification_only=true` は既存の登録済みworkflowから検証用のreusable workflowを呼び、署名・アップロード・配布の両jobを無効にする。他の入力より優先する。無署名simulator build、production起動、native channel／Quick Look smoke、検証コミットSHAとログのartifact保存だけを行う。実CloudKit・生体認証・カメラ・実機の再生確認にはならない。
+
+`verification_only` の既定値はfalseで、既存の配布動作は維持する。`upload_to_testflight=false` だけの場合は従来どおり署名済みIPAを生成するため、署名も不要な検証では必ず `verification_only=true` を指定する。
 
 ## Workflow
 
