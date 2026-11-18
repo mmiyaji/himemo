@@ -142,116 +142,19 @@ void main() {
     );
   });
 
-  test(
-    'admin-only profile keys round-trip and never run password KDF',
-    () async {
-      const generation = 'generation-admin-only';
-      final service = SyncV2ProfileKeys(EncryptionService());
-      final profileKey = SecretKey(
-        List<int>.generate(32, (index) => index + 4),
-      );
-      final adminKey = SecretKey(List<int>.filled(32, 71));
-      final record = await service.wrapAdminOnly(
-        generationId: generation,
-        profileId: 'admin-profile',
-        keyId: 'admin-key',
-        profileKey: profileKey,
-        adminKey: adminKey,
-      );
-      final json = record.toJson();
-      expect(json.keys.toSet(), {
-        'format',
-        'version',
-        'mode',
-        'profileId',
-        'keyId',
-        'adminWrap',
-      });
-      expect(json['version'], 2);
-      expect(json['mode'], 'admin-only');
-      expect(json.containsKey('kdf'), isFalse);
-      expect(json.containsKey('salt'), isFalse);
-      expect(json.containsKey('passphraseWrap'), isFalse);
-
-      final parsed = SyncV2WrappedProfileKey.fromJson(json);
-      expect(parsed.toJson(), json);
-      expect(parsed.adminOnly, isTrue);
-      final unlocked = await service.unlockForAdmin(
-        generationId: generation,
-        record: parsed,
-        adminKey: adminKey,
-      );
-      expect(await unlocked.extractBytes(), await profileKey.extractBytes());
-      unlocked.destroy();
-      await expectLater(
-        service.unlockForAdmin(
-          generationId: generation,
-          record: parsed,
-          adminKey: SecretKey(List<int>.filled(32, 72)),
-        ),
-        throwsA(isA<HimemoDecryptionException>()),
-      );
-
-      // A password supplied to the private-profile flow cannot match this
-      // record; skipping it also proves this call does not invoke Argon2id.
-      expect(
-        await service.unlockMatching(
-          generationId: generation,
-          records: [parsed],
-          passphrase: 'any-private-password',
-        ),
-        isEmpty,
-      );
-
-      for (final invalid in [
-        {...json, 'version': 1},
-        {...json, 'mode': 'other'},
-        {...json, 'extra': true},
-        {...json, 'kdf': <String, Object>{}},
-      ]) {
-        expect(
-          () => SyncV2WrappedProfileKey.fromJson(invalid),
-          throwsFormatException,
-        );
-      }
-      final invalidVersionType = {...json, 'version': 2.0};
-      expect(
-        () => SyncV2WrappedProfileKey.fromJson(invalidVersionType),
-        throwsFormatException,
-      );
-
-      // Adding a password later emits the current passphrase record format, while
-      // preserving the same raw profile key under its administrator wrapper.
-      final passwordConfigured = await service.wrap(
-        generationId: generation,
-        profileId: 'admin-profile',
-        keyId: 'admin-key',
-        profileKey: profileKey,
-        passphrase: 'new-private-password',
-        adminKey: adminKey,
-      );
-      expect(passwordConfigured.toJson()['version'], 3);
-      expect(passwordConfigured.toJson().keys.toSet(), {
-        'format',
-        'version',
-        'kdf',
-        'profileId',
-        'keyId',
-        'salt',
-        'passphraseWrap',
-        'adminWrap',
-      });
-      final migrated = await service.unlockForAdmin(
-        generationId: generation,
-        record: passwordConfigured,
-        adminKey: adminKey,
-      );
-      expect(await migrated.extractBytes(), await profileKey.extractBytes());
-      migrated.destroy();
-      profileKey.destroy();
-      adminKey.destroy();
-    },
-  );
+  test('retired import-only profile key format is rejected', () {
+    expect(
+      () => SyncV2WrappedProfileKey.fromJson({
+        'format': SyncV2WrappedProfileKey.format,
+        'version': 2,
+        'mode': 'admin-only',
+        'profileId': 'old-import-profile',
+        'keyId': 'old-import-key',
+        'adminWrap': 'retired',
+      }),
+      throwsFormatException,
+    );
+  });
 
   test('shared passphrase matches profiles and admin unwrap is generation-bound', () async {
     const generation = 'generation-1';

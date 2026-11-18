@@ -160,3 +160,14 @@ python -m http.server 8765 --directory build/web
 - Opusレビューで重大な不整合なし。指摘された分離の前提は、bootstrapのv2-local override→専用DB名 `himemo_sync_v2_local_preview_wasm`、MemorySecureKeyValueStore、LocalPreviewRegistration、クラウドを呼ばないsyncOperationで確認。統合設定の同期操作も同じcontrollerを利用し、旧同期はv2モードで無効。
 - 検証: 残るv2共有テスト515件成功、静的解析指摘なし。互換プレビューエントリのWebビルド成功。ブラウザで通常のノート画面→設定→同期操作まで確認し、最終同期表示の更新とerrorログなしを確認。iOS・CloudKit実機の検証はしていない。
 - 旧ZIP処理はcontroller・添付アーカイブの下層テスト・ローカルsmokeから依存されている。次はこの依存を整理してZIP移行APIを削除し、その後に旧DB／旧同期／v1互換分岐を削除する。
+
+
+### 2026-11-18: フェーズ5・v2の旧ZIP移行APIを削除
+- `sync_v2_archive_service.dart`、`sync_v2_legacy_import.dart` とcontrollerのZIP検査・取り込み・管理者一括復元・書き出しAPIを削除。プロファイルの自動取り込み先作成とlegacyImportメタデータの引継ぎも撤去。
+- ZIP取り込みだけが使っていた本文未受信／復号失敗を無視する読み出しと上書きAPIをrepositoryから削除。通常の読み取り・既知head照合・本文検証を通る保存だけを使う。一括保存も空headとの照合を行い、既知head・本文未受信を上書きしないことをテストで追加確認。
+- インポート専用だったadmin-onlyのプロファイル鍵(version2)を削除。鍵の仕様は現行formatVersion=3のみ。旧version2鍵を含むクラウド世代は非互換で、再利用にはクラウド世代の破棄／新規設定が前提。レコードを黙って読み飛ばしたり移行したりしない。実際のクラウド削除・世代リセットは行っていない。
+- rich編集・添付削除・QR管理者復元・設定経由の管理者権限・quick編集のテストをnative保存／実際の二端末同期へ移行。ZIP専用テストは撤去し、分割添付の履歴走査回数・逆順中断配信・破損参照の検証は `sync_v2_attachment_delivery_test.dart` へ保持。
+- ローカルsmokeもZIPの往復を外し、暗号化保存→鍵の破棄→SYNC/ADMINでの再登録→添付復元→プライベートプロファイルの解除を引き続き検証する。通常の「ノートをアーカイブする」機能は維持。
+- Opusレビューで通常の暗号化・CAS・競合解決に重大な退行なし。指摘された旧鍵形式の非互換方針、一括保存のCAS、legacyImport残存参照を確認した。
+- v1互換側のZIP処理は旧DB／旧同期と同じ依存に属するため残る。次は旧DB・Google Drive・旧iCloud・v1互換テスト／分岐を整理・削除する。
+- 最終検証: v2共有502件＋旧互換244件成功、静的解析指摘なし、変更Dartのformat確認成功、ローカルプレビューWebビルド成功。実ブラウザの `v2LocalSmoke=1` で鍵をメモリから破棄した後のメモ・添付復元とプロファイル解除までpassed、errorログなし。iOS実機・実CloudKitは未検証。

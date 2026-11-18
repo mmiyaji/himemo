@@ -13,7 +13,6 @@ class SyncV2WrappedProfileKey {
     required this.salt,
     required this.passphraseWrap,
     required this.adminWrap,
-    this.adminOnly = false,
   });
 
   final String profileId;
@@ -21,12 +20,10 @@ class SyncV2WrappedProfileKey {
   final String salt;
   final String passphraseWrap;
   final String adminWrap;
-  final bool adminOnly;
 
   static const format = 'himemo.sync.v2.profile-key';
   // Version 3 switched the KDF to OWASP minimum parameters (no migration).
   static const formatVersion = 3;
-  static const adminOnlyFormatVersion = 2;
   static const kdfMemoryKiB = 19 * 1024;
   static const kdfIterations = 2;
   static const kdfParallelism = 1;
@@ -52,33 +49,6 @@ class SyncV2WrappedProfileKey {
       return value;
     }
 
-    if (json['format'] == format &&
-        json['version'] is int &&
-        json['version'] == adminOnlyFormatVersion) {
-      const fields = {
-        'format',
-        'version',
-        'mode',
-        'profileId',
-        'keyId',
-        'adminWrap',
-      };
-      if (json.length != fields.length ||
-          !json.keys.every(fields.contains) ||
-          json['mode'] != 'admin-only') {
-        throw const FormatException('Unsupported v2 profile key format');
-      }
-      final record = SyncV2WrappedProfileKey(
-        profileId: string('profileId'),
-        keyId: string('keyId'),
-        salt: '',
-        passphraseWrap: '',
-        adminWrap: string('adminWrap'),
-        adminOnly: true,
-      );
-      record._validate();
-      return record;
-    }
     const fields = {
       'format',
       'version',
@@ -119,16 +89,6 @@ class SyncV2WrappedProfileKey {
 
   Map<String, dynamic> toJson() {
     _validate();
-    if (adminOnly) {
-      return {
-        'format': format,
-        'version': adminOnlyFormatVersion,
-        'mode': 'admin-only',
-        'profileId': profileId,
-        'keyId': keyId,
-        'adminWrap': adminWrap,
-      };
-    }
     return {
       'format': format,
       'version': formatVersion,
@@ -146,13 +106,6 @@ class SyncV2WrappedProfileKey {
       if (id.isEmpty || id.length > 1024) {
         throw const FormatException('Invalid v2 profile key identity');
       }
-    }
-    if (adminOnly) {
-      if (salt.isNotEmpty || passphraseWrap.isNotEmpty) {
-        throw const FormatException('Invalid admin-only v2 profile key');
-      }
-      _validateWrap(adminWrap);
-      return;
     }
     _base64(salt, 16);
     for (final wrap in [passphraseWrap, adminWrap]) {
@@ -339,32 +292,6 @@ class SyncV2ProfileKeys {
     }
   }
 
-  /// Wraps a profile key for administrator recovery without creating a
-  /// passphrase wrapper or deriving a passphrase key.
-  Future<SyncV2WrappedProfileKey> wrapAdminOnly({
-    required String generationId,
-    required String profileId,
-    required String keyId,
-    required SecretKey profileKey,
-    required SecretKey adminKey,
-  }) async {
-    final context = _context(generationId, profileId, keyId, 'admin');
-    final bytes = await profileKey.extractBytes();
-    if (bytes.length != 32) throw ArgumentError('Invalid profile key length');
-    return SyncV2WrappedProfileKey(
-      profileId: profileId,
-      keyId: keyId,
-      salt: '',
-      passphraseWrap: '',
-      adminWrap: await _encryption.encryptBytes(
-        clearBytes: bytes,
-        secretKey: adminKey,
-        additionalData: context,
-      ),
-      adminOnly: true,
-    );
-  }
-
   /// Call only from the user-driven unlock flow after applying its throttle.
   Future<Map<String, SecretKey>> unlockMatching({
     required String generationId,
@@ -384,7 +311,6 @@ class SyncV2ProfileKeys {
         }
       }
       for (final record in validated) {
-        if (record.adminOnly) continue;
         final salt = base64Decode(record.salt);
         if (salt.length != 16) {
           throw const FormatException('Invalid v2 key salt');

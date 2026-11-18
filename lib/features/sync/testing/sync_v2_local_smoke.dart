@@ -61,14 +61,6 @@ Future<void> runLocalV2Smoke() async {
         );
       }
     }
-    stage = 'export';
-    final archive = await first.exportArchive();
-    _check(archive.isNotEmpty, 'Archive export');
-    final inspection = await first.inspectArchive(archive);
-    _check(
-      inspection.noteCountsByProfile.values.reduce((a, b) => a + b) == 1,
-      'Archive inspection',
-    );
     first.dispose();
     firstDisposed = true;
     // Controller disposal closes the database asynchronously.
@@ -93,19 +85,6 @@ Future<void> runLocalV2Smoke() async {
         bytes,
       ),
       'Attachment recovery',
-    );
-    stage = 'import';
-    await second.importArchive(
-      bytes: archive,
-      destinations: {
-        for (final profile in inspection.noteCountsByProfile.keys)
-          profile: second.selectedProfileId!,
-      },
-      acceptUnlinkedAttachments: false,
-    );
-    _check(
-      second.notes.where((item) => item.note.title == title).length == 2,
-      'Archive import',
     );
     stage = 'createPrivate';
     await second.createProfile('Private sample', 'private-preview-password');

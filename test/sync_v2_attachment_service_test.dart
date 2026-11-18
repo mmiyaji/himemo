@@ -57,10 +57,11 @@ void main() {
       final adminKey = SecretKey(List<int>.filled(32, 19));
       final keys = SyncV2ProfileKeys(encryption);
       final profileKey = SecretKey(List<int>.filled(32, 29));
-      final wrapped = await keys.wrapAdminOnly(
+      final wrapped = await keys.wrap(
         generationId: generationId,
         profileId: profileId,
         keyId: 'profile-key',
+        passphrase: 'test-passcode',
         profileKey: profileKey,
         adminKey: adminKey,
       );

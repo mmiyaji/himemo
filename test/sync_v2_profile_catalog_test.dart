@@ -200,18 +200,6 @@ void main() {
     final adminUnaffected = await device().unlockAdmin(admin);
     expect(adminUnaffected.single.id, second.id);
     expect(await device().conflictNames(admin), {first.id: first.name});
-    final importAccess = await device().ensureImportProfile(
-      sourceProfileId: first.id,
-      name: 'Imported',
-      adminKey: admin,
-    );
-    expect(importAccess.id, first.id);
-    importAccess.destroy();
-    expect(
-      (await device().loadConflicts()).single.headIds,
-      conflicts.single.headIds,
-      reason: 'Import must not silently resolve a real password conflict',
-    );
     await device().resolvePasswordConflict(
       profileId: first.id,
       password: 'repaired independent password',

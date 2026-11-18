@@ -18,7 +18,6 @@ import '../../security/data/sync_v2_admin_store.dart';
 import '../../security/data/sync_v2_device_admin_store.dart';
 import '../../security/data/sync_v2_biometric_key_store.dart';
 import '../../security/data/sync_v2_profile_keys.dart';
-import '../data/sync_v2_archive_service.dart';
 import '../data/sync_v2_capture_service.dart';
 import '../data/sync_v2_attachment_service.dart';
 import '../data/sync_v2_enrollment_store.dart';
@@ -33,7 +32,6 @@ import '../data/sync_v2_note_store.dart';
 import '../data/sync_v2_payload_codec.dart';
 import '../data/sync_v2_profile_catalog.dart';
 
-export '../data/sync_v2_archive_service.dart' show SyncV2ArchiveInspection;
 export '../data/sync_v2_attachment_service.dart' show SyncV2AttachmentReference;
 
 const syncV2EnabledPreference = 'settings.sync_v2.enabled';
@@ -1410,9 +1408,6 @@ class SyncV2WorkspaceController extends ChangeNotifier {
         throw const SyncV2StaleNote();
       }
       NoteEntry? selectedNote;
-      Map<String, Object?>? originBody = original?.versions.length == 1
-          ? original!.versions.single.body
-          : null;
       List<SyncV2AttachmentReference>? selectedAttachments;
       if (selectedVersionId != null) {
         final version = original!.versions.singleWhere(
@@ -1425,7 +1420,6 @@ class SyncV2WorkspaceController extends ChangeNotifier {
           Map<String, dynamic>.from(version.body!['note'] as Map),
         );
         selectedAttachments = _references(version.body!);
-        originBody = version.body;
       }
       final id = original?.note.id ?? _id('note');
       await inbox.transaction(() async {
@@ -1765,8 +1759,6 @@ class SyncV2WorkspaceController extends ChangeNotifier {
             'type': 'note',
             'note': note.toJson(),
             'attachments': refs.map((r) => r.toJson()).toList(),
-            if (originBody?['legacyImport'] is Map)
-              'legacyImport': originBody!['legacyImport'],
           },
           syncKey: _syncKey!,
           profileKey: access,
@@ -2084,142 +2076,6 @@ class SyncV2WorkspaceController extends ChangeNotifier {
     }
     await _sync();
   });
-  Future<SyncV2ArchiveInspection> inspectArchive(
-    Uint8List bytes, {
-    String? password,
-  }) => _run(
-    () async => SyncV2ArchiveService(
-      inbox,
-      repository,
-    ).inspect(bytes, password: password),
-  );
-
-  /// Explicit administrator authority replaces known versions with the ZIP.
-  /// Destination creation, notes, attachments and outbox commit together.
-  Future<void> adminImportArchive({
-    required Uint8List bytes,
-    String? password,
-    SyncV2ArchiveInspection? inspection,
-  }) => _run(() async {
-    if (_admin == null || !registered) {
-      throw const SyncV2WorkspaceException('admin_required');
-    }
-    final epoch = _epoch;
-    final admin = SecretKey(List<int>.of(await _admin!.extractBytes()));
-    final opened = <SyncV2UnlockedProfile>[];
-    var installed = false;
-    void checkActive() {
-      if (_disposed ||
-          _paused ||
-          epoch != _epoch ||
-          (_adminFromSettings && !settingsAdminActive)) {
-        throw const SyncV2WorkspaceException('locked');
-      }
-    }
-
-    try {
-      checkActive();
-      // Fetch known parents/catalog updates where possible. Offline restore
-      // remains local, while incomplete catalog/history is reported distinctly.
-      try {
-        await _sync();
-      } on SyncV2CloudDataDeleted {
-        rethrow;
-      } on SyncV2WorkspaceException catch (failure) {
-        if (failure.code == 'account_changed' || failure.code == 'locked') {
-          rethrow;
-        }
-      } catch (_) {
-        // Final authenticated header/catalog checks still run in the transaction.
-      }
-      checkActive();
-      final writerId = _id('archive_writer');
-      final service = SyncV2ArchiveService(inbox, repository);
-      final plan =
-          inspection ?? await service.inspect(bytes, password: password);
-      checkActive();
-      final sources =
-          plan.noteCountsByProfile.keys
-              .where((source) => source != 'everyday')
-              .toList()
-            ..sort();
-      await inbox.transaction(() async {
-        final mapped = <String, SyncV2UnlockedProfileKey>{'everyday': _normal!};
-        for (var i = 0; i < sources.length; i++) {
-          checkActive();
-          final profile = await _catalog.ensureImportProfile(
-            sourceProfileId: sources[i],
-            name: 'プライベート ${i + 1}',
-            adminKey: admin,
-          );
-          opened.add(profile);
-          mapped[sources[i]] = profile.access;
-          checkActive();
-        }
-        await service.importArchive(
-          bytes: bytes,
-          password: password,
-          generationId: generationId!,
-          syncKey: _syncKey!,
-          destinations: mapped,
-          acceptUnlinkedAttachments: true,
-          overwriteExisting: true,
-          writerId: writerId,
-          checkActive: checkActive,
-        );
-        checkActive();
-      });
-      checkActive();
-      _installProfiles(opened, epoch);
-      installed = true;
-      await _refreshAdminProfiles(admin, epoch);
-      selectedProfileId = _normal!.profileId;
-      await _reloadNotes();
-    } on SyncV2StaleNote {
-      throw const SyncV2WorkspaceException('sync_required');
-    } finally {
-      admin.destroy();
-      if (!installed) {
-        for (final profile in opened) {
-          profile.destroy();
-        }
-      }
-    }
-  });
-
-  Future<void> importArchive({
-    required Uint8List bytes,
-    String? password,
-    required Map<String, String> destinations,
-    required bool acceptUnlinkedAttachments,
-  }) => _run(() async {
-    final mapped = <String, SyncV2UnlockedProfileKey>{'everyday': _normal!};
-    for (final entry in destinations.entries) {
-      final access = entry.value == _normal!.profileId
-          ? _normal!
-          : _private[entry.value]?.access;
-      if (access == null) throw const SyncV2WorkspaceException('locked');
-      mapped[entry.key] = access;
-    }
-    await SyncV2ArchiveService(inbox, repository).importArchive(
-      bytes: bytes,
-      password: password,
-      generationId: generationId!,
-      syncKey: _syncKey!,
-      destinations: mapped,
-      acceptUnlinkedAttachments: acceptUnlinkedAttachments,
-    );
-    await _reloadNotes();
-  });
-  Future<Uint8List> exportArchive() => _run(
-    () => _protectBytes(
-      () => SyncV2ArchiveService(inbox, repository).exportArchive(
-        generationId: generationId!,
-        syncKey: _syncKey!,
-        profiles: [_selected],
-      ),
-    ),
-  );
   Future<Uint8List> readAttachment(SyncV2AttachmentReference reference) => _run(
     () => _protectBytes(
       () => SyncV2AttachmentService(inbox, repository).read(

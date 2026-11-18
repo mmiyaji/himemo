@@ -174,44 +174,8 @@ class SyncV2NoteRepository {
     return result;
   });
 
-  /// Reads selected notes with one authenticated header scan. This is reserved
-  /// for archive recovery: an unavailable or malformed old body leaves its
-  /// authenticated heads visible so a replacement can still consume them.
-  Future<Map<String, SyncV2NoteSnapshot>> readManyForArchiveRecovery({
-    required String generationId,
-    required String profileId,
-    required SecretKey syncKey,
-    required SyncV2UnlockedProfileKey profileKey,
-    required Set<String> noteIds,
-    void Function()? checkActive,
-  }) => _inbox.transaction(() async {
-    checkActive?.call();
-    _validateIdentity(generationId, profileId, 'archive-recovery');
-    _validateProfileKey(profileKey, generationId, profileId);
-    final history = await _history(
-      generationId,
-      syncKey,
-      checkActive: checkActive,
-    );
-    checkActive?.call();
-    final result = <String, SyncV2NoteSnapshot>{};
-    for (final id in noteIds) {
-      checkActive?.call();
-      result[id] = await _readFromHistory(
-        history,
-        generationId,
-        profileId,
-        id,
-        profileKey,
-        tolerateUnavailableBody: true,
-        checkActive: checkActive,
-      );
-      checkActive?.call();
-    }
-    return result;
-  });
-
-  /// Immutable chunk/import records share a single authenticated header scan.
+  /// Immutable records share a single authenticated header scan.
+  /// New change IDs require empty heads; exact retries remain idempotent.
   Future<void> saveNewBatch({
     required String generationId,
     required String profileId,
@@ -266,7 +230,6 @@ class SyncV2NoteRepository {
     String profileId,
     String noteId,
     SyncV2UnlockedProfileKey? profileKey, {
-    bool tolerateUnavailableBody = false,
     void Function()? checkActive,
   }) async {
     final resolved = _resolveNote(history, profileId, noteId);
@@ -286,20 +249,14 @@ class SyncV2NoteRepository {
       Map<String, Object?>? body;
       if (payload != null && profileKey != null) {
         checkActive?.call();
-        try {
-          body = Map.unmodifiable(
-            await _payloads.open(
-              generationId: generationId,
-              change: change,
-              encryptedPayload: payload,
-              profileKey: profileKey.key,
-            ),
-          );
-        } on HimemoDecryptionException {
-          if (!tolerateUnavailableBody) rethrow;
-        } on FormatException {
-          if (!tolerateUnavailableBody) rethrow;
-        }
+        body = Map.unmodifiable(
+          await _payloads.open(
+            generationId: generationId,
+            change: change,
+            encryptedPayload: payload,
+            profileKey: profileKey.key,
+          ),
+        );
         checkActive?.call();
       }
       versions.add(
@@ -394,33 +351,6 @@ class SyncV2NoteRepository {
     );
   }
 
-  /// Replaces every currently known head using header CAS, while allowing a
-  /// trusted archive to repair heads whose encrypted bodies are unavailable.
-  /// The supplied profile key is still identity checked and seals the new body.
-  Future<SyncV2Change> replaceKnownHeads({
-    required String generationId,
-    required String profileId,
-    required String noteId,
-    required String changeId,
-    required Set<String> expectedHeadIds,
-    required Map<String, Object?> body,
-    required SecretKey syncKey,
-    required SyncV2UnlockedProfileKey profileKey,
-  }) {
-    final snapshot = jsonDecode(jsonEncode(body)) as Map<String, dynamic>;
-    return _commit(
-      generationId: generationId,
-      profileId: profileId,
-      noteId: noteId,
-      changeId: changeId,
-      expectedHeadIds: Set.of(expectedHeadIds),
-      body: snapshot,
-      syncKey: syncKey,
-      profileKey: profileKey,
-      skipExistingPayloadValidation: true,
-    );
-  }
-
   /// Deletion requires the same profile key used to compare existing versions.
   Future<SyncV2Change> delete({
     required String generationId,
@@ -451,7 +381,6 @@ class SyncV2NoteRepository {
     required SecretKey syncKey,
     required SyncV2UnlockedProfileKey? profileKey,
     List<SyncV2Change>? cachedHistory,
-    bool skipExistingPayloadValidation = false,
   }) => _inbox.transaction(() async {
     _validateIdentity(generationId, profileId, noteId);
     _validateProfileKey(profileKey, generationId, profileId);
@@ -501,8 +430,7 @@ class SyncV2NoteRepository {
     // Reject unavailable bodies and accidental use of another profile's key.
     for (final change in noteChanges) {
       if (heads.contains(change.id) &&
-          change.operation == SyncV2Operation.upsert &&
-          !skipExistingPayloadValidation) {
+          change.operation == SyncV2Operation.upsert) {
         final previousPayload = await _inbox.readPayload(
           generationId: generationId,
           recordId: change.id,

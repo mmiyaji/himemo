@@ -370,79 +370,73 @@ void main() {
     await b.save('next', {'first'});
   });
 
-  test(
-    'admin replacement repairs missing payload but keeps profile binding',
-    () async {
-      await a.save('first', {}, body: {'text': 'old'});
-      await a.publish(cloud);
-      await b.receive(cloud, bodies: false);
-      await expectLater(
-        b.notes.replaceKnownHeads(
-          generationId: 'generation',
-          profileId: 'profile',
-          noteId: 'note',
-          changeId: 'admin-repair',
-          expectedHeadIds: {'first'},
-          body: {'text': 'restored'},
-          syncKey: _syncKey,
-          profileKey: _otherProfileKey,
-        ),
-        throwsA(isA<HimemoDecryptionException>()),
-      );
-      await b.notes.replaceKnownHeads(
-        generationId: 'generation',
-        profileId: 'profile',
-        noteId: 'note',
-        changeId: 'admin-repair',
-        expectedHeadIds: {'first'},
-        body: {'text': 'restored'},
-        syncKey: _syncKey,
-        profileKey: _profileKey,
-      );
-      final repaired = await b.read(key: _profileKey);
-      expect(repaired.headIds, {'admin-repair'});
-      expect(repaired.versions.single.body, {'text': 'restored'});
-    },
-  );
+  test('save resolves conflict and tombstone heads together', () async {
+    await a.save('parent', {});
+    await a.publish(cloud);
+    await b.receive(cloud);
+    await a.notes.delete(
+      generationId: 'generation',
+      profileId: 'profile',
+      noteId: 'note',
+      changeId: 'admin-test-delete',
+      expectedHeadIds: {'parent'},
+      syncKey: _syncKey,
+      profileKey: _profileKey,
+    );
+    await b.save('admin-test-concurrent-edit', {'parent'});
+    await a.publish(cloud);
+    await b.publish(cloud);
+    await a.receive(cloud);
+    final conflicted = await a.read(key: _profileKey);
+    expect(conflicted.hasConflict, isTrue);
+    expect(
+      conflicted.versions.where((version) => version.isDeleted),
+      hasLength(1),
+    );
+    await a.notes.save(
+      generationId: 'generation',
+      profileId: 'profile',
+      noteId: 'note',
+      changeId: 'admin-test-restored',
+      expectedHeadIds: conflicted.headIds,
+      body: {'text': 'resolved conflict'},
+      syncKey: _syncKey,
+      profileKey: _profileKey,
+    );
+    final restored = await a.read(key: _profileKey);
+    expect(restored.headIds, {'admin-test-restored'});
+    expect(restored.versions.single.body, {'text': 'resolved conflict'});
+  });
 
   test(
-    'admin replacement consumes conflict and tombstone heads together',
+    'new batches cannot overwrite known or unavailable note heads',
     () async {
-      await a.save('parent', {});
+      await a.save('first', {}, body: {'text': 'original'});
+      Future<void> batch(SyncV2NoteRepository repository) =>
+          repository.saveNewBatch(
+            generationId: 'generation',
+            profileId: 'profile',
+            syncKey: _syncKey,
+            profileKey: _profileKey,
+            notes: [
+              (
+                noteId: 'note',
+                changeId: 'batch-overwrite',
+                body: <String, Object?>{'text': 'replacement'},
+              ),
+            ],
+          );
+      await expectLater(batch(a.notes), throwsA(isA<SyncV2StaleNote>()));
+      expect((await a.read(key: _profileKey)).versions.single.body, {
+        'text': 'original',
+      });
       await a.publish(cloud);
-      await b.receive(cloud);
-      await a.notes.delete(
-        generationId: 'generation',
-        profileId: 'profile',
-        noteId: 'note',
-        changeId: 'admin-test-delete',
-        expectedHeadIds: {'parent'},
-        syncKey: _syncKey,
-        profileKey: _profileKey,
-      );
-      await b.save('admin-test-concurrent-edit', {'parent'});
-      await a.publish(cloud);
-      await b.publish(cloud);
-      await a.receive(cloud);
-      final conflicted = await a.read(key: _profileKey);
-      expect(conflicted.hasConflict, isTrue);
+      await b.receive(cloud, bodies: false);
+      await expectLater(batch(b.notes), throwsA(isA<SyncV2StaleNote>()));
       expect(
-        conflicted.versions.where((version) => version.isDeleted),
-        hasLength(1),
+        await b.inbox.readOutbox(generationId: 'generation', limit: 100),
+        isEmpty,
       );
-      await a.notes.replaceKnownHeads(
-        generationId: 'generation',
-        profileId: 'profile',
-        noteId: 'note',
-        changeId: 'admin-test-restored',
-        expectedHeadIds: conflicted.headIds,
-        body: {'text': 'archive truth'},
-        syncKey: _syncKey,
-        profileKey: _profileKey,
-      );
-      final restored = await a.read(key: _profileKey);
-      expect(restored.headIds, {'admin-test-restored'});
-      expect(restored.versions.single.body, {'text': 'archive truth'});
     },
   );
 
