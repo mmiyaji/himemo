@@ -5,7 +5,11 @@ import 'package:himemo/app/app.dart';
 import 'package:himemo/app/app_flavor.dart';
 import 'package:himemo/features/home/presentation/home_page.dart';
 import 'package:himemo/features/home/presentation/home_providers.dart';
+import 'package:himemo/features/sync/presentation/sync_v2_workspace.dart';
 import 'package:patrol/patrol.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../test/support/sync_v2_workspace_fixture.dart';
 
 void main() {
   patrolTest('private profile unlock reveals hidden save target on mobile', (
@@ -14,8 +18,18 @@ void main() {
     final fakeDeviceAuthGateway = _FakeDeviceAuthGateway(
       authenticateResults: [true],
     );
+    // ignore: invalid_use_of_visible_for_testing_member
+    SharedPreferences.setMockInitialValues({
+      'app.onboarding_completed': true,
+      'app.onboarding_completed_version': 2,
+      'settings.locale': 'english',
+      'notes.last_editor_mode': 'quick',
+    });
+    final workspace = (await $.tester.runAsync(createSyncV2TestWorkspace))!;
+    addTearDown(workspace.dispose);
     final container = ProviderContainer(
       overrides: [
+        syncV2WorkspaceProvider.overrideWithValue(workspace),
         deviceAuthGatewayProvider.overrideWithValue(fakeDeviceAuthGateway),
       ],
     );
@@ -34,6 +48,9 @@ void main() {
     await $.pumpAndSettle();
 
     await $(find.byKey(AppShell.settingsNavKey)).tap();
+    await $('Private profiles').scrollTo();
+    await $('Private profiles').tap();
+    await $(find.byKey(SettingsScreen.privateProfileAddKey)).scrollTo();
     await $(find.byKey(SettingsScreen.privateProfileAddKey)).tap();
     await $(find.byKey(SettingsScreen.privateProfileNameInputKey))
         .enterText('Patrol profile');
@@ -43,6 +60,9 @@ void main() {
         .enterText('patrol-pass-123');
     await $(find.byKey(SettingsScreen.privateProfileSubmitKey)).tap();
     await $('Patrol profile').waitUntilVisible();
+    container.read(adminModeSessionControllerProvider.notifier).lock();
+    container.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
+    await $.pumpAndSettle();
 
     await $(find.byKey(AppShell.notesNavKey)).tap();
     await $(find.byKey(AppShell.addNoteKey)).tap();
@@ -55,7 +75,6 @@ void main() {
     await $(find.byKey(const Key('private-profile-unlock-submit'))).tap();
 
     await $(find.byKey(AppShell.addNoteKey)).tap();
-    await $('Quick memo').tap();
     await $(find.byKey(const Key('note-save-private-toggle')))
         .waitUntilVisible();
   });

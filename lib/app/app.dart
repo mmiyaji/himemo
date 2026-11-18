@@ -14,6 +14,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../features/home/presentation/home_providers.dart';
 import '../features/security/presentation/app_pin_input.dart';
 import '../features/sync/presentation/sync_v2_privacy.dart';
+import '../features/sync/presentation/sync_v2_workspace.dart';
 import '../l10n/app_localizations.dart';
 import '../l10n/app_strings.dart';
 import 'diagnostic_log.dart';
@@ -546,14 +547,14 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   }
 
   void _lockPrivateSessions() {
-    ref.read(privateVaultSessionControllerProvider.notifier).lock();
+    // Revoke pending unlocks even before a provider has an unlocked session.
+    ref.read(syncV2WorkspaceProvider).lockPrivate();
     ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
     ref.read(adminModeSessionControllerProvider.notifier).lock();
   }
 
   bool _isPrivateOrAdminActive() {
-    return ref.read(privateVaultSessionControllerProvider) ||
-        ref.read(unlockedPrivateProfileVaultIdProvider) != null ||
+    return ref.read(unlockedPrivateProfileVaultIdProvider) != null ||
         ref.read(adminModeSessionControllerProvider);
   }
 

@@ -171,9 +171,6 @@ void main() {
     expect(homePage, contains('List<TextSpan> _highlightTextSpans'));
     expect(homePage, contains("Key('note-detail-delete-button')"));
     expect(homePage, isNot(contains('_NoteDetailAction.delete')));
-    expect(homePage, contains('_NoteDetailAction.addSyncExclusion'));
-    expect(homePage, contains('_NoteDetailAction.removeSyncExclusion'));
-    expect(homePage, contains('systemSyncExcludedTag'));
     expect(homePage, contains('String _displayNoteTag'));
     expect(homePage, contains('_displayNoteTagWithHash(context, tag)'));
     expect(homePage, contains("Key('editor-delete-note-button')"));
@@ -409,10 +406,9 @@ void main() {
     );
     expect(homeProviders, contains('AuditLogController'));
     expect(homeProviders, contains("'admin_mode_login'"));
-    expect(homeProviders, contains("'profile_switch'"));
     expect(homeProviders, contains("'private_profile_unlock'"));
     expect(homeProviders, contains("created ? 'note_create' : 'note_update'"));
-    expect(homeProviders, contains("logAudit(\n        'note_delete'"));
+    expect(homeProviders, contains("'note_delete'"));
     expect(homePage, contains('_buildAuditLogSettingsGroup'));
     expect(homePage, contains('class _AuditLogPreviewLine'));
     expect(homePage, contains("entry.contains('admin_mode_login')"));
@@ -638,19 +634,6 @@ void main() {
     expect(homeProviders, contains('arguments[\'nonce\']'));
   });
 
-  test('google drive bundle lookup excludes trash and tags new bundles', () {
-    final googleDriveTransport = File(
-      'lib/features/sync/data/google_drive_sync_transport.dart',
-    ).readAsStringSync();
-
-    expect(googleDriveTransport, contains("'kind': 'bundle'"));
-    expect(googleDriveTransport, contains('trashed = false and'));
-    expect(
-      googleDriveTransport,
-      contains("appProperties has { key='kind' and value='bundle' }"),
-    );
-  });
-
   test('iOS network kind lookup returns asynchronously', () {
     final appDelegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
 
@@ -761,10 +744,6 @@ void main() {
 
   test('attachment diagnostics include image byte signatures', () {
     final homePage = _homePresentationSource();
-    final syncEngine = File('lib/features/sync/data/sync_engine.dart')
-        .readAsStringSync();
-    final homeProviders = _homeProvidersSource();
-
     expect(homePage, contains('_attachmentByteDiagnosticData'));
     expect(homePage, contains('_logVideoPlaybackDiagnostic'));
     expect(homePage, contains('_videoByteDiagnosticData'));
@@ -777,13 +756,6 @@ void main() {
     expect(homePage, contains('video playback materialized file unavailable'));
     expect(homePage, contains('video playback load failed'));
     expect(homePage, contains('video controller initialized'));
-    expect(syncEngine, contains('class SyncAttachmentMissingException'));
-    expect(syncEngine, contains('sync.error.local_attachment_missing'));
-    expect(homeProviders, contains('SyncAttachmentMissingException'));
-    expect(
-      homeProviders,
-      contains('upload blocked by missing local attachment'),
-    );
   });
 
   test('photo lightbox can zoom beyond original image resolution', () {
@@ -797,121 +769,5 @@ void main() {
     );
     expect(homePage, contains('_togglePrimaryZoom(doubleTapScale, maxScale)'));
     expect(homePage, isNot(contains('final maxScale = displayScale < 1')));
-  });
-
-  test('iCloud sync avoids avoidable foreground waits', () {
-    final homeProviders = _homeProvidersSource();
-    final appDelegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
-
-    expect(homeProviders, contains('_iCloudRemoteStatusCacheTtl'));
-    expect(
-      homeProviders,
-      contains('await _safePruneRemoteHistory(remoteStatus)'),
-    );
-    expect(
-      homeProviders,
-      isNot(contains('unawaited(_pruneICloudStorageAfterUpload')),
-    );
-    expect(homeProviders, contains('Still waiting for iCloud metadata'));
-    expect(appDelegate, contains('cloudKitAccountStatusCacheDuration'));
-    expect(appDelegate, contains('cloudKitAccountAvailableUntil'));
-    expect(appDelegate, contains('cloudKitSyncZoneReady'));
-    expect(appDelegate, contains('private var cloudKitBundleMetadataFields'));
-    expect(appDelegate, contains('cloudKitBundleKindField,'));
-    expect(appDelegate, contains('options.desiredKeys = desiredKeys'));
-    expect(appDelegate, contains('CloudKit production schema type: Int(64)'));
-    expect(
-      appDelegate,
-      contains('private let cloudKitBundleSizeField = "bundleSize"'),
-    );
-    expect(
-      appDelegate,
-      contains('record[self.cloudKitBundleSizeField] = NSNumber'),
-    );
-    expect(appDelegate, contains('bundleFileSize(for: record)'));
-    expect(appDelegate, contains('CKQueryOperation(query: query)'));
-    expect(
-      appDelegate,
-      contains('operation.resultsLimit = max(limit - records.count, 1)'),
-    );
-    expect(
-      appDelegate,
-      contains('desiredKeys: self.cloudKitBundleMetadataFields'),
-    );
-  });
-
-  test('cloud sync heavy work does not run on the UI isolate', () {
-    final syncEngine = File('lib/features/sync/data/sync_engine.dart')
-        .readAsStringSync();
-    final secureBundleStore = File(
-      'lib/features/sync/data/secure_sync_bundle_store.dart',
-    ).readAsStringSync();
-    final attachmentStore = File(
-      'lib/features/security/data/encrypted_attachment_store.dart',
-    ).readAsStringSync();
-    final syncControllers = File(
-      'lib/features/sync/presentation/sync_controllers.dart',
-    ).readAsStringSync();
-    final syncHistoryReader = File(
-      'lib/features/sync/data/sync_history_reader.dart',
-    ).readAsStringSync();
-    final homeProviders = _homeProvidersSource();
-
-    expect(syncEngine, contains('dart:isolate'));
-    expect(syncEngine, contains('TransferableTypedData.fromList'));
-    expect(syncEngine, contains('Isolate.run'));
-    expect(syncEngine, contains('_base64EncodedLength'));
-    expect(syncEngine, contains('SyncSnapshotPreparationProgress'));
-    expect(syncEngine, contains('estimateStoredAttachmentPayloadBytes'));
-    expect(secureBundleStore, contains('dart:isolate'));
-    expect(secureBundleStore, contains('_encryptSyncBundleJson'));
-    expect(secureBundleStore, contains('_decryptSyncBundleJson'));
-    expect(secureBundleStore, contains('Isolate.run'));
-    expect(attachmentStore, contains('_decryptAttachmentBytesFromStorage'));
-    expect(attachmentStore, contains('_decryptAttachmentPayload'));
-    expect(attachmentStore, contains('TransferableTypedData.fromList'));
-    expect(homeProviders, contains('Future<void> _yieldToUi()'));
-    expect(homeProviders, contains('await _yieldToUi();'));
-    expect(homeProviders, contains('onProgress: (progress) async'));
-    expect(homeProviders, contains('detail'));
-    expect(homeProviders, contains('completedItems'));
-    expect(homeProviders, contains('totalItems'));
-    expect(homeProviders, contains('_setProgressDetail'));
-    expect(homeProviders, contains('_measureSyncStep'));
-    expect(homeProviders, contains('Checking cloud status'));
-    expect(homeProviders, contains('_remoteStatusCacheTtl'));
-    expect(homeProviders, contains('_fetchLatestRemoteStatusWithCache'));
-    expect(homeProviders, contains('remote status cache hit'));
-    expect(
-      homeProviders,
-      contains(r'Requesting latest $providerName metadata'),
-    );
-    expect(homeProviders, contains('Using recent cloud status'));
-    expect(homeProviders, contains('Reading sync history'));
-    expect(homeProviders, contains('Checking transfer size'));
-    expect(homeProviders, contains('Checking local changes'));
-    expect(homeProviders, contains('elapsedMs'));
-    expect(homeProviders, contains('_decodeSyncAttachmentBytes'));
-    expect(homeProviders, contains('Uploading attachment'));
-    expect(homeProviders, contains('Applying attachment'));
-    expect(syncControllers, contains('_safePruneRemoteHistory'));
-    expect(syncControllers, contains('_listReplayHistory'));
-    expect(syncControllers, contains('readSyncReplayHistory'));
-    expect(
-      syncHistoryReader,
-      contains('Future<List<RemoteSyncBundleStatus>> readSyncReplayHistory'),
-    );
-    expect(syncControllers, contains('_listExistingRemoteAttachmentHashes'));
-    final syncAttachmentRefs = File(
-      'lib/features/sync/data/sync_attachment_refs.dart',
-    ).readAsStringSync();
-    expect(syncAttachmentRefs, contains('syncAttachmentObjectRefPrefix'));
-    expect(syncAttachmentRefs, contains('syncAttachmentObjectContentHash'));
-    expect(syncAttachmentRefs, contains("rawBlock['attachment']"));
-    expect(syncEngine, contains('isSyncAttachmentObjectRef'));
-    expect(
-      homeProviders,
-      isNot(contains('math.min(3, pendingUploads.length)')),
-    );
   });
 }

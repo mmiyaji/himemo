@@ -2,11 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../home/domain/note_tags.dart';
 import '../../home/presentation/home_providers.dart'
-    show
-        AutoTagRule,
-        autoTagRuleMatchesNote,
-        isSystemSyncExclusionTag,
-        splitAutoTagKeywords;
+    show AutoTagRule, autoTagRuleMatchesNote, splitAutoTagKeywords;
 import 'sync_v2_workspace.dart';
 
 class SyncV2AutoTagRuleDraft {
@@ -72,8 +68,6 @@ class _SyncV2AutoTagRuleEditorDialogState
     final keywords = splitAutoTagKeywords(_keywordsController.text);
     final validation = tag.isEmpty
         ? (_english ? 'Enter a tag name.' : 'タグ名を入力してください。')
-        : isSystemSyncExclusionTag(tag)
-        ? (_english ? 'This tag is reserved by the app.' : 'このタグ名はアプリが使用しています。')
         : keywords.isEmpty
         ? (_english ? 'Enter one or more keywords.' : 'キーワードを1つ以上入力してください。')
         : !_matchTitle && !_matchBody && !_matchAttachments
@@ -198,10 +192,9 @@ Future<void> showSyncV2AutoTagRuleEditor(
 
 /// Produces safe V2 tag edits from the existing local auto-tag rules.
 ///
-/// This is a pure projection over already decrypted V2 workspace notes. It
-/// never opens the V1 note database. Unavailable, conflicting, archived,
-/// deleted, and non-selected-profile notes are excluded. A locked workspace
-/// produces no edits.
+/// This is a pure projection over already decrypted workspace notes.
+/// Unavailable, conflicting, archived, deleted, and non-selected-profile notes
+/// are excluded. A locked workspace produces no edits.
 Map<SyncV2WorkspaceNote, List<String>> planSyncV2AutoTagEdits({
   required Iterable<SyncV2WorkspaceNote> notes,
   required Iterable<AutoTagRule> rules,
@@ -229,7 +222,6 @@ Map<SyncV2WorkspaceNote, List<String>> planSyncV2AutoTagEdits({
       if (tag.isEmpty ||
           key.isEmpty ||
           existing.contains(key) ||
-          isSystemSyncExclusionTag(tag) ||
           !autoTagRuleMatchesNote(rule, entry.note)) {
         continue;
       }

@@ -1,168 +1,57 @@
 const { test, expect } = require('@playwright/test');
+const { resetV2App } = require('../support/v2-app');
 
-test.describe('settings summary jumps', () => {
-  test('mobile summary items expand and align each target section', async ({
-    page,
-  }) => {
+test.describe('settings sections and summary jumps', () => {
+  test('mobile settings use sections without a duplicate status overview', async ({ page }) => {
     await openSettings(page);
-
-    await openSummaryAndExpect(
-      page,
-      /Theme Light/,
-      /Appearance/,
-      'Choose the font used across notes',
-    );
-
-    await openSummaryAndExpect(page, /Sync Off/, /Backup and sync/, 'Selected target');
-
-    await openSummaryAndExpect(page, /Memo Rich memo/, /Memo settings/, 'Quick memo');
-
-    await openSummaryAndExpect(
-      page,
-      /Storage/,
-      /Storage/,
-      'Saved notes on this device',
-    );
-
-    await openSummaryAndExpect(page, /App lock Disabled/, /App security/, 'Set PIN');
-
-    await openSummaryAndExpect(
-      page,
-      /Profile Normal notes/,
-      /Private profiles/,
-      'Add profile',
-    );
+    await expect(page.getByText('Current status', { exact: true })).toHaveCount(0);
+    await openSection(page, /Sync and security/);
+    await expect(page.getByRole('button', { name: 'Sync now', exact: true })).toBeVisible();
+    await openSection(page, /Private profiles/);
+    await expect(page.getByRole('button', { name: 'Exit admin mode', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sync now', exact: true })).toHaveCount(0);
   });
 
-  test('mobile summary jump remains aligned when another long section is already open', async ({
-    page,
-  }) => {
-    await openSettings(page);
-
-    await openSummaryAndExpect(
-      page,
-      /Theme Light/,
-      /Appearance/,
-      'Choose the font used across notes',
-    );
-
-    await openSummaryAndExpect(page, /Sync Off/, /Backup and sync/, 'Selected target');
-
-    await openSummaryAndExpect(
-      page,
-      /App lock Disabled/,
-      /App security/,
-      'Session status',
-    );
-  });
-
-  test('extended color theme sheet keeps its header above scrolled choices', async ({
-    page,
-  }) => {
+  test('extended color theme sheet keeps its header above scrolled choices', async ({ page }) => {
     await openSettings(page, { colorTheme: 'moegi' });
-
-    await openSummaryAndExpect(
-      page,
-      /Theme Light/,
-      /Appearance/,
-      'Choose the font used across notes',
-    );
-
-    await page
-      .getByRole('button', { name: /Extended themes \(\d+ total\)/ })
-      .click();
-    const sheetTitle = page.getByText('Extended themes').last();
+    await openSection(page, /Appearance and language/);
+    await page.getByRole('button', { name: /Extended themes \(\d+ total\)/ }).click();
+    const sheetTitle = page.getByText('Extended themes', { exact: true }).last();
     await expect(sheetTitle).toBeVisible();
-
     await page.mouse.move(220, 560);
     await page.mouse.wheel(0, 1260);
-    await page.waitForTimeout(250);
-
-    const titleBoxAfter = await sheetTitle.boundingBox();
-    expect(titleBoxAfter).not.toBeNull();
-    await expect(sheetTitle).toBeVisible();
-
     const selectedThemeCard = page.getByRole('button', { name: /Moegi/ });
     await expect(selectedThemeCard).toBeVisible();
+    const titleBox = await sheetTitle.boundingBox();
     const selectedBox = await selectedThemeCard.boundingBox();
+    expect(titleBox).not.toBeNull();
     expect(selectedBox).not.toBeNull();
-    expect(selectedBox.y).toBeGreaterThan(
-      titleBoxAfter.y + titleBoxAfter.height,
-    );
+    expect(selectedBox.y).toBeGreaterThan(titleBox.y + titleBox.height);
   });
 
   test.describe('desktop viewport', () => {
     test.use({ viewport: { width: 1280, height: 900 } });
-
-    test('desktop summary items work after several sections are expanded', async ({
-      page,
-    }) => {
+    test('current status links expand and align their current sections', async ({ page }) => {
       await openSettings(page);
-
-      await openSummaryAndExpect(
-        page,
-        /Profile Normal notes/,
-        /Private profiles/,
-        'Enter admin mode',
-      );
-
-      await openSummaryAndExpect(
-        page,
-        /Theme Light/,
-        /Appearance/,
-        'Choose the font used across notes',
-      );
-
-      await openSummaryAndExpect(
-        page,
-        /Sync Off/,
-        /Backup and sync/,
-        'Selected target',
-      );
+      await openSummaryAndExpect(page, /Profile Admin mode active/, /Private profiles/, 'Exit admin mode');
+      await openSummaryAndExpect(page, /App lock Disabled/, /App security/, 'Set PIN');
+      await openSummaryAndExpect(page, /Sync Automatic iCloud sync/, /Sync and security/, 'Sync now');
     });
   });
 });
 
 async function openSettings(page, options = {}) {
-  await page.goto('/');
-  await page.evaluate(async () => {
-    localStorage.clear();
-    sessionStorage.clear();
-    if (indexedDB.databases) {
-      const databases = await indexedDB.databases();
-      await Promise.all(
-        databases
-          .map((database) => database.name)
-          .filter(Boolean)
-          .map(
-            (name) =>
-              new Promise((resolve) => {
-                const request = indexedDB.deleteDatabase(name);
-                request.onsuccess =
-                  request.onerror =
-                  request.onblocked =
-                    resolve;
-              }),
-          ),
-      );
-    }
-    localStorage.setItem('flutter.app.onboarding_completed', 'true');
-    localStorage.setItem('flutter.app.onboarding_completed_version', '2');
-    localStorage.setItem('flutter.settings.locale', '"english"');
-    localStorage.setItem('flutter.release_notes.last_seen', '"1.0.0+46"');
+  await resetV2App(page, {
+    preferences: options.colorTheme ? { 'settings.color_theme': options.colorTheme } : {},
   });
-  if (options.colorTheme) {
-    await page.evaluate((colorTheme) => {
-      localStorage.setItem('flutter.settings.color_theme', JSON.stringify(colorTheme));
-    }, options.colorTheme);
-  }
   await page.goto('/#/settings');
-  await expect(page.locator('flutter-view')).toContainText('Profile', {
-    timeout: 15000,
-  });
-  await expect(
-    page.getByRole('button', { name: /Profile Normal notes/ }),
-  ).toBeVisible();
+  await expect(page.locator('flutter-view')).toContainText('Sync and security');
+}
+
+async function openSection(page, name) {
+  const heading = page.getByRole('button', { name }).first();
+  await heading.scrollIntoViewIfNeeded();
+  await heading.click();
 }
 
 async function clickSummary(page, name) {

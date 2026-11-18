@@ -297,8 +297,17 @@ async function captureRaw(browser, target, locale, scene, outputPath) {
     serviceWorkers: 'block',
   });
   const page = await context.newPage();
+  let localPreviewConfirmed = false;
+  page.on('console', (message) => {
+    if (message.text().includes('HiMemo note backend: v2-local')) {
+      localPreviewConfirmed = true;
+    }
+  });
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
   await waitForApp(page);
+  if (!localPreviewConfirmed) {
+    throw new Error('Store capture requires a development HIMEMO_NOTE_BACKEND=v2-local build. Stop any other server on STORE_ASSET_PORT and retry.');
+  }
   await completeOnboarding(page, locale);
   await ensureDemoNotes(page, locale);
   await scene.prepare(page, locale);
@@ -794,6 +803,7 @@ async function ensureServer() {
     `--output=${webBuildDir}`,
     '--no-wasm-dry-run',
     '--dart-define=HIMEMO_HIDE_FLAVOR_BANNER=true',
+    '--dart-define=HIMEMO_NOTE_BACKEND=v2-local',
     '-t',
     'lib/main_development.dart',
   ]);
@@ -838,6 +848,8 @@ function runCommand(command, args) {
 }
 
 async function waitForApp(page) {
+  // Release Flutter's SQLite connection before clearing this capture context.
+  await page.goto(`${baseUrl}/favicon.png`, { waitUntil: 'domcontentloaded' });
   await page.evaluate(async () => {
     localStorage.clear();
     sessionStorage.clear();
@@ -849,9 +861,11 @@ async function waitForApp(page) {
           .filter(Boolean)
           .map(
             (name) =>
-              new Promise((resolve) => {
+              new Promise((resolve, reject) => {
                 const request = indexedDB.deleteDatabase(name);
-                request.onsuccess = request.onerror = request.onblocked = resolve;
+                request.onsuccess = resolve;
+                request.onerror = () => reject(request.error || new Error(`Could not clear IndexedDB: ${name}`));
+                request.onblocked = () => reject(new Error(`IndexedDB deletion is blocked: ${name}`));
               }),
         ),
       );
@@ -861,7 +875,7 @@ async function waitForApp(page) {
       JSON.stringify(true),
     );
   });
-  await page.reload();
+  await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(
     () => document.querySelector('flutter-view'),
     null,
@@ -926,9 +940,13 @@ async function hasButton(page, names) {
 
 async function activateTabIndex(page, index) {
   const pathsByIndex = ['notes', 'calendar', 'insights', 'settings'];
-  await page.goto(`${baseUrl}/#/${pathsByIndex[index]}`, {
-    waitUntil: 'domcontentloaded',
-  });
+  const route = pathsByIndex[index];
+  if (!route) throw new Error(`Unknown tab index: ${index}`);
+  // A document navigation/reload discards v2-local's in-memory keys. Route
+  // within the running Flutter app so every scene keeps its encrypted session.
+  await page.evaluate((nextRoute) => {
+    window.location.hash = `/${nextRoute}`;
+  }, route);
   await page.waitForFunction(
     () => document.querySelector('flutter-view'),
     null,
@@ -988,31 +1006,66 @@ async function ensureDemoNotes(page, locale) {
 }
 
 async function seedPrivateProfiles(page, locale) {
-  const profiles = [
-    {
-      id: 'store-work',
-      name: locale.id === 'ja' ? '仕事用' : 'Work notes',
-      createdAt: '2026-05-01T09:00:00.000',
-    },
-    {
-      id: 'store-personal',
-      name: locale.id === 'ja' ? '個人用' : 'Personal notes',
-      createdAt: '2026-05-02T09:00:00.000',
-    },
-  ];
-  await page.evaluate((payload) => {
-    localStorage.setItem(
-      'flutter.security.private_profiles.list.v1',
-      JSON.stringify(payload),
-    );
-  }, JSON.stringify(profiles));
-  await page.reload();
-  await page.waitForFunction(
-    () => document.querySelector('flutter-view'),
-    null,
-    { timeout: 20000 },
-  );
-  await page.waitForTimeout(1500);
+  const isJa = locale.id === 'ja';
+  const copy = isJa ? {
+    section: 'プライベートプロファイル',
+    addProfile: 'プロファイルを追加',
+    enterAdmin: '管理者モードへ移行',
+    exitAdmin: '管理者モードを終了',
+    name: '表示名',
+    password: 'プロファイルパスワード',
+    confirm: 'パスワードを再入力',
+    add: '追加',
+    added: 'プライベートプロファイルを追加して開きました。',
+    profiles: ['仕事用', '個人用'],
+    passcode: 'himemo-key',
+  } : {
+    section: 'Private profiles',
+    addProfile: 'Add profile',
+    enterAdmin: 'Enter admin mode',
+    exitAdmin: 'Exit admin mode',
+    name: 'Profile name',
+    password: 'Profile password',
+    confirm: 'Confirm password',
+    add: 'Add',
+    added: 'Private profile added and opened.',
+    profiles: ['Work notes', 'Personal notes'],
+    passcode: 'private-key',
+  };
+  await activateTabIndex(page, 3);
+  const addProfile = page.getByRole('button', { name: copy.addProfile, exact: true });
+  if (!(await addProfile.isVisible())) {
+    await page.getByText(copy.section, { exact: true }).first().click();
+  }
+  await addProfile.waitFor({ state: 'visible', timeout: 15000 });
+
+  const exitAdmin = page.getByRole('button', { name: copy.exitAdmin, exact: true });
+  if (!(await exitAdmin.isVisible())) {
+    await page.getByRole('button', { name: copy.enterAdmin, exact: true }).click();
+    // Normally automatic v2-local setup leaves ADMIN open. If it was locked,
+    // use that preview setup's local passcode through the real settings dialog.
+    const adminPasscode = page.getByRole('textbox').first();
+    await adminPasscode.fill('preview-password');
+    await adminPasscode.press('Enter');
+  }
+  await exitAdmin.waitFor({ state: 'visible', timeout: 60000 });
+
+  // Legacy profile preference records cannot create encrypted v2 keys/catalog
+  // entries. Exercise the real administrator/profile creation flow instead.
+  for (const name of copy.profiles) {
+    await addProfile.click();
+    await page.getByLabel(copy.name, { exact: true }).fill(name);
+    await page.getByLabel(copy.password, { exact: true }).fill(copy.passcode);
+    await page.getByLabel(copy.confirm, { exact: true }).fill(copy.passcode);
+    await page.getByRole('button', { name: copy.add, exact: true }).click();
+    const completed = page.getByText(copy.added, { exact: true });
+    await completed.waitFor({ state: 'visible', timeout: 60000 });
+    await completed.waitFor({ state: 'hidden', timeout: 15000 });
+  }
+  // The following scene shows the private unlock dialog, not administrator
+  // access. Exiting clears profile sessions through the supported UI.
+  await exitAdmin.click();
+  await page.getByRole('button', { name: copy.enterAdmin, exact: true }).waitFor({ state: 'visible' });
 }
 
 function escapeHtml(value) {

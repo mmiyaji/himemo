@@ -92,8 +92,6 @@ SyncV2WorkspaceController createLocalPreviewController() {
       publishedChanges: 0,
       errors: <String>[],
     ),
-    activate: () async {},
-    deactivate: () async {},
     supported: true,
     automaticSync: false,
   );

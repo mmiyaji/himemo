@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/services.dart';
 import 'package:himemo/features/security/data/sync_v2_biometric_key_store.dart';
@@ -289,12 +288,6 @@ class _Device {
       registrationFactory: (_) =>
           SyncV2GenerationRegistration(cloud, enrollment),
       syncOperation: sync,
-      activate: () async {
-        activations++;
-      },
-      deactivate: () async {
-        deactivations++;
-      },
       supported: true,
       biometricStore: biometrics ?? _Biometrics(),
       settingsAdminAuthenticated: settingsAdminAuthenticated,
@@ -306,7 +299,6 @@ class _Device {
   late final SyncV2Inbox inbox;
   late final SyncV2EnrollmentStore enrollment;
   late final SyncV2WorkspaceController workspace;
-  int activations = 0, deactivations = 0;
   Completer<void>? syncEntered, syncRelease;
   Future<SyncV2ICloudProgress> sync() async {
     if (syncRelease != null) {
@@ -376,30 +368,7 @@ Future<void> _seedNativeNote(_Device device, NoteEntry note) async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  test(
-    'activation preserves persisted selection after interrupted suspension',
-    () async {
-      SharedPreferences.setMockInitialValues({
-        'settings.sync_provider': 'googleDrive',
-      });
-      final prefs = await SharedPreferences.getInstance();
-      await expectLater(
-        activateSyncV2Preference(prefs, () async {
-          await prefs.setString('settings.sync_provider', 'off');
-          throw StateError('interrupted');
-        }),
-        throwsStateError,
-      );
-      await activateSyncV2Preference(prefs, () async {});
-      expect(
-        prefs.getString('settings.sync_v2.previous_provider'),
-        'googleDrive',
-      );
-      expect(prefs.getBool(syncV2EnabledPreference), true);
-      expect(prefs.getBool('settings.sync_v2.activation_pending'), isNull);
-    },
-  );
-  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('quarantines one corrupt note without exposing its plaintext or failing the profile', () async {
     final cloud = _Cloud();
     _ProjectedNotesRepository? repository;
@@ -1356,11 +1325,9 @@ void main() {
     await initial;
     expect(reopened.workspace.registered, isFalse);
     expect(reopened.workspace.notes, isEmpty);
-    expect(reopened.activations, 0);
     await reopened.workspace.resume();
     expect(reopened.workspace.registered, isTrue);
     expect(reopened.workspace.profiles.length, 1);
-    expect(reopened.activations, 1);
     await expectLater(
       reopened.workspace.prepareNew('another admin password'),
       throwsA(isA<SyncV2WorkspaceException>()),
@@ -1583,6 +1550,7 @@ void main() {
     expect(updated.attachments, isEmpty);
     await a.workspace.syncNow();
     await b.workspace.recover(codes.syncCode);
+    expect(b.workspace.registered, isTrue);
     final roundTripped = b.workspace.notes.single;
     expect(roundTripped.note.body, 'Updated paragraph\n\nSecond paragraph');
     expect(roundTripped.note.blocks, updated.note.blocks);
@@ -1744,6 +1712,7 @@ void main() {
 
       await a.workspace.syncNow();
       await b.workspace.recover(codes.syncCode);
+      expect(b.workspace.registered, isTrue);
       final imported = b.workspace.notes.single;
       expect(imported.note.blocks.first, saved.note.blocks.first);
       expect(imported.note.blocks.last.type, NoteBlockType.file);
@@ -2017,11 +1986,9 @@ void main() {
     final codes = await a.workspace.prepareNew('administrator password');
     expect(cloud.registryWrites, 0);
     expect(cloud.records, isEmpty);
-    expect(a.activations, 0);
     await a.workspace.confirmSetup();
     expect(a.workspace.registered, isTrue);
     expect(a.workspace.adminUnlocked, isTrue);
-    expect(a.activations, 1);
     expect(a.workspace.profiles.single.isNormal, isTrue);
     final normalId = a.workspace.selectedProfileId!;
     await a.workspace.saveNote(title: 'offline normal', body: 'cached body');
@@ -2044,7 +2011,7 @@ void main() {
     );
     await a.workspace.syncNow();
     await b.workspace.recover(codes.syncCode);
-    expect(b.activations, 1);
+    expect(b.workspace.registered, isTrue);
     expect(b.workspace.profiles.length, 1);
     expect(b.workspace.notes.single.note.title, 'offline normal');
     await b.workspace.unlockPrivate('private password');
@@ -2319,10 +2286,6 @@ void main() {
     expect(a.workspace.selectedProfileId, normalId);
     expect(a.workspace.notes.single.note.title, 'offline normal');
     expect(a.workspace.profiles.length, 1);
-    expect(a.activations, 2);
-    expect(a.deactivations, 0);
-    await a.workspace.leaveV2();
-    expect(a.deactivations, 1);
   }, timeout: const Timeout(Duration(minutes: 2)));
 
   test(

@@ -52,9 +52,6 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     final useCompactHeader =
         !useSplitView && width < 720 && screenSize.height > screenSize.width;
     final activeIdentity = ref.watch(activeIdentityDataProvider);
-    final privateVaultUnlocked = ref.watch(
-      privateVaultSessionControllerProvider,
-    );
     final visibleNotes = ref.watch(visibleNotesProvider);
     final visibleVaults = ref.watch(visibleVaultsProvider);
     final vaultNameById = {
@@ -73,8 +70,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     if (!useSplitView) {
       return _MobileNotesList(
         activeIdentity: activeIdentity,
-        showPrivateVaultNotice:
-            activeIdentity.id == 'private' && !privateVaultUnlocked,
+        showPrivateVaultNotice: false,
         showAdminModeNotice: adminMode,
         compactHeader: useCompactHeader,
         vaultNameById: vaultNameById,
@@ -90,12 +86,8 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         onExitAdminMode: () => _exitAdminMode(ref),
         onTogglePinned: (note) =>
             ref.read(notesControllerProvider.notifier).togglePinned(note.id),
-        onShareNote: (note) => _handleNoteDetailAction(
-          context,
-          ref,
-          note,
-          _NoteDetailAction.share,
-        ),
+        onShareNote: (note) =>
+            _handleNoteDetailAction(context, note, _NoteDetailAction.share),
         onDeleteNote: (note) => _deleteNote(context, note),
         onNoteSelected: (note) =>
             _openMobileNoteActions(context, note, visibleNotes),
@@ -128,8 +120,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
               width: listWidth,
               child: _SplitNotesListPane(
                 activeIdentity: activeIdentity,
-                showPrivateVaultNotice:
-                    activeIdentity.id == 'private' && !privateVaultUnlocked,
+                showPrivateVaultNotice: false,
                 showAdminModeNotice: adminMode,
                 notes: visibleNotes,
                 selectedNoteId: effectiveSelectedNoteId,
@@ -149,7 +140,6 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                     .togglePinned(note.id),
                 onShareNote: (note) => _handleNoteDetailAction(
                   context,
-                  ref,
                   note,
                   _NoteDetailAction.share,
                 ),

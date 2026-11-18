@@ -6,7 +6,7 @@ Future<void> showNoteEditorSheet(
   NoteEntry? note,
   DateTime? initialCreatedAt,
 }) async {
-  if (usesSyncV2NoteBackend && !ref.read(syncV2WorkspaceProvider).registered) {
+  if (!ref.read(syncV2WorkspaceProvider).registered) {
     // A profile key is required to save notes. Start setup before accepting
     // editor input, instead of letting the user's first save fail.
     context.go('/settings');
@@ -1744,13 +1744,6 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     String vaultId,
     List<PrivateMemoProfile> privateProfiles,
   ) {
-    if (vaultId == legacyPrivateVaultId) {
-      return VaultBucket(
-        id: legacyPrivateVaultId,
-        name: context.strings.text('home.private.profile'),
-        description: context.strings.unlockedPrivateNotes,
-      );
-    }
     for (final profile in privateProfiles) {
       if (profile.vaultId == vaultId) {
         return VaultBucket(
@@ -3470,7 +3463,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         await ref.read(noteEditorDraftStoreProvider).clear();
       }
       _saved = true;
-      if (usesSyncV2NoteBackend) {
+      {
         unawaited(
           ref
               .read(notesControllerProvider.notifier)

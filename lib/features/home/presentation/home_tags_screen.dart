@@ -175,12 +175,8 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
                       _TagManagementTile(
                         summary: filtered[index],
                         onOpen: () => _openTag(context, filtered[index].name),
-                        onRename: isSystemSyncExclusionTag(filtered[index].name)
-                            ? null
-                            : () => _renameTag(context, filtered[index]),
-                        onDelete: isSystemSyncExclusionTag(filtered[index].name)
-                            ? null
-                            : () => _deleteTag(context, filtered[index]),
+                        onRename: () => _renameTag(context, filtered[index]),
+                        onDelete: () => _deleteTag(context, filtered[index]),
                       ),
                     ],
                   ],
@@ -399,19 +395,6 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
               });
               return;
             }
-            if (isSystemSyncExclusionTag(tag)) {
-              setDialogState(() {
-                errorText = strings.localized(
-                  en: 'This tag is reserved by the app.',
-                  ja: 'このタグ名はアプリが使用しています。',
-                  zh: '此标签名由应用保留。',
-                  ko: '이 태그 이름은 앱에서 사용 중입니다.',
-                  es: 'Esta etiqueta esta reservada por la app.',
-                  de: 'Dieser Tag ist von der App reserviert.',
-                );
-              });
-              return;
-            }
             if (keywords.isEmpty) {
               setDialogState(() {
                 errorText = strings.localized(
@@ -625,19 +608,6 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
                   ko: '\ud0dc\uadf8 \uc774\ub984\uc744 \uc785\ub825\ud558\uc138\uc694.',
                   es: 'Introduce un nombre de etiqueta.',
                   de: 'Tag-Namen eingeben.',
-                );
-              });
-              return;
-            }
-            if (isSystemSyncExclusionTag(normalized)) {
-              setDialogState(() {
-                errorText = strings.localized(
-                  en: 'This tag is reserved by the app.',
-                  ja: '\u3053\u306e\u30bf\u30b0\u540d\u306f\u30a2\u30d7\u30ea\u304c\u4f7f\u7528\u3057\u3066\u3044\u307e\u3059\u3002',
-                  zh: '\u6b64\u6807\u7b7e\u540d\u7531\u5e94\u7528\u4fdd\u7559\u3002',
-                  ko: '\uc774 \ud0dc\uadf8 \uc774\ub984\uc740 \uc571\uc5d0\uc11c \uc0ac\uc6a9 \uc911\uc785\ub2c8\ub2e4.',
-                  es: 'Esta etiqueta esta reservada por la app.',
-                  de: 'Dieser Tag ist von der App reserviert.',
                 );
               });
               return;
@@ -916,7 +886,6 @@ class _TagManagementTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final strings = context.strings;
     final theme = Theme.of(context);
-    final systemTag = isSystemSyncExclusionTag(summary.name);
     final label = _displayNoteTag(context, summary.name);
     return DecoratedBox(
       decoration: _sectionDecoration(context),
@@ -925,7 +894,7 @@ class _TagManagementTile extends StatelessWidget {
         leading: CircleAvatar(
           backgroundColor: Theme.of(context).colorScheme.surfaceContainerHigh,
           child: Icon(
-            systemTag ? Icons.lock_outline_rounded : Icons.tag_rounded,
+            Icons.tag_rounded,
             color: Theme.of(context).colorScheme.primary,
           ),
         ),

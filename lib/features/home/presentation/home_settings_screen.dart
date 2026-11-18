@@ -11,9 +11,6 @@ class SettingsScreen extends ConsumerWidget {
   static const appLockRelock30SecondsKey = Key('app-lock-relock-30-seconds');
   static const appLockRelock2MinutesKey = Key('app-lock-relock-2-minutes');
   static const appLockRelock10MinutesKey = Key('app-lock-relock-10-minutes');
-  static const privateVaultLockOnAppLockKey = Key(
-    'private-vault-lock-on-app-lock',
-  );
   static const appLockAuthenticateKey = Key('app-lock-authenticate');
   static const appLockLockNowKey = Key('app-lock-lock-now');
   static const lightThemeKey = Key('theme-light-option');
@@ -40,10 +37,6 @@ class SettingsScreen extends ConsumerWidget {
   static const konjyoColorThemeKey = Key('color-theme-konjyo-option');
   static const moegiColorThemeKey = Key('color-theme-moegi-option');
   static const yamabukiColorThemeKey = Key('color-theme-yamabuki-option');
-  static const privateVaultSetKey = Key('private-vault-set-key');
-  static const privateVaultUnlockKey = Key('private-vault-unlock-key');
-  static const privateVaultLockKey = Key('private-vault-lock-key');
-  static const privateVaultResetKey = Key('private-vault-reset-key');
   static const privateProfileAddKey = Key('private-profile-add-key');
   static const privateProfileAdminModeKey = Key(
     'private-profile-admin-mode-key',
@@ -153,117 +146,6 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _switchIdentity(WidgetRef ref, String identityId) async {
-    await ref.read(activeIdentityProvider.notifier).switchTo(identityId);
-    if (identityId != 'private') {
-      ref.read(privateVaultSessionControllerProvider.notifier).lock();
-    }
-  }
-
-  Future<void> _showSetCoverKeyDialog(
-    BuildContext context,
-    WidgetRef ref,
-  ) async {
-    final strings = context.strings;
-    final secret = await _showSecretSetupDialog(
-      context,
-      title: strings.setAlternateProfilePassword,
-      label: strings.text('home.alternate.profile.password'),
-      confirmLabel: strings.text('home.confirm.alternate.profile.password'),
-      helperText: strings.text(
-        'home.use.this.password.to.switch.to.a.different.everyday.prof',
-      ),
-    );
-    if (secret == null) {
-      return;
-    }
-    await ref
-        .read(coverModeSecretControllerProvider.notifier)
-        .configure(secret);
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          showCloseIcon: true,
-          content: Text(strings.text('home.alternate.profile.password.saved')),
-        ),
-      );
-    }
-  }
-
-  Future<void> _confirmResetCoverKey(
-    BuildContext context,
-    WidgetRef ref,
-  ) async {
-    final strings = context.strings;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(strings.resetAlternateProfilePassword),
-        content: Text(
-          strings.text(
-            'home.this.removes.the.configured.password.for.the.alternate.p',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(strings.cancel),
-          ),
-          FilledButton.tonal(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(strings.text('home.reset')),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) {
-      return;
-    }
-    await ref.read(coverModeSecretControllerProvider.notifier).clear();
-    if (ref.read(activeIdentityProvider) == 'cover') {
-      await _switchIdentity(ref, 'daily');
-    }
-  }
-
-  Future<void> _showSpecialAccessKeyDialog(
-    BuildContext context,
-    WidgetRef ref,
-  ) async {
-    final strings = context.strings;
-    final secret = await _showSingleSecretPrompt(
-      context,
-      title: strings.text('home.enter.special.access.key'),
-      label: strings.accessKey,
-      helperText: strings.specialAccessKeyHelp,
-      actionLabel: strings.unlockMode,
-    );
-    if (secret == null || !context.mounted) {
-      return;
-    }
-    final messenger = ScaffoldMessenger.of(context);
-    if (await ref
-        .read(privateVaultSecretControllerProvider.notifier)
-        .verify(secret)) {
-      await _switchIdentity(ref, 'private');
-      messenger.showSnackBar(
-        SnackBar(showCloseIcon: true, content: Text(strings.privateModeActive)),
-      );
-      return;
-    }
-    if (await ref
-        .read(coverModeSecretControllerProvider.notifier)
-        .verify(secret)) {
-      await _switchIdentity(ref, 'cover');
-      messenger.showSnackBar(
-        SnackBar(showCloseIcon: true, content: Text(strings.coverModeActive)),
-      );
-      return;
-    }
-    messenger.showSnackBar(
-      SnackBar(showCloseIcon: true, content: Text(strings.accessKeyNoMatch)),
-    );
-  }
-
   Future<void> _showAddPrivateProfileDialog(
     BuildContext context,
     WidgetRef ref,
@@ -278,12 +160,7 @@ class SettingsScreen extends ConsumerWidget {
     }
     final error = await ref
         .read(privateMemoProfilesControllerProvider.notifier)
-        .addProfile(
-          name: draft.name,
-          password: draft.password,
-          usePin: draft.usePin,
-          recoveryPassword: draft.recoveryPassword,
-        );
+        .addProfile(name: draft.name, password: draft.password);
     if (error == null) {
       await ref
           .read(privateProfileUnlockControllerProvider.notifier)
@@ -378,26 +255,10 @@ class SettingsScreen extends ConsumerWidget {
 
   Future<void> _enterAdminMode(BuildContext context, WidgetRef ref) async {
     final strings = context.strings;
-    if (kIsWeb && !usesSyncV2NoteBackend) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          showCloseIcon: true,
-          content: Text(
-            strings.text(
-              'home.admin.mode.is.not.available.in.this.environment',
-            ),
-          ),
-        ),
-      );
-      return;
-    }
     final controller = ref.read(adminModeSessionControllerProvider.notifier);
-    List<String> missing = const [];
     try {
-      final workspace = usesSyncV2NoteBackend
-          ? ref.read(syncV2WorkspaceProvider)
-          : null;
-      if (workspace != null && !workspace.biometricEnabled) {
+      final workspace = ref.read(syncV2WorkspaceProvider);
+      if (!workspace.biometricEnabled) {
         if (!await _unlockAdminWithPasscode(context, ref)) return;
       } else {
         final authenticated = await ref
@@ -407,12 +268,11 @@ class SettingsScreen extends ConsumerWidget {
             );
         if (!context.mounted) return;
         if (!authenticated) {
-          if (workspace == null ||
-              !await _unlockAdminWithPasscode(context, ref)) {
+          if (!await _unlockAdminWithPasscode(context, ref)) {
             return;
           }
         } else {
-          missing = await controller.unlock();
+          await controller.unlock();
         }
       }
     } catch (_) {
@@ -432,59 +292,17 @@ class SettingsScreen extends ConsumerWidget {
     if (!context.mounted || !ref.read(adminModeSessionControllerProvider)) {
       return;
     }
-    // Let the user choose the profile from the admin list. Automatically
-    // opening password prompts in storage order hides that choice.
-    final needsPassword = missing.isNotEmpty;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         showCloseIcon: true,
         content: Text(
-          needsPassword
-              ? strings.localized(
-                  en: 'Admin mode is active. ${missing.length} profiles need initial setup. Choose the profile to unlock from the list below.',
-                  ja: '管理者モードに入りました。${missing.length}件のプロファイルで初回設定が必要です。一覧から解除するプロファイルを選んでください。',
-                )
-              : strings.localized(
-                  en: 'Admin mode is active. You can open notes and attachments in every profile.',
-                  ja: '管理者モードに入りました。全プロファイルのメモと添付を開けます。',
-                ),
+          strings.localized(
+            en: 'Admin mode is active. You can open notes and attachments in every profile.',
+            ja: '管理者モードに入りました。全プロファイルのメモと添付を開けます。',
+          ),
         ),
       ),
     );
-  }
-
-  Future<bool> _prepareProfileForAdmin(
-    BuildContext context,
-    WidgetRef ref,
-    String vaultId,
-    String name,
-  ) async {
-    if (!context.mounted || !ref.read(adminModeSessionControllerProvider)) {
-      return false;
-    }
-    if (ref.read(profileDataKeyServiceProvider).isProfileUnlocked(vaultId)) {
-      return true;
-    }
-    final profiles = ref.read(privateMemoProfilesProvider);
-    final matching = profiles.where((profile) => profile.vaultId == vaultId);
-    return await showDialog<bool>(
-          context: context,
-          builder: (_) => AdminProfileUnlockDialog(
-            profileName: name,
-            createdAt: matching.isEmpty ? null : matching.first.createdAt,
-            isLegacy: vaultId == legacyPrivateVaultId,
-            onUnlock: (password) async {
-              if (!context.mounted ||
-                  !ref.read(adminModeSessionControllerProvider)) {
-                return false;
-              }
-              return ref
-                  .read(adminModeSessionControllerProvider.notifier)
-                  .unlockProfile(vaultId, password);
-            },
-          ),
-        ) ??
-        false;
   }
 
   Future<void> _showChangeCurrentProfilePasswordDialog(
@@ -563,162 +381,6 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _showSetDeviceProfilePinDialog(
-    BuildContext context,
-    WidgetRef ref,
-    String vaultId,
-  ) async {
-    final draft = await showDialog<_PrivateProfileDraft>(
-      context: context,
-      builder: (_) => const _AddPrivateProfileDialog(enrollDevicePin: true),
-    );
-    if (draft == null ||
-        !context.mounted ||
-        ref.read(unlockedPrivateProfileVaultIdProvider) != vaultId) {
-      return;
-    }
-    var saved = false;
-    try {
-      saved = await ref
-          .read(profileDataKeyServiceProvider)
-          .setDevicePin(
-            vaultId: vaultId,
-            recoveryPassword: draft.recoveryPassword!,
-            pin: draft.password,
-          );
-    } catch (_) {
-      logDiagnostic('security', 'device profile PIN persistence failed');
-    }
-    if (!context.mounted) return;
-    final strings = context.strings;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          saved
-              ? strings.localized(
-                  en: 'Device PIN saved.',
-                  ja: 'この端末のPINを保存しました。',
-                )
-              : strings.localized(
-                  en: 'Check your recovery password and try again. If you still use a legacy PIN, change the profile password first.',
-                  ja: '復旧パスワードを確認してください。旧方式のPINをお使いの場合は、先にプロファイルのパスワードを変更してください。',
-                ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _showPrivateProfileNameConflictDialog(
-    BuildContext context,
-    WidgetRef ref,
-    PrivateMemoProfile profile,
-  ) async {
-    final strings = context.strings;
-    final heads = profile.nameSync.heads;
-    final names = heads.map((head) => head.name).toSet().toList()..sort();
-    final expectedChangeIds = heads.map((head) => head.id).toSet();
-    String? selectedName;
-    final name = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => Consumer(
-        builder: (context, ref, _) {
-          if (!ref.watch(adminModeSessionControllerProvider)) {
-            return AlertDialog(
-              content: Text(strings.enterAdminModeLabel),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: Text(strings.close),
-                ),
-              ],
-            );
-          }
-          return StatefulBuilder(
-            builder: (context, setState) => AlertDialog(
-              scrollable: true,
-              title: Text(
-                strings.localized(
-                  en: 'Choose a profile name',
-                  ja: '残すプロファイル名を選択',
-                  zh: '选择要保留的档案名称',
-                  ko: '유지할 프로필 이름 선택',
-                  es: 'Elige el nombre del perfil',
-                  de: 'Profilnamen auswählen',
-                ),
-              ),
-              content: RadioGroup<String>(
-                groupValue: selectedName,
-                onChanged: (value) => setState(() => selectedName = value),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    for (final option in names)
-                      RadioListTile<String>(
-                        contentPadding: EdgeInsets.zero,
-                        value: option,
-                        title: Text(option),
-                      ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: Text(strings.cancel),
-                ),
-                FilledButton(
-                  onPressed: selectedName == null
-                      ? null
-                      : () => Navigator.of(dialogContext).pop(selectedName),
-                  child: Text(strings.save),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-    if (name == null ||
-        !context.mounted ||
-        !ref.read(adminModeSessionControllerProvider)) {
-      return;
-    }
-    final saved = await ref
-        .read(privateMemoProfilesControllerProvider.notifier)
-        .resolveNameConflict(
-          id: profile.id,
-          name: name,
-          expectedChangeIds: expectedChangeIds,
-        );
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        showCloseIcon: true,
-        content: Text(
-          saved
-              ? strings.localized(
-                  en: 'Profile name saved for sync.',
-                  ja: 'プロファイル名を保存し、同期キューに追加しました。',
-                  zh: '档案名称已保存并加入同步队列。',
-                  ko: '프로필 이름을 저장하고 동기화 대기열에 추가했습니다.',
-                  es: 'Nombre del perfil guardado para sincronizar.',
-                  de: 'Profilname zur Synchronisierung gespeichert.',
-                )
-              : strings.localized(
-                  en: 'The name choices changed. Open the conflict again.',
-                  ja: '候補が変わりました。もう一度、名称の競合を開いてください。',
-                  zh: '名称选项已变化，请重新打开冲突。',
-                  ko: '이름 후보가 바뀌었습니다. 충돌을 다시 열어 주세요.',
-                  es: 'Las opciones cambiaron. Abre el conflicto de nuevo.',
-                  de: 'Die Auswahl hat sich geändert. Öffne den Konflikt erneut.',
-                ),
-        ),
-      ),
-    );
-  }
-
-  /// Any profile can opt out, but the setting only takes effect while it is
-  /// locked — typically for a profile whose unlock key has been lost.
   Future<void> _confirmDeletePrivateProfile(
     BuildContext context,
     WidgetRef ref,
@@ -736,8 +398,8 @@ class SettingsScreen extends ConsumerWidget {
         ),
         content: Text(
           strings.localized(
-            en: 'This removes the profile, its unlock key, local notes, attachments, and pending sync changes from this device. This action cannot be undone.',
-            ja: 'この端末からプロファイル、解除キー、ローカルのメモ、添付、未同期の変更を削除します。この操作は元に戻せません。',
+            en: 'This deletes the profile and its notes and attachments from your synced workspace. This action cannot be undone.',
+            ja: '同期中のワークスペースからプロファイルとそのメモ・添付を削除します。この操作は元に戻せません。',
           ),
         ),
         actions: [
@@ -775,8 +437,8 @@ class SettingsScreen extends ConsumerWidget {
                   ja: 'プライベートプロファイルを削除しました。',
                 )
               : strings.localized(
-                  en: 'Enter admin mode before deleting a private profile.',
-                  ja: 'プライベートプロファイルを削除するには管理者モードに入ってください。',
+                  en: 'Could not delete the profile. Check administrator access and sync status, then try again.',
+                  ja: 'プロファイルを削除できませんでした。管理者権限と同期状態を確認して再度お試しください。',
                 ),
         ),
       ),
@@ -790,9 +452,14 @@ class SettingsScreen extends ConsumerWidget {
     String name,
   ) async {
     final strings = context.strings;
-    if (!await _prepareProfileForAdmin(context, ref, vaultId, name) ||
-        !context.mounted ||
-        !ref.read(adminModeSessionControllerProvider)) {
+    if (!context.mounted ||
+        !ref.read(adminModeSessionControllerProvider) ||
+        !(ref
+                .read(syncV2WorkspaceProvider)
+                .noteStoreSession
+                ?.profiles
+                .containsKey(vaultId) ??
+            false)) {
       return;
     }
     ref.read(searchFiltersControllerProvider.notifier).setVault(vaultId);
@@ -831,7 +498,6 @@ class SettingsScreen extends ConsumerWidget {
     final mobileSettingsLayout = settingsWidth < 840;
     final compactSettingsLayout = mobileSettingsLayout;
     final settingsGroupSpacing = compactSettingsLayout ? 8.0 : 16.0;
-    final activeIdentity = ref.watch(activeIdentityProvider);
     final activeThemeMode = ref.watch(effectiveThemeModeProvider);
     final activeColorTheme = ref.watch(effectiveAppColorThemeProvider);
     final activeColorThemeScope = ref.watch(activeColorThemeScopeProvider);
@@ -876,13 +542,6 @@ class SettingsScreen extends ConsumerWidget {
     final pinLockState = ref.watch(appPinLockControllerProvider);
     final canUseDeviceAuth = !kIsWeb && deviceAuthState.isAvailable;
     final usePinAppLock = kIsWeb || !canUseDeviceAuth;
-    final privateVaultConfigured = ref.watch(
-      privateVaultSecretControllerProvider,
-    );
-    final coverModeConfigured = ref.watch(coverModeSecretControllerProvider);
-    final privateVaultUnlocked = ref.watch(
-      privateVaultSessionControllerProvider,
-    );
     final adminMode = ref.watch(adminModeSessionControllerProvider);
     final privateProfiles = ref.watch(privateMemoProfilesProvider);
     final unlockedPrivateProfileVaultId = ref.watch(
@@ -890,9 +549,6 @@ class SettingsScreen extends ConsumerWidget {
     );
     final activePrivateProfileLabel = ref.watch(
       activePrivateProfileLabelProvider,
-    );
-    final privateVaultLockOnAppLock = ref.watch(
-      privateVaultLockOnAppLockControllerProvider,
     );
     final inAppUpdateState = ref.watch(inAppUpdateControllerProvider);
     final packageInfo = ref.watch(packageInfoProvider);
@@ -908,12 +564,6 @@ class SettingsScreen extends ConsumerWidget {
     final storageCacheBytes = storageUsageSummary.maybeWhen(
       data: (summary) => summary.attachmentCacheBytes,
       orElse: () => 0,
-    );
-    const showLegacyAccessSettings = bool.fromEnvironment(
-      'HIMEMO_SHOW_LEGACY_ACCESS_SETTINGS',
-    );
-    const showLegacyPrivateVaultSettings = bool.fromEnvironment(
-      'HIMEMO_SHOW_LEGACY_PRIVATE_VAULT_SETTINGS',
     );
     final flavorName =
         FlavorConfig.instance.variables['flavor'] as String? ?? 'development';
@@ -936,9 +586,6 @@ class SettingsScreen extends ConsumerWidget {
     final demoNoteCount = currentNotes
         .where((note) => note.deletedAt == null && isGeneratedSampleNote(note))
         .length;
-    final currentModeLabel = activeIdentity == 'daily'
-        ? (strings.text('home.normal.memo.mode'))
-        : ref.watch(activeIdentityDataProvider).name;
     final currentProfileLabel = adminMode
         ? strings.adminModeActiveLabel
         : (activePrivateProfileLabel ??
@@ -1623,24 +1270,6 @@ class SettingsScreen extends ConsumerWidget {
                         strings.text('home.change.current.profile.password.2'),
                       ),
                     ),
-                  if (supportsDeviceProfilePin &&
-                      unlockedPrivateProfileVaultId != null &&
-                      unlockedPrivateProfileVaultId.startsWith(
-                        customPrivateVaultPrefix,
-                      ))
-                    OutlinedButton(
-                      onPressed: () => _showSetDeviceProfilePinDialog(
-                        context,
-                        ref,
-                        unlockedPrivateProfileVaultId,
-                      ),
-                      child: Text(
-                        strings.localized(
-                          en: 'Set device PIN',
-                          ja: 'この端末のPINを設定',
-                        ),
-                      ),
-                    ),
                 ],
               ),
             ),
@@ -1669,41 +1298,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
             if (adminMode) ...[
               const SizedBox(height: 12),
-              if (privateVaultConfigured)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.lock_outline),
-                  title: Text(
-                    strings.localized(
-                      en: 'Original private profile',
-                      ja: '従来のプライベートプロファイル',
-                    ),
-                  ),
-                  subtitle: Text(
-                    ref
-                            .read(profileDataKeyServiceProvider)
-                            .isProfileUnlocked(legacyPrivateVaultId)
-                        ? strings.localized(
-                            en: 'Notes and attachments are available',
-                            ja: 'メモと添付を開けます',
-                          )
-                        : strings.localized(
-                            en: 'Tap to unlock this profile for the first time',
-                            ja: 'タップして、このプロファイルを初回解除',
-                          ),
-                  ),
-                  trailing: const Icon(Icons.login_outlined),
-                  onTap: () => _enterPrivateProfileFromAdmin(
-                    context,
-                    ref,
-                    legacyPrivateVaultId,
-                    strings.localized(
-                      en: 'Original private profile',
-                      ja: '従来のプライベートプロファイル',
-                    ),
-                  ),
-                ),
-              if (privateProfiles.isEmpty && !privateVaultConfigured)
+              if (privateProfiles.isEmpty)
                 Text(
                   strings.noPrivateProfilesMessage,
                   style: Theme.of(context).textTheme.bodySmall
@@ -1729,34 +1324,10 @@ class SettingsScreen extends ConsumerWidget {
                           children: [
                             Text(
                               strings.localized(
-                                en: 'Created: ${_formatDateTime(profile.createdAt, strings)}',
-                                ja: '作成日時：${_formatDateTime(profile.createdAt, strings)}',
+                                en: 'Notes and attachments are available',
+                                ja: 'メモと添付を開けます',
                               ),
                             ),
-                            Text(
-                              ref
-                                      .read(profileDataKeyServiceProvider)
-                                      .isProfileUnlocked(profile.vaultId)
-                                  ? strings.localized(
-                                      en: 'Notes and attachments are available',
-                                      ja: 'メモと添付を開けます',
-                                    )
-                                  : strings.localized(
-                                      en: 'Tap to unlock this profile for the first time',
-                                      ja: 'タップして、このプロファイルを初回解除',
-                                    ),
-                            ),
-                            if (profile.nameSync.hasConflict)
-                              Text(
-                                strings.localized(
-                                  en: 'Profile name conflict',
-                                  ja: 'プロファイル名の競合',
-                                  zh: '档案名称冲突',
-                                  ko: '프로필 이름 충돌',
-                                  es: 'Conflicto en el nombre del perfil',
-                                  de: 'Konflikt beim Profilnamen',
-                                ),
-                              ),
                           ],
                         ),
                         // Opening is the row tap; secondary actions share one
@@ -1767,21 +1338,10 @@ class SettingsScreen extends ConsumerWidget {
                             en: 'Profile actions',
                             ja: 'プロファイルの操作',
                           ),
-                          icon: profile.nameSync.hasConflict
-                              ? Icon(
-                                  Icons.sync_problem_outlined,
-                                  color: Theme.of(context).colorScheme.error,
-                                )
-                              : const Icon(Icons.more_horiz),
+                          icon: const Icon(Icons.more_horiz),
                           onSelected: (action) => switch (action) {
                             _PrivateProfileAction.rename =>
                               _showRenamePrivateProfileDialog(
-                                context,
-                                ref,
-                                profile,
-                              ),
-                            _PrivateProfileAction.resolveName =>
-                              _showPrivateProfileNameConflictDialog(
                                 context,
                                 ref,
                                 profile,
@@ -1794,30 +1354,15 @@ class SettingsScreen extends ConsumerWidget {
                               ),
                           },
                           itemBuilder: (_) => [
-                            if (profile.nameSync.hasConflict)
-                              PopupMenuItem(
-                                value: _PrivateProfileAction.resolveName,
-                                child: Text(
-                                  strings.localized(
-                                    en: 'Choose a profile name',
-                                    ja: '残すプロファイル名を選択',
-                                    zh: '选择要保留的档案名称',
-                                    ko: '유지할 프로필 이름 선택',
-                                    es: 'Elige el nombre del perfil',
-                                    de: 'Profilnamen auswählen',
-                                  ),
-                                ),
-                              )
-                            else
-                              PopupMenuItem(
-                                value: _PrivateProfileAction.rename,
-                                child: Text(
-                                  strings.localized(
-                                    en: 'Rename profile',
-                                    ja: 'プロファイル名を変更',
-                                  ),
+                            PopupMenuItem(
+                              value: _PrivateProfileAction.rename,
+                              child: Text(
+                                strings.localized(
+                                  en: 'Rename profile',
+                                  ja: 'プロファイル名を変更',
                                 ),
                               ),
+                            ),
                             PopupMenuItem(
                               key: privateProfileDeleteKey(profile.id),
                               value: _PrivateProfileAction.delete,
@@ -1840,70 +1385,6 @@ class SettingsScreen extends ConsumerWidget {
           ],
         ),
         SizedBox(height: settingsGroupSpacing),
-        if (kDebugMode && showLegacyAccessSettings)
-          _SettingsGroup(
-            title: strings.text('home.access.modes'),
-            summary: strings.accessModeSummary(currentModeLabel),
-            icon: Icons.vpn_key_outlined,
-            children: [
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(strings.text('home.current.mode')),
-                subtitle: Text(
-                  activeIdentity == 'daily'
-                      ? (strings.text('home.normal.memo.mode'))
-                      : ref.watch(activeIdentityDataProvider).name,
-                ),
-              ),
-              Text(
-                strings.text(
-                  'home.the.app.stays.in.normal.memo.mode.by.default.enter.a.spe',
-                ),
-                style: Theme.of(context).textTheme.bodySmall
-                    ?.copyWith(color: _mutedTextColor(context)),
-              ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  FilledButton.tonal(
-                    onPressed: () => _showSpecialAccessKeyDialog(context, ref),
-                    child: Text(strings.text('home.enter.special.access.key')),
-                  ),
-                  OutlinedButton(
-                    onPressed: activeIdentity == 'daily'
-                        ? null
-                        : () => _switchIdentity(ref, 'daily'),
-                    child: Text(strings.text('home.return.to.normal.mode')),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  FilledButton.tonal(
-                    onPressed: () => _showSetCoverKeyDialog(context, ref),
-                    child: Text(
-                      coverModeConfigured
-                          ? strings.changeAlternateProfilePassword
-                          : strings.setAlternateProfilePassword,
-                    ),
-                  ),
-                  OutlinedButton(
-                    onPressed: coverModeConfigured
-                        ? () => _confirmResetCoverKey(context, ref)
-                        : null,
-                    child: Text(strings.resetAlternateProfilePassword),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        if (kDebugMode && showLegacyAccessSettings)
-          SizedBox(height: settingsGroupSpacing),
         _SettingsGroup(
           title: strings.text('home.app.security'),
           summary: lockSummary,
@@ -2145,39 +1626,6 @@ class SettingsScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 8),
             ],
-            if (showLegacyAccessSettings) ...[
-              SwitchListTile.adaptive(
-                value: widgetQuickCaptureEnabled,
-                contentPadding: EdgeInsets.zero,
-                title: Text(strings.homeWidgetQuickCapture),
-                subtitle: Text(
-                  !kIsWeb &&
-                          (defaultTargetPlatform == TargetPlatform.android ||
-                              defaultTargetPlatform == TargetPlatform.iOS)
-                      ? strings.homeWidgetQuickCaptureDesc
-                      : strings.homeWidgetQuickCaptureMobileOnly,
-                ),
-                onChanged:
-                    !kIsWeb &&
-                        (defaultTargetPlatform == TargetPlatform.android ||
-                            defaultTargetPlatform == TargetPlatform.iOS)
-                    ? (value) => ref
-                          .read(
-                            widgetQuickCaptureSettingsControllerProvider
-                                .notifier,
-                          )
-                          .setEnabled(value)
-                    : null,
-              ),
-              Text(
-                strings.text(
-                  'home.quick.widget.capture.only.writes.plain.text.into.notes.i',
-                ),
-                style: Theme.of(context).textTheme.bodySmall
-                    ?.copyWith(color: _mutedTextColor(context)),
-              ),
-              const SizedBox(height: 8),
-            ],
             if (!needsWebPinSetup) ...[
               const SizedBox(height: 4),
               Text(
@@ -2228,27 +1676,6 @@ class SettingsScreen extends ConsumerWidget {
                     .read(appLockRelockDelayControllerProvider.notifier)
                     .setDelay(AppLockRelockDelay.minutes10),
               ),
-              if (showLegacyPrivateVaultSettings)
-                SwitchListTile.adaptive(
-                  key: privateVaultLockOnAppLockKey,
-                  value: privateVaultLockOnAppLock,
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(
-                    strings.text(
-                      'home.lock.legacy.private.area.when.app.locks',
-                    ),
-                  ),
-                  subtitle: Text(
-                    strings.text(
-                      'home.normally.this.locks.whenever.the.app.locks',
-                    ),
-                  ),
-                  onChanged: (value) => ref
-                      .read(
-                        privateVaultLockOnAppLockControllerProvider.notifier,
-                      )
-                      .setEnabled(value),
-                ),
               Align(
                 alignment: Alignment.centerLeft,
                 child: Wrap(
@@ -2272,12 +1699,6 @@ class SettingsScreen extends ConsumerWidget {
                               ref
                                   .read(
                                     appSessionUnlockControllerProvider.notifier,
-                                  )
-                                  .lock();
-                              ref
-                                  .read(
-                                    privateVaultSessionControllerProvider
-                                        .notifier,
                                   )
                                   .lock();
                               ref
@@ -2339,70 +1760,6 @@ class SettingsScreen extends ConsumerWidget {
           ],
         ),
         SizedBox(height: settingsGroupSpacing),
-        if (kDebugMode && showLegacyPrivateVaultSettings)
-          _SettingsGroup(
-            title: strings.text('home.private.vault'),
-            summary: privateVaultConfigured
-                ? (privateVaultUnlocked
-                      ? (strings.text('home.configured.and.currently.unlocked'))
-                      : (strings.text('home.configured.and.locked')))
-                : (strings.text('home.no.private.vault.key.has.been.set.yet')),
-            icon: Icons.shield_outlined,
-            children: [
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(strings.text('home.status')),
-                subtitle: Text(
-                  privateVaultConfigured
-                      ? (privateVaultUnlocked
-                            ? (strings.text(
-                                'home.configured.and.unlocked.for.this.session',
-                              ))
-                            : (strings.text(
-                                'home.configured.and.locked.a.separate.key.is.required',
-                              )))
-                      : (strings.text(
-                          'home.not.configured.yet.set.a.separate.key.for.the.private.va',
-                        )),
-                ),
-              ),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  if (!privateVaultConfigured)
-                    FilledButton(
-                      key: privateVaultSetKey,
-                      onPressed: () => _showSetPrivateKeyDialog(context, ref),
-                      child: Text(strings.text('home.set.private.key')),
-                    ),
-                  if (privateVaultConfigured && !privateVaultUnlocked)
-                    FilledButton(
-                      key: privateVaultUnlockKey,
-                      onPressed: () =>
-                          _showUnlockPrivateVaultDialog(context, ref),
-                      child: Text(strings.text('home.unlock.private.vault')),
-                    ),
-                  if (privateVaultUnlocked)
-                    FilledButton.tonal(
-                      key: privateVaultLockKey,
-                      onPressed: () => ref
-                          .read(privateVaultSessionControllerProvider.notifier)
-                          .lock(),
-                      child: Text(strings.text('home.lock.private.vault')),
-                    ),
-                  if (privateVaultConfigured)
-                    OutlinedButton(
-                      key: privateVaultResetKey,
-                      onPressed: () => _confirmResetPrivateKey(context, ref),
-                      child: Text(strings.text('home.reset.private.key')),
-                    ),
-                ],
-              ),
-            ],
-          ),
-        if (kDebugMode && showLegacyPrivateVaultSettings)
-          SizedBox(height: settingsGroupSpacing),
         _SettingsGroup(
           title: strings.localized(en: 'Sync and security', ja: '同期とセキュリティ'),
           summary: syncSummary,
@@ -3739,166 +3096,6 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _showSetPrivateKeyDialog(
-    BuildContext context,
-    WidgetRef ref,
-  ) async {
-    final strings = context.strings;
-    final secretController = TextEditingController();
-    final confirmController = TextEditingController();
-    String? errorText;
-
-    await showDialog<void>(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            return AlertDialog(
-              title: Text(strings.setPrivateKey),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: secretController,
-                    obscureText: true,
-                    decoration: InputDecoration(
-                      labelText: strings.privateKey,
-                      border: const OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: confirmController,
-                    obscureText: true,
-                    decoration: InputDecoration(
-                      labelText: strings.confirmPrivateKey(strings.privateKey),
-                      border: const OutlineInputBorder(),
-                      errorText: errorText,
-                    ),
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: Text(strings.cancel),
-                ),
-                FilledButton(
-                  onPressed: () async {
-                    final secret = secretController.text.trim();
-                    final confirm = confirmController.text.trim();
-                    if (secret.length < 4) {
-                      setState(() {
-                        errorText = strings.useAtLeast4Chars;
-                      });
-                      return;
-                    }
-                    if (secret != confirm) {
-                      setState(() {
-                        errorText = strings.keysDoNotMatch;
-                      });
-                      return;
-                    }
-                    await ref
-                        .read(privateVaultSecretControllerProvider.notifier)
-                        .configure(secret);
-                    if (context.mounted) {
-                      Navigator.of(context).pop();
-                    }
-                  },
-                  child: Text(strings.save),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Future<void> _showUnlockPrivateVaultDialog(
-    BuildContext context,
-    WidgetRef ref,
-  ) async {
-    final strings = context.strings;
-    final secretController = TextEditingController();
-    String? errorText;
-
-    await showDialog<void>(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            return AlertDialog(
-              title: Text(strings.unlockPrivateVault),
-              content: TextField(
-                controller: secretController,
-                obscureText: true,
-                decoration: InputDecoration(
-                  labelText: strings.privateKey,
-                  border: const OutlineInputBorder(),
-                  errorText: errorText,
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: Text(strings.cancel),
-                ),
-                FilledButton(
-                  onPressed: () async {
-                    final matched = await ref
-                        .read(privateVaultSecretControllerProvider.notifier)
-                        .verify(secretController.text.trim());
-                    if (!matched) {
-                      setState(() {
-                        errorText = strings.privateKeyIncorrect;
-                      });
-                      return;
-                    }
-                    if (context.mounted) {
-                      Navigator.of(context).pop();
-                    }
-                  },
-                  child: Text(strings.unlock),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Future<void> _confirmResetPrivateKey(
-    BuildContext context,
-    WidgetRef ref,
-  ) async {
-    final strings = context.strings;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text(strings.resetPrivateKey),
-          content: Text(strings.resetPrivateKeyBody),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: Text(strings.cancel),
-            ),
-            FilledButton.tonal(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: Text(strings.reset),
-            ),
-          ],
-        );
-      },
-    );
-    if (confirmed == true) {
-      await ref.read(privateVaultSecretControllerProvider.notifier).clear();
-    }
-  }
-
   static const _availableFontFamilies = <AppFontFamily>[
     ...iOSFriendlyAppFontFamilies,
   ];
@@ -4131,4 +3328,4 @@ class SettingsScreen extends ConsumerWidget {
   }
 }
 
-enum _PrivateProfileAction { rename, resolveName, delete }
+enum _PrivateProfileAction { rename, delete }

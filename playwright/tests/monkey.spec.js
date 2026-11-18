@@ -1,11 +1,12 @@
 const { test, expect } = require("@playwright/test");
+const { resetV2App, createNotesThroughUi } = require("../support/v2-app");
 
 const monkeySeeds = [1101, 1102, 1103, 1104, 1105];
 
 test.describe("monkey interaction coverage", () => {
   for (const seed of monkeySeeds) {
     test(`home/editor/settings monkey seed ${seed}`, async ({ page }) => {
-      test.setTimeout(90_000);
+      test.setTimeout(180_000);
       const failures = [];
       page.on("pageerror", (error) => failures.push(`pageerror: ${error}`));
       page.on("console", (message) => {
@@ -231,84 +232,17 @@ async function expectNoRawFlutterError(page, seed, trace) {
 }
 
 async function seedMonkeyNotes(page, seed) {
-  await resetBrowserState(page);
-  const notes = Array.from({ length: 24 }, (_, index) =>
-    createMonkeyNote(seed, index),
-  );
-  await page.evaluate((seedNotes) => {
-    localStorage.setItem(
-      "flutter.app.onboarding_completed",
-      JSON.stringify(true),
-    );
-    localStorage.setItem(
-      "flutter.app.onboarding_completed_version",
-      JSON.stringify(2),
-    );
-    localStorage.setItem(
-      "flutter.release_notes.last_seen",
-      JSON.stringify("1.0.0+46"),
-    );
-    localStorage.setItem(
-      "flutter.notes.entries.v1",
-      JSON.stringify(JSON.stringify(seedNotes)),
-    );
-  }, notes);
-  await page.reload();
+  await resetV2App(page);
+  await createNotesThroughUi(page, Array.from({ length: 24 }, (_, index) => createMonkeyNote(seed, index)));
 }
 
 function createMonkeyNote(seed, index) {
-  const createdAt = new Date("2026-05-28T10:00:00.000Z").toISOString();
   return {
-    id: `e2e-monkey-${seed}-${index}`,
-    vaultId: "everyday",
     title: `Monkey note ${seed}-${index}`,
     body: `alpha bulk monkey seed-${seed} index-${index}`,
-    createdAt,
-    updatedAt: null,
-    deletedAt: null,
-    archivedAt: null,
-    deviceId: "e2e",
-    contentHash: `e2e-monkey-${seed}-${index}`,
-    attachments: [],
-    blocks: [
-      {
-        type: "paragraph",
-        text: `alpha bulk monkey seed-${seed} index-${index}`,
-        attachment: null,
-      },
-    ],
-    tags: [`monkey-${index % 4}`, index % 2 === 0 ? "alpha" : "bulk"],
-    isPinned: index % 5 === 0,
-    revision: 1,
-    syncState: "localOnly",
-    editorMode: "rich",
-    location: null,
+    tags: [`monkey-${index % 4}`, index % 2 === 0 ? 'alpha' : 'bulk'],
+    editorMode: 'rich',
   };
-}
-
-async function resetBrowserState(page) {
-  await page.evaluate(async () => {
-    localStorage.clear();
-    sessionStorage.clear();
-    if (indexedDB.databases) {
-      const databases = await indexedDB.databases();
-      await Promise.all(
-        databases
-          .map((database) => database.name)
-          .filter(Boolean)
-          .map(
-            (name) =>
-              new Promise((resolve) => {
-                const request = indexedDB.deleteDatabase(name);
-                request.onsuccess =
-                  request.onerror =
-                  request.onblocked =
-                    resolve;
-              }),
-          ),
-      );
-    }
-  });
 }
 
 async function waitForHomeReady(page) {

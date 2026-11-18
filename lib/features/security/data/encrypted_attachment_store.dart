@@ -14,7 +14,6 @@ import '../../../app/diagnostic_log.dart';
 import '../../home/domain/note_entry.dart';
 import 'encryption_service.dart';
 import 'master_key_service.dart';
-import 'profile_data_key_service.dart';
 import 'web_attachment_payload_store_stub.dart'
     if (dart.library.html) 'web_attachment_payload_store_web.dart';
 
@@ -32,7 +31,6 @@ class EncryptedAttachmentStore {
   EncryptedAttachmentStore({
     required this._encryptionService,
     required this._masterKeyService,
-    this._profileDataKeyService,
     Future<SecretKey?> Function(String vaultId)? keyForVault,
     Future<Directory> Function()? directoryProvider,
     Future<Directory> Function()? temporaryDirectoryProvider,
@@ -52,7 +50,6 @@ class EncryptedAttachmentStore {
   final Future<SecretKey?> Function(String vaultId)? _keyResolver;
   final EncryptionService _encryptionService;
   final MasterKeyService _masterKeyService;
-  final ProfileDataKeyService? _profileDataKeyService;
   final Future<Directory> Function() _directoryProvider;
   final Future<Directory> Function() _temporaryDirectoryProvider;
   final Future<SharedPreferences> Function() _sharedPreferencesProvider;
@@ -99,34 +96,6 @@ class EncryptedAttachmentStore {
     return file.path;
   }
 
-  Future<String?> storeEncryptedPayload({
-    required String encodedPayload,
-    required AttachmentType type,
-    required String fileNameHint,
-    String vaultId = 'everyday',
-  }) async {
-    if (kIsWeb) {
-      final id = _attachmentId(type, fileNameHint);
-      final prefs = await _sharedPreferencesProvider();
-      await _writeWebPayload(id, encodedPayload, prefs);
-      final reference = '$webPrefix$id';
-      await prefs.setString('$vaultStoragePrefix$reference', vaultId);
-      return reference;
-    }
-
-    final directory = await _directoryProvider();
-    final fileName = _attachmentId(type, fileNameHint);
-    final file = File(path.join(directory.path, 'attachments', fileName));
-    await file.create(recursive: true);
-    await file.writeAsBytes(
-      _attachmentPayloadStringToBytes(encodedPayload),
-      flush: true,
-    );
-    final prefs = await _sharedPreferencesProvider();
-    await prefs.setString('$vaultStoragePrefix${file.path}', vaultId);
-    return file.path;
-  }
-
   Future<String> encryptAttachmentBytes({
     required List<int> bytes,
     required AttachmentType type,
@@ -157,23 +126,11 @@ class EncryptedAttachmentStore {
     if (key == null) {
       throw StateError('Attachment key is unavailable for $vaultId.');
     }
-    try {
-      return await _decryptAttachmentBytesFromStorage(
-        encodedPayload: encryptedPayload,
-        key: key,
-        additionalData: _aad(type),
-      );
-    } catch (_) {
-      if (vaultId == 'everyday' || _keyResolver != null) {
-        rethrow;
-      }
-      final normalKey = await _masterKeyService.obtainOrCreate();
-      return _decryptAttachmentBytesFromStorage(
-        encodedPayload: encryptedPayload,
-        key: normalKey,
-        additionalData: _aad(type),
-      );
-    }
+    return _decryptAttachmentBytesFromStorage(
+      encodedPayload: encryptedPayload,
+      key: key,
+      additionalData: _aad(type),
+    );
   }
 
   Future<String?> materializeDecryptedFile(
@@ -268,46 +225,6 @@ class EncryptedAttachmentStore {
     await _writePayload(storedReference, encrypted);
     final prefs = await _sharedPreferencesProvider();
     await prefs.setString('$vaultStoragePrefix$storedReference', vaultId);
-  }
-
-  /// Returns true when legacy device-key ciphertext was rewritten with the
-  /// private profile key. Sync must publish the new payload hash in that case.
-  Future<bool> migrateLegacyPrivateAttachment(
-    String storedReference, {
-    required AttachmentType type,
-    required String vaultId,
-  }) async {
-    if (!isProfileDataKeyPrivateVaultId(vaultId)) return false;
-    final payload = await _readPayload(storedReference);
-    if (payload == null || payload.isEmpty) return false;
-    final profileKey = await _keyForVault(vaultId);
-    if (profileKey == null) {
-      throw StateError('Attachment key is unavailable for $vaultId.');
-    }
-    try {
-      await _decryptAttachmentBytesFromStorage(
-        encodedPayload: payload,
-        key: profileKey,
-        additionalData: _aad(type),
-      );
-      final prefs = await _sharedPreferencesProvider();
-      await prefs.setString('$vaultStoragePrefix$storedReference', vaultId);
-      return false;
-    } catch (_) {
-      // Older private attachments were saved with the device key. Read with
-      // the legacy fallback, then replace the ciphertext before it is synced.
-      final bytes = await readAttachment(storedReference, type: type);
-      if (bytes == null || bytes.isEmpty) return false;
-      final encrypted = await _encryptAttachmentBytesForStorage(
-        bytes: bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
-        key: profileKey,
-        type: type,
-      );
-      await _writePayload(storedReference, encrypted);
-      final prefs = await _sharedPreferencesProvider();
-      await prefs.setString('$vaultStoragePrefix$storedReference', vaultId);
-      return true;
-    }
   }
 
   Future<void> deleteMaterializedFile(String filePath) async {
@@ -710,11 +627,6 @@ class EncryptedAttachmentStore {
     await file.writeAsBytes(payload, flush: true);
   }
 
-  Future<String?> readStoredPayload(String storedReference) async {
-    final payload = await _readPayload(storedReference);
-    return payload == null ? null : _attachmentPayloadBytesToString(payload);
-  }
-
   Future<void> _writeWebPayload(
     String id,
     String payload,
@@ -759,10 +671,6 @@ class EncryptedAttachmentStore {
 
   Future<SecretKey?> _keyForVault(String vaultId) {
     if (_keyResolver != null) return _keyResolver(vaultId);
-    final profileDataKeyService = _profileDataKeyService;
-    if (profileDataKeyService != null) {
-      return profileDataKeyService.keyForVault(vaultId);
-    }
     return _masterKeyService.obtainOrCreate();
   }
 
@@ -857,10 +765,11 @@ class EncryptedAttachmentStore {
       return transferable.materialize().asUint8List();
     }
 
-    final legacyPayload = utf8.decode(encodedPayload);
-    if (kIsWeb || legacyPayload.length < _backgroundDecryptionThresholdChars) {
+    // Current Web drafts use the JSON envelope produced above, not binary.
+    final jsonPayload = utf8.decode(encodedPayload);
+    if (kIsWeb || jsonPayload.length < _backgroundDecryptionThresholdChars) {
       return _encryptionService.decryptBytes(
-        encodedPayload: legacyPayload,
+        encodedPayload: jsonPayload,
         secretKey: key,
         additionalData: additionalData,
       );
@@ -903,19 +812,6 @@ String _attachmentPayloadBytesToString(Uint8List payload) {
     return '${EncryptedAttachmentStore._binaryPayloadStringPrefix}${base64Encode(payload)}';
   }
   return utf8.decode(payload);
-}
-
-Uint8List _attachmentPayloadStringToBytes(String payload) {
-  if (payload.startsWith(EncryptedAttachmentStore._binaryPayloadStringPrefix)) {
-    return Uint8List.fromList(
-      base64Decode(
-        payload.substring(
-          EncryptedAttachmentStore._binaryPayloadStringPrefix.length,
-        ),
-      ),
-    );
-  }
-  return Uint8List.fromList(utf8.encode(payload));
 }
 
 bool _isBinaryAttachmentPayload(Uint8List payload) {

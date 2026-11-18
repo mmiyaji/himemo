@@ -3817,12 +3817,12 @@ class AppStrings {
     de: 'Private Profile',
   );
   String get privateProfilesSettingsAdminSummary => localized(
-    en: 'Admin mode lists every profile and opens its notes and attachments. Profiles used on this device for the first time may need their password once.',
-    ja: '管理者モードでは全プロファイルを一覧表示し、メモと添付を開けます。この端末で初めて開くプロファイルは、一度パスワードの入力が必要な場合があります。',
-    zh: '管理员模式可列出所有档案并打开笔记和附件。在此设备上首次打开的档案可能需要输入一次密码。',
-    ko: '관리자 모드에서는 모든 프로필과 메모 및 첨부 파일을 열 수 있습니다. 이 기기에서 처음 여는 프로필은 비밀번호를 한 번 입력해야 할 수 있습니다.',
-    es: 'El modo administrador muestra todos los perfiles y permite abrir sus notas y adjuntos. Un perfil nuevo en este dispositivo puede requerir su contraseña una vez.',
-    de: 'Im Administratormodus werden alle Profile mit Notizen und Anhängen zugänglich. Beim ersten Öffnen auf diesem Gerät kann einmalig das Profilpasswort erforderlich sein.',
+    en: 'Admin mode lists every profile and opens its notes and attachments.',
+    ja: '管理者モードでは全プロファイルを一覧表示し、メモと添付を開けます。',
+    zh: '管理员模式可列出所有档案并打开笔记和附件。',
+    ko: '관리자 모드에서는 모든 프로필과 메모 및 첨부 파일을 열 수 있습니다.',
+    es: 'El modo administrador muestra todos los perfiles y permite abrir sus notas y adjuntos.',
+    de: 'Im Administratormodus werden alle Profile mit Notizen und Anhängen zugänglich.',
   );
   String privateProfilesSettingsActiveSummary(String _) => localized(
     en: 'A verified private profile is currently open.',

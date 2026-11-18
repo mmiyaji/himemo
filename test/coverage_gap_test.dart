@@ -1,7 +1,3 @@
-import 'dart:convert';
-import 'dart:math';
-
-import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -18,11 +14,8 @@ import 'package:himemo/features/home/presentation/video_player_controller_factor
 import 'package:himemo/features/home/presentation/video_thumbnail_generator_io.dart';
 import 'package:himemo/features/home/presentation/web_video_element_view_stub.dart';
 import 'package:himemo/features/home/presentation/web_video_object_url_stub.dart';
-import 'package:himemo/features/security/data/encryption_service.dart';
-import 'package:himemo/features/security/data/private_vault_secret_store.dart';
 import 'package:himemo/features/security/data/secure_key_value_store.dart';
 import 'package:himemo/features/security/data/web_attachment_payload_store_stub.dart';
-import 'package:himemo/features/sync/data/sync_bundle_key_service.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -74,9 +67,7 @@ void main() {
       await controller.dispose();
     });
 
-    testWidgets('web video and Google sign-in stubs render inert widgets', (
-      tester,
-    ) async {
+    testWidgets('web video stubs render inert widgets', (tester) async {
       final video = buildWebVideoElementView(
         viewType: 'video-view',
         objectUrl: 'blob:video',
@@ -160,72 +151,6 @@ void main() {
         expect(exported, contains('sync.upload'));
       },
     );
-  });
-
-  group('PrivateVaultSecretStore edge paths', () {
-    test('reports missing secrets and verifies configured secrets', () async {
-      SharedPreferences.setMockInitialValues({});
-      final store = PrivateVaultSecretStore(
-        secureStore: MemorySecureKeyValueStore(),
-        encryptionService: EncryptionService(random: Random(101)),
-      );
-
-      expect(await store.hasSecret(), isFalse);
-      expect(await store.verify('missing'), isFalse);
-
-      await store.configure('profile-pass');
-      expect(await store.hasSecret(), isTrue);
-      expect(await store.verify('profile-pass'), isTrue);
-      expect(await store.verify('wrong-pass'), isFalse);
-
-      await store.clear();
-      expect(await store.hasSecret(), isFalse);
-    });
-
-    test('migrates legacy verifier values into secure storage', () async {
-      final encryptionService = EncryptionService(random: Random(102));
-      final salt = encryptionService.generateSalt();
-      final verifier = await encryptionService.deriveSecretVerifier(
-        secret: 'legacy-pass',
-        salt: salt,
-      );
-      SharedPreferences.setMockInitialValues({
-        'security.private_vault_salt': base64Encode(salt),
-        'security.private_vault_digest': verifier,
-      });
-      final secureStore = MemorySecureKeyValueStore();
-      final store = PrivateVaultSecretStore(
-        secureStore: secureStore,
-        encryptionService: encryptionService,
-      );
-
-      expect(await store.hasSecret(), isTrue);
-      expect(
-        await secureStore.read('security.private_vault.verifier.v1'),
-        isNotNull,
-      );
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getString('security.private_vault_salt'), isNull);
-      expect(prefs.getString('security.private_vault_digest'), isNull);
-      expect(await store.verify('legacy-pass'), isTrue);
-    });
-
-    test('ignores incomplete legacy verifier pairs', () async {
-      SharedPreferences.setMockInitialValues({
-        'security.private_vault_salt': base64Encode(List<int>.filled(16, 1)),
-      });
-      final secureStore = MemorySecureKeyValueStore();
-      final store = PrivateVaultSecretStore(
-        secureStore: secureStore,
-        encryptionService: EncryptionService(random: Random(103)),
-      );
-
-      expect(await store.hasSecret(), isFalse);
-      expect(
-        await secureStore.read('security.private_vault.verifier.v1'),
-        isNull,
-      );
-    });
   });
 
   group('NetworkConnectionService', () {
@@ -376,72 +301,4 @@ void main() {
       },
     );
   });
-
-  group('SyncBundleKeyService edge paths', () {
-    test('imports fallback secure store values without cloud escrow', () async {
-      final fallbackStore = MemorySecureKeyValueStore();
-      final bytes = List<int>.generate(32, (index) => index + 11);
-      await fallbackStore.write('sync-key', base64Encode(bytes));
-      final cloudStore = _MemoryCloudSyncBundleKeyStore();
-      final service = SyncBundleKeyService(
-        secureStore: MemorySecureKeyValueStore(),
-        fallbackStore: fallbackStore,
-        cloudStore: cloudStore,
-        keyFactory: () => List<int>.filled(32, 1),
-        storageKey: 'sync-key',
-      );
-
-      expect(
-        await service.fingerprint(),
-        sha256.convert(bytes).toString().substring(0, 12),
-      );
-      expect(cloudStore.backupCode, isNull);
-    });
-
-    test('continues when legacy cloud read fails', () async {
-      final secureStore = MemorySecureKeyValueStore();
-      final bytes = List<int>.generate(32, (index) => index + 21);
-      await secureStore.write('sync-key', base64Encode(bytes));
-      final service = SyncBundleKeyService(
-        secureStore: secureStore,
-        cloudStore: _ThrowingCloudSyncBundleKeyStore(),
-        keyFactory: () => List<int>.filled(32, 2),
-        storageKey: 'sync-key',
-      );
-
-      expect(await service.requireExisting(), isNotNull);
-      expect(
-        await service.fingerprint(),
-        sha256.convert(bytes).toString().substring(0, 12),
-      );
-    });
-
-    test('rejects short backup codes', () {
-      final service = SyncBundleKeyService(
-        secureStore: MemorySecureKeyValueStore(),
-        keyFactory: () => List<int>.filled(32, 3),
-      );
-      final shortCode =
-          '${SyncBundleKeyService.backupCodePrefix}${base64Encode([1, 2, 3])}';
-
-      expect(
-        () => service.previewBackupCodeFingerprint(shortCode),
-        throwsFormatException,
-      );
-    });
-  });
-}
-
-class _MemoryCloudSyncBundleKeyStore implements CloudSyncBundleKeyStore {
-  String? backupCode;
-
-  @override
-  Future<String?> readBackupCode() async => backupCode;
-}
-
-class _ThrowingCloudSyncBundleKeyStore implements CloudSyncBundleKeyStore {
-  @override
-  Future<String?> readBackupCode() async {
-    throw StateError('cloud unavailable');
-  }
 }

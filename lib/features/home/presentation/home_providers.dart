@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:isolate';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -11,10 +10,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_flavor/flutter_flavor.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:path/path.dart' as path;
@@ -39,48 +36,20 @@ import 'video_thumbnail_generator_stub.dart'
     if (dart.library.io) 'video_thumbnail_generator_io.dart'
     if (dart.library.html) 'video_thumbnail_generator_web.dart';
 import '../../security/data/device_identity_store.dart';
-import '../../security/data/encrypted_note_store.dart';
-import '../../security/data/encrypted_note_database.dart';
 import '../../security/data/encrypted_attachment_store.dart';
 import '../../security/data/encryption_service.dart';
 import '../../security/data/master_key_service.dart';
-import '../../security/data/authentication_throttle.dart';
 import '../../security/data/app_pin_lock_store.dart';
-import '../../security/data/secret_verifier_store.dart';
 export '../../security/data/app_pin_lock_store.dart';
 export '../../security/data/secret_verifier_store.dart';
-import '../../security/data/profile_data_key_service.dart';
-import '../../security/data/profile_name_sync.dart';
-import '../../security/data/storage_serial_executor.dart';
-import '../../security/data/private_vault_secret_store.dart';
 import '../../security/data/secure_key_value_store.dart';
 import '../../sync/data/sync_v2_attachment_store.dart';
 import '../../sync/data/sync_v2_note_store.dart';
-import '../../sync/data/google_drive_sync_transport.dart';
-import '../../sync/data/google_sign_in_initializer.dart';
-import '../../sync/data/icloud_sync_transport.dart';
 import '../../sync/presentation/sync_v2_note_store_provider.dart';
 import '../../sync/presentation/sync_v2_workspace.dart';
-import '../../sync/data/private_profile_sync_exclusion_store.dart';
-import '../../sync/data/sync_attachment_refs.dart';
-import '../../sync/data/sync_conflict_policy.dart';
-import '../../sync/data/sync_bundle_preview.dart';
-import '../../sync/data/secure_sync_bundle_store.dart';
-import '../../sync/data/sync_bundle_key_service.dart';
-import '../../sync/data/sync_bundle_state_store.dart';
-import '../../sync/data/sync_engine.dart';
-import '../../sync/data/sync_history_reader.dart';
-import '../../sync/data/sync_exclusion_retention.dart';
-import '../../sync/data/sync_bundle_coverage.dart';
-import '../../sync/data/remote_attachment_maintenance.dart';
-import '../../sync/data/sync_upload_reservations.dart';
-import '../../sync/data/sync_upload_receipt_cache.dart';
 import 'media_duration_stub.dart' if (dart.library.io) 'media_duration_io.dart';
 
 part 'home_providers.g.dart';
-part '../../sync/presentation/sync_controllers.dart';
-part '../../sync/presentation/sync_providers.dart';
-part '../../security/presentation/private_profile_store.dart';
 part '../../security/presentation/security_providers.dart';
 
 void _debugHomePerf(String message) {
@@ -200,18 +169,6 @@ enum AttachmentPreviewFit { preview, icon }
 
 enum NotesListSortField { updatedAt, createdAt }
 
-enum SyncProvider { off, iCloud, googleDrive }
-
-final legacySettingsBlockedProvider = FutureProvider.autoDispose<bool>((
-  ref,
-) async {
-  final prefs = await SharedPreferences.getInstance();
-  return prefs.getBool('settings.sync_v2.enabled') == true;
-});
-
-bool get isICloudSyncSupported =>
-    !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
-
 enum AppLaunchSurface { onboarding, ready }
 
 enum AppTutorialCourse {
@@ -270,26 +227,10 @@ enum AppLockRelockDelay { immediate, seconds30, minutes2, minutes10 }
 
 enum DeviceAuthAvailability { unknown, available, unavailable }
 
-enum SyncAuthStage { idle, busy, authenticated, unsupported, error }
-
-enum SyncTransferStage { idle, busy, success, error }
-
-enum SyncTransferProgress {
-  none,
-  checkingRemote,
-  preparingBundle,
-  uploadingBundle,
-  downloadingBundle,
-  applyingBundle,
-  finalizing,
-}
-
-const legacyPrivateVaultId = 'private';
 const customPrivateVaultPrefix = 'private_profile:';
 
 bool isPrivateVaultId(String vaultId) {
-  return vaultId == legacyPrivateVaultId ||
-      vaultId.startsWith(customPrivateVaultPrefix);
+  return vaultId.startsWith(customPrivateVaultPrefix);
 }
 
 bool isGeneratedSampleNote(NoteEntry note) {
@@ -300,106 +241,22 @@ bool isGeneratedSampleNote(NoteEntry note) {
       (note.contentHash?.startsWith('performance-seed-') ?? false);
 }
 
-@visibleForTesting
-bool remoteBundleNeedsApplyForSync(
-  RemoteSyncBundleStatus remoteStatus,
-  SyncBundleState bundleState,
-) {
-  final remoteFileId = remoteStatus.fileId;
-  if (remoteFileId.isNotEmpty && bundleState.appliedRemoteFileIds != null) {
-    return !bundleState.appliedRemoteFileIds!.contains(remoteFileId);
-  }
-  if (remoteFileId.isNotEmpty) {
-    return remoteFileId != bundleState.lastAppliedRemoteFileId;
-  }
-  final lastAppliedAt = bundleState.lastAppliedAt;
-  final lastUploadedAt = bundleState.lastUploadedAt;
-  final knownActionAt = _latestDateTime(lastAppliedAt, lastUploadedAt);
-  if (knownActionAt == null) {
-    return true;
-  }
-  final remoteModifiedAt = remoteStatus.modifiedAt?.toUtc();
-  if (remoteModifiedAt == null) {
-    return true;
-  }
-  return remoteModifiedAt.isAfter(knownActionAt);
-}
-
-class SyncSafetyException implements Exception {
-  const SyncSafetyException(this.code);
-
-  final String code;
-
-  @override
-  String toString() => code;
-}
-
-DateTime? _latestDateTime(DateTime? left, DateTime? right) {
-  if (left == null) {
-    return right?.toUtc();
-  }
-  if (right == null) {
-    return left.toUtc();
-  }
-  final leftUtc = left.toUtc();
-  final rightUtc = right.toUtc();
-  return leftUtc.isAfter(rightUtc) ? leftUtc : rightUtc;
-}
-
 class PrivateMemoProfile {
-  const PrivateMemoProfile({
-    required this.id,
-    required this.name,
-    required this.createdAt,
-    this.nameSync = const ProfileNameSync(),
-  });
-
+  const PrivateMemoProfile({required this.id, required this.name});
   final String id;
   final String name;
-  final DateTime createdAt;
-  final ProfileNameSync nameSync;
-
   String get vaultId => '$customPrivateVaultPrefix$id';
-
-  PrivateMemoProfile copyWith({String? name, ProfileNameSync? nameSync}) {
-    return PrivateMemoProfile(
-      id: id,
-      name: name ?? this.name,
-      createdAt: createdAt,
-      nameSync: nameSync ?? this.nameSync,
-    );
-  }
-
-  Map<String, dynamic> toJson({bool includePending = true}) => {
-    'id': id,
-    'name': name,
-    'createdAt': createdAt.toIso8601String(),
-    if (nameSync.heads.isNotEmpty)
-      'nameSync': nameSync.toJson(includePending: includePending),
-  };
-
-  factory PrivateMemoProfile.fromJson(Map<String, dynamic> json) {
-    return PrivateMemoProfile(
-      id: json['id'] as String,
-      name: json['name'] as String,
-      createdAt: DateTime.parse(json['createdAt'] as String),
-      nameSync:
-          ProfileNameSync.fromJson(json['nameSync']) ?? const ProfileNameSync(),
-    );
-  }
 }
 
 class UnlockProfileResult {
   const UnlockProfileResult({
     required this.vaultId,
     required this.label,
-    required this.isLegacy,
     this.additionalVaultIds = const [],
   });
 
   final String vaultId;
   final String label;
-  final bool isLegacy;
   final List<String> additionalVaultIds;
 }
 
@@ -964,19 +821,6 @@ Future<String?> _videoPreviewBytesBase64ForSourceFile(XFile sourceFile) async {
   }
 }
 
-Future<String?> _videoPreviewBytesBase64ForBytes(
-  List<int> bytes, {
-  required String label,
-  String? mimeType,
-}) {
-  if (bytes.isEmpty) {
-    return Future.value(null);
-  }
-  return _videoPreviewBytesBase64ForSourceFile(
-    XFile.fromData(Uint8List.fromList(bytes), name: label, mimeType: mimeType),
-  );
-}
-
 class DeviceAuthState {
   const DeviceAuthState({
     required this.availability,
@@ -1055,337 +899,6 @@ class AppPinLockState {
       lastError: clearError ? null : (lastError ?? this.lastError),
     );
   }
-}
-
-class SyncAuthState {
-  const SyncAuthState({
-    required this.provider,
-    required this.stage,
-    this.userId,
-    this.displayName,
-    this.email,
-    this.message,
-  });
-
-  const SyncAuthState.idle(this.provider)
-    : stage = SyncAuthStage.idle,
-      userId = null,
-      displayName = null,
-      email = null,
-      message = null;
-
-  final SyncProvider provider;
-  final SyncAuthStage stage;
-  final String? userId;
-  final String? displayName;
-  final String? email;
-  final String? message;
-
-  bool get isAuthenticated => stage == SyncAuthStage.authenticated;
-
-  SyncAuthState copyWith({
-    SyncProvider? provider,
-    SyncAuthStage? stage,
-    String? userId,
-    String? displayName,
-    String? email,
-    String? message,
-    bool clearMessage = false,
-  }) {
-    return SyncAuthState(
-      provider: provider ?? this.provider,
-      stage: stage ?? this.stage,
-      userId: userId ?? this.userId,
-      displayName: displayName ?? this.displayName,
-      email: email ?? this.email,
-      message: clearMessage ? null : (message ?? this.message),
-    );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'provider': provider.name,
-      'stage': stage.name,
-      'userId': userId,
-      'displayName': displayName,
-      'email': email,
-      'message': message,
-    };
-  }
-
-  static SyncAuthState fromJson(Map<String, dynamic> json) {
-    final provider = SyncProvider.values.firstWhere(
-      (value) => value.name == json['provider'],
-      orElse: () => SyncProvider.off,
-    );
-    final stage = SyncAuthStage.values.firstWhere(
-      (value) => value.name == json['stage'],
-      orElse: () => SyncAuthStage.idle,
-    );
-    return SyncAuthState(
-      provider: provider,
-      stage: stage,
-      userId: json['userId'] as String?,
-      displayName: json['displayName'] as String?,
-      email: json['email'] as String?,
-      message: json['message'] as String?,
-    );
-  }
-}
-
-class SyncTransferState {
-  const SyncTransferState({
-    required this.stage,
-    this.progress = SyncTransferProgress.none,
-    this.message,
-    this.detail,
-    this.completedItems,
-    this.totalItems,
-    this.remoteStatus,
-    this.localBundle,
-    this.cooldownUntil,
-    this._progressFloor = 0,
-  });
-
-  const SyncTransferState.idle()
-    : stage = SyncTransferStage.idle,
-      progress = SyncTransferProgress.none,
-      message = null,
-      detail = null,
-      completedItems = null,
-      totalItems = null,
-      remoteStatus = null,
-      localBundle = null,
-      cooldownUntil = null,
-      _progressFloor = 0;
-
-  final SyncTransferStage stage;
-  final SyncTransferProgress progress;
-  final String? message;
-  final String? detail;
-  final int? completedItems;
-  final int? totalItems;
-  final RemoteSyncBundleStatus? remoteStatus;
-  final StoredSyncBundle? localBundle;
-  final DateTime? cooldownUntil;
-  final double _progressFloor;
-
-  // Stages can repeat during replay. Keep the displayed estimate at the
-  // highest point reached during the current transfer.
-  double? get progressValue {
-    if (stage != SyncTransferStage.busy) return null;
-    final (start, end) = switch (progress) {
-      SyncTransferProgress.checkingRemote => (0.18, 0.30),
-      SyncTransferProgress.preparingBundle => (0.38, 0.55),
-      SyncTransferProgress.uploadingBundle => (0.64, 0.76),
-      SyncTransferProgress.downloadingBundle => (0.48, 0.64),
-      SyncTransferProgress.applyingBundle => (0.78, 0.88),
-      SyncTransferProgress.finalizing => (0.92, 0.98),
-      SyncTransferProgress.none => (0.0, 0.0),
-    };
-    final completed = completedItems;
-    final total = totalItems;
-    final ratio = completed != null && total != null && total > 0
-        ? (completed / total).clamp(0.0, 1.0)
-        : 0.0;
-    return math.max(_progressFloor, start + (end - start) * ratio);
-  }
-
-  bool get isBusy => stage == SyncTransferStage.busy || isCoolingDown;
-
-  bool get isCoolingDown {
-    final until = cooldownUntil;
-    return until != null && DateTime.now().isBefore(until);
-  }
-
-  SyncTransferState copyWith({
-    SyncTransferStage? stage,
-    SyncTransferProgress? progress,
-    String? message,
-    String? detail,
-    int? completedItems,
-    int? totalItems,
-    RemoteSyncBundleStatus? remoteStatus,
-    StoredSyncBundle? localBundle,
-    DateTime? cooldownUntil,
-    bool clearMessage = false,
-    bool clearDetail = false,
-    bool clearCooldown = false,
-    bool clearLocalBundle = false,
-  }) {
-    return SyncTransferState(
-      stage: stage ?? this.stage,
-      progress:
-          progress ??
-          (stage != null && stage != SyncTransferStage.busy
-              ? SyncTransferProgress.none
-              : this.progress),
-      message: clearMessage ? null : (message ?? this.message),
-      detail: clearDetail || (stage != null && stage != SyncTransferStage.busy)
-          ? null
-          : (detail ?? this.detail),
-      completedItems:
-          clearDetail || (stage != null && stage != SyncTransferStage.busy)
-          ? null
-          : (completedItems ?? this.completedItems),
-      totalItems:
-          clearDetail || (stage != null && stage != SyncTransferStage.busy)
-          ? null
-          : (totalItems ?? this.totalItems),
-      remoteStatus: remoteStatus ?? this.remoteStatus,
-      localBundle: clearLocalBundle ? null : (localBundle ?? this.localBundle),
-      cooldownUntil: clearCooldown
-          ? null
-          : (cooldownUntil ?? this.cooldownUntil),
-      progressFloor: (stage ?? this.stage) == SyncTransferStage.busy
-          ? progressValue ?? 0
-          : 0,
-    );
-  }
-}
-
-class SyncHistoryEntry {
-  const SyncHistoryEntry({
-    required this.startedAt,
-    required this.finishedAt,
-    required this.provider,
-    required this.operation,
-    required this.success,
-    this.message,
-    this.noteCount,
-    this.attachmentCount,
-    this.queueBefore,
-    this.queueAfter,
-  });
-
-  final DateTime startedAt;
-  final DateTime finishedAt;
-  final SyncProvider provider;
-  final String operation;
-  final bool success;
-  final String? message;
-  final int? noteCount;
-  final int? attachmentCount;
-  final SyncQueueSummary? queueBefore;
-  final SyncQueueSummary? queueAfter;
-
-  Map<String, dynamic> toJson() => {
-    'startedAt': startedAt.toUtc().toIso8601String(),
-    'finishedAt': finishedAt.toUtc().toIso8601String(),
-    'provider': provider.name,
-    'operation': operation,
-    'success': success,
-    'message': message,
-    'noteCount': noteCount,
-    'attachmentCount': attachmentCount,
-    'queueBefore': _syncQueueSummaryToJson(queueBefore),
-    'queueAfter': _syncQueueSummaryToJson(queueAfter),
-  };
-
-  factory SyncHistoryEntry.fromJson(Map<String, dynamic> json) {
-    SyncQueueSummary? summaryFromJson(Object? value) {
-      if (value is! Map) {
-        return null;
-      }
-      final map = Map<String, dynamic>.from(value);
-      return SyncQueueSummary(
-        totalChanges: map['totalChanges'] as int? ?? 0,
-        upserts: map['upserts'] as int? ?? 0,
-        deletes: map['deletes'] as int? ?? 0,
-        lastQueuedAt: map['lastQueuedAt'] == null
-            ? null
-            : DateTime.tryParse(map['lastQueuedAt'] as String),
-      );
-    }
-
-    return SyncHistoryEntry(
-      startedAt:
-          DateTime.tryParse('${json['startedAt'] ?? ''}') ?? DateTime.now(),
-      finishedAt:
-          DateTime.tryParse('${json['finishedAt'] ?? ''}') ?? DateTime.now(),
-      provider: SyncProvider.values.firstWhere(
-        (value) => value.name == json['provider'],
-        orElse: () => SyncProvider.off,
-      ),
-      operation: '${json['operation'] ?? ''}',
-      success: json['success'] == true,
-      message: json['message'] as String?,
-      noteCount: json['noteCount'] as int?,
-      attachmentCount: json['attachmentCount'] as int?,
-      queueBefore: summaryFromJson(json['queueBefore']),
-      queueAfter: summaryFromJson(json['queueAfter']),
-    );
-  }
-}
-
-Map<String, dynamic>? _syncQueueSummaryToJson(SyncQueueSummary? summary) {
-  if (summary == null) {
-    return null;
-  }
-  return {
-    'totalChanges': summary.totalChanges,
-    'upserts': summary.upserts,
-    'deletes': summary.deletes,
-    'lastQueuedAt': summary.lastQueuedAt?.toUtc().toIso8601String(),
-  };
-}
-
-class SyncHistoryStore {
-  SyncHistoryStore({
-    Future<SharedPreferences> Function()? sharedPreferencesProvider,
-    this.storageKey = 'sync.history.v1',
-    this.limit = 30,
-  }) : _sharedPreferencesProvider =
-           sharedPreferencesProvider ?? SharedPreferences.getInstance;
-
-  final Future<SharedPreferences> Function() _sharedPreferencesProvider;
-  final String storageKey;
-  final int limit;
-
-  Future<List<SyncHistoryEntry>> read() async {
-    final prefs = await _sharedPreferencesProvider();
-    final raw = prefs.getString(storageKey);
-    if (raw == null || raw.isEmpty) {
-      return const <SyncHistoryEntry>[];
-    }
-    final decoded = jsonDecode(raw);
-    if (decoded is! List) {
-      return const <SyncHistoryEntry>[];
-    }
-    return decoded
-        .whereType<Map>()
-        .map(
-          (entry) =>
-              SyncHistoryEntry.fromJson(Map<String, dynamic>.from(entry)),
-        )
-        .toList(growable: false);
-  }
-
-  Future<void> add(SyncHistoryEntry entry) async {
-    final prefs = await _sharedPreferencesProvider();
-    final entries = [
-      entry,
-      ...await read(),
-    ].take(limit).toList(growable: false);
-    await prefs.setString(
-      storageKey,
-      jsonEncode([for (final item in entries) item.toJson()]),
-    );
-  }
-}
-
-enum LargeSyncTransferDirection { upload, download }
-
-class LargeSyncTransferWarning {
-  const LargeSyncTransferWarning({
-    required this.direction,
-    required this.bytes,
-    required this.thresholdBytes,
-  });
-
-  final LargeSyncTransferDirection direction;
-  final int bytes;
-  final int thresholdBytes;
 }
 
 class DiagnosticLogSnapshot {
@@ -1539,199 +1052,6 @@ class LocalDeviceAuthGateway implements DeviceAuthGateway {
       case BiometricType.weak:
         return 'Weak biometrics';
     }
-  }
-}
-
-abstract class SyncAuthGateway {
-  Future<SyncAuthState> connect(SyncProvider provider);
-
-  Future<void> disconnect(SyncProvider provider);
-}
-
-const _useFakeGoogleDriveSync = bool.fromEnvironment(
-  'HIMEMO_FAKE_GOOGLE_DRIVE_SYNC',
-);
-
-bool get useFakeGoogleDriveSync => _useFakeGoogleDriveSync;
-
-class FakeGoogleDriveSyncAuthGateway implements SyncAuthGateway {
-  FakeGoogleDriveSyncAuthGateway({required this._fallback});
-
-  final SyncAuthGateway _fallback;
-
-  @override
-  Future<SyncAuthState> connect(SyncProvider provider) {
-    if (provider != SyncProvider.googleDrive) {
-      return _fallback.connect(provider);
-    }
-    return Future.value(
-      const SyncAuthState(
-        provider: SyncProvider.googleDrive,
-        stage: SyncAuthStage.authenticated,
-        userId: 'fake-google-drive-user',
-        displayName: 'Fake Google Drive',
-        email: 'fake-google-drive@example.test',
-        message: 'Fake Google Drive sync is connected for local testing.',
-      ),
-    );
-  }
-
-  @override
-  Future<void> disconnect(SyncProvider provider) {
-    if (provider != SyncProvider.googleDrive) {
-      return _fallback.disconnect(provider);
-    }
-    return Future<void>.value();
-  }
-}
-
-class DefaultSyncAuthGateway implements SyncAuthGateway {
-  DefaultSyncAuthGateway({
-    this.googleDriveAuthConfig = const GoogleDriveAuthConfig(),
-  });
-
-  static const _googleScopes = <String>[
-    'https://www.googleapis.com/auth/drive.appdata',
-  ];
-
-  final GoogleDriveAuthConfig googleDriveAuthConfig;
-
-  @override
-  Future<SyncAuthState> connect(SyncProvider provider) {
-    return switch (provider) {
-      SyncProvider.off => Future.value(SyncAuthState.idle(provider)),
-      SyncProvider.googleDrive => _connectGoogle(),
-      SyncProvider.iCloud => _connectICloud(),
-    };
-  }
-
-  @override
-  Future<void> disconnect(SyncProvider provider) async {
-    try {
-      if (provider == SyncProvider.googleDrive) {
-        await _ensureGoogleInitialized();
-        await GoogleSignIn.instance.disconnect();
-      }
-    } catch (_) {
-      logDiagnostic('sync', 'provider disconnect failed');
-    }
-  }
-
-  Future<void> _ensureGoogleInitialized() async {
-    await GoogleSignInInitializer.ensureInitialized(googleDriveAuthConfig);
-  }
-
-  Future<SyncAuthState> _connectGoogle() async {
-    try {
-      await _ensureGoogleInitialized();
-      GoogleSignInAccount? account;
-      final lightweight = GoogleSignIn.instance
-          .attemptLightweightAuthentication();
-      if (lightweight != null) {
-        account = await lightweight;
-      }
-      if (account == null) {
-        if (!GoogleSignIn.instance.supportsAuthenticate()) {
-          return const SyncAuthState(
-            provider: SyncProvider.googleDrive,
-            stage: SyncAuthStage.unsupported,
-            message: 'Google sign-in on this platform needs explicit client ID setup and a user-triggered SDK button.',
-          );
-        }
-        account = await GoogleSignIn.instance.authenticate(
-          scopeHint: _googleScopes,
-        );
-      }
-
-      final existingAuthorization = await account.authorizationClient
-          .authorizationForScopes(_googleScopes);
-      if (existingAuthorization == null) {
-        await account.authorizationClient.authorizeScopes(_googleScopes);
-      }
-
-      return SyncAuthState(
-        provider: SyncProvider.googleDrive,
-        stage: SyncAuthStage.authenticated,
-        userId: account.id,
-        displayName: account.displayName,
-        email: account.email,
-        message: 'Google Drive app-data access is authorized.',
-      );
-    } on MissingPluginException {
-      return const SyncAuthState(
-        provider: SyncProvider.googleDrive,
-        stage: SyncAuthStage.unsupported,
-        message: 'Google sign-in plugin is not configured in this runtime.',
-      );
-    } on PlatformException catch (error) {
-      return SyncAuthState(
-        provider: SyncProvider.googleDrive,
-        stage: SyncAuthStage.error,
-        message: _googleDrivePlatformExceptionMessage(error),
-      );
-    } on GoogleSignInException catch (error) {
-      return SyncAuthState(
-        provider: SyncProvider.googleDrive,
-        stage: SyncAuthStage.error,
-        message: _googleDriveSignInExceptionMessage(error),
-      );
-    } on GoogleDriveAuthConfigurationException catch (error) {
-      return SyncAuthState(
-        provider: SyncProvider.googleDrive,
-        stage: SyncAuthStage.error,
-        message: error.message,
-      );
-    } catch (error) {
-      return SyncAuthState(
-        provider: SyncProvider.googleDrive,
-        stage: SyncAuthStage.error,
-        message: '$error',
-      );
-    }
-  }
-
-  Future<SyncAuthState> _connectICloud() async {
-    if (!isICloudSyncSupported) {
-      return const SyncAuthState(
-        provider: SyncProvider.iCloud,
-        stage: SyncAuthStage.unsupported,
-        message: 'iCloud sync is currently available on iPhone and iPad only.',
-      );
-    }
-
-    return const SyncAuthState(
-      provider: SyncProvider.iCloud,
-      stage: SyncAuthStage.authenticated,
-      displayName: 'iCloud',
-      message: 'iCloud is selected as this device sync target.',
-    );
-  }
-
-  String _googleDrivePlatformExceptionMessage(PlatformException error) {
-    final code = error.code;
-    final message = error.message ?? error.details?.toString() ?? '$error';
-    final needsClientId =
-        message.contains('serverClientId') ||
-        message.contains('clientID') ||
-        message.contains('client ID') ||
-        message.contains('configuration') ||
-        code.toLowerCase().contains('configuration');
-    if (needsClientId) {
-      return 'Google Drive sign-in is not configured for this build. Add a Web OAuth client to google-services.json or pass --dart-define=HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID=... on Android. On iOS, set GIDClientID/URL scheme or pass --dart-define=HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID=...';
-    }
-    return 'Google Drive sign-in failed: $message';
-  }
-
-  String _googleDriveSignInExceptionMessage(GoogleSignInException error) {
-    return switch (error.code) {
-      GoogleSignInExceptionCode.clientConfigurationError ||
-      GoogleSignInExceptionCode.providerConfigurationError => 'Google Drive sign-in is not configured for this build. Add OAuth clients for this app package/bundle and pass the Google Sign-In client IDs to the build.',
-      GoogleSignInExceptionCode.canceled =>
-        'Google Drive sign-in was canceled.',
-      GoogleSignInExceptionCode.uiUnavailable => 'Google Drive sign-in UI is unavailable. Start authorization from the Settings screen while the app is in the foreground.',
-      _ =>
-        'Google Drive sign-in failed: ${error.description ?? error.toString()}',
-    };
   }
 }
 
@@ -2299,20 +1619,6 @@ class DefaultMediaImportService implements MediaImportService {
 final deviceAuthGatewayProvider = Provider<DeviceAuthGateway>(
   (ref) => LocalDeviceAuthGateway(),
 );
-
-final googleDriveAuthConfigProvider = Provider<GoogleDriveAuthConfig>(
-  (ref) => const GoogleDriveAuthConfig(),
-);
-
-final syncAuthGatewayProvider = Provider<SyncAuthGateway>((ref) {
-  final gateway = DefaultSyncAuthGateway(
-    googleDriveAuthConfig: ref.watch(googleDriveAuthConfigProvider),
-  );
-  if (_useFakeGoogleDriveSync) {
-    return FakeGoogleDriveSyncAuthGateway(fallback: gateway);
-  }
-  return gateway;
-});
 
 final mediaImportServiceProvider = Provider<MediaImportService>(
   (ref) => DefaultMediaImportService(
@@ -3208,87 +2514,6 @@ class InAppUpdateController extends Notifier<InAppUpdateState> {
   }
 }
 
-class _DecodedSyncAttachmentBytes {
-  const _DecodedSyncAttachmentBytes({
-    required this.bytes,
-    required this.contentHash,
-  });
-
-  final Uint8List bytes;
-  final String contentHash;
-}
-
-class _PreparedPrivateSyncPayload {
-  const _PreparedPrivateSyncPayload({
-    required this.notes,
-    required this.attachments,
-    required this.skippedLockedUpsertIds,
-    this.preparedNotes = const [],
-  });
-
-  final List<PreparedEncryptedPrivateSyncNote> notes;
-  final List<PreparedSyncAttachment> attachments;
-  final Set<String> skippedLockedUpsertIds;
-  final List<PreparedSyncNote> preparedNotes;
-}
-
-bool _preparedSyncAttachmentHasPayload(PreparedSyncAttachment attachment) {
-  return attachment.bytesBase64.isNotEmpty ||
-      attachment.filePath?.isNotEmpty == true ||
-      attachment.encryptedFilePath?.isNotEmpty == true ||
-      attachment.encryptedPayload?.isNotEmpty == true;
-}
-
-Future<String> _encryptedAttachmentPayloadContentHash(
-  String encryptedPayload,
-) async {
-  if (kIsWeb || encryptedPayload.length < 256 * 1024) {
-    return _encryptedAttachmentPayloadContentHashSync(encryptedPayload);
-  }
-  return Isolate.run(
-    () => _encryptedAttachmentPayloadContentHashSync(encryptedPayload),
-  );
-}
-
-String _encryptedAttachmentPayloadContentHashSync(String encryptedPayload) {
-  return sha256.convert(utf8.encode(encryptedPayload)).toString();
-}
-
-Future<_DecodedSyncAttachmentBytes> _decodeSyncAttachmentBytes(
-  String bytesBase64,
-) async {
-  if (kIsWeb) {
-    final bytes = Uint8List.fromList(base64Decode(bytesBase64));
-    return _DecodedSyncAttachmentBytes(
-      bytes: bytes,
-      contentHash: sha256.convert(bytes).toString(),
-    );
-  }
-  final result = await Isolate.run(() {
-    final bytes = Uint8List.fromList(base64Decode(bytesBase64));
-    return <String, Object>{
-      'bytes': TransferableTypedData.fromList([bytes]),
-      'contentHash': sha256.convert(bytes).toString(),
-    };
-  });
-  final transferable = result['bytes']! as TransferableTypedData;
-  return _DecodedSyncAttachmentBytes(
-    bytes: transferable.materialize().asUint8List(),
-    contentHash: result['contentHash']! as String,
-  );
-}
-
-final privateMemoProfileStoreProvider = Provider<PrivateMemoProfileStore>((
-  ref,
-) {
-  return PrivateMemoProfileStore(
-    secureStore: ref.watch(secureKeyValueStoreProvider),
-    encryptionService: ref.watch(encryptionServiceProvider),
-    profileDataKeyService: ref.watch(profileDataKeyServiceProvider),
-    deviceIdentityStore: ref.watch(deviceIdentityStoreProvider),
-  );
-});
-
 @Riverpod(keepAlive: true)
 HomeRepository homeRepository(Ref ref) {
   final appLocale = ref.watch(appLocaleControllerProvider);
@@ -3387,50 +2612,6 @@ class AppPinLockController extends Notifier<AppPinLockState> {
     await ref.read(appPinLockStoreProvider).clear();
     state = const AppPinLockState.unconfigured();
     ref.read(appSessionUnlockControllerProvider.notifier).unlock();
-  }
-}
-
-final coverModeSecretControllerProvider =
-    NotifierProvider<CoverModeSecretController, bool>(
-      CoverModeSecretController.new,
-    );
-
-class CoverModeSecretController extends Notifier<bool> {
-  bool _restored = false;
-
-  @override
-  bool build() {
-    if (!_restored) {
-      _restored = true;
-      unawaited(_restore());
-    }
-    return false;
-  }
-
-  Future<void> configure(String secret) async {
-    await ref.read(coverModeSecretStoreProvider).configure(secret);
-    state = true;
-  }
-
-  Future<bool> verify(String secret) async {
-    try {
-      return await ref.read(coverModeSecretStoreProvider).verify(secret);
-    } catch (_) {
-      return false;
-    }
-  }
-
-  Future<void> clear() async {
-    await ref.read(coverModeSecretStoreProvider).clear();
-    state = false;
-  }
-
-  Future<void> _restore() async {
-    try {
-      state = await ref.read(coverModeSecretStoreProvider).hasSecret();
-    } catch (_) {
-      logDiagnostic('security', 'cover mode secret restore failed');
-    }
   }
 }
 
@@ -3580,11 +2761,7 @@ class AppTutorialController extends Notifier<AppTutorialState?> {
     final isSyncCourse =
         course == AppTutorialCourse.sync ||
         course == AppTutorialCourse.syncTroubleshooting;
-    final syncIsOff =
-        isSyncCourse &&
-        (usesSyncV2NoteBackend
-            ? !ref.read(syncV2RegisteredProvider)
-            : ref.read(syncProviderControllerProvider) == SyncProvider.off);
+    final syncIsOff = isSyncCourse && (!ref.read(syncV2RegisteredProvider));
     final steps = syncIsOff
         ? const [AppTutorialStep.syncTroubleshooting]
         : _courseSteps[course] ?? _courseSteps[AppTutorialCourse.basics]!;
@@ -3666,10 +2843,12 @@ class AppTutorialCompletionController extends Notifier<Set<AppTutorialCourse>> {
 }
 
 class AppLaunchController extends Notifier<AppLaunchSurface> {
+  bool _restored = false;
+
   static const _storageKey = 'app.onboarding_completed';
   static const _versionStorageKey = 'app.onboarding_completed_version';
   static const _currentOnboardingVersion = 2;
-  bool _restored = false;
+
   bool _completedInSession = false;
 
   @override
@@ -3719,8 +2898,9 @@ class AppLaunchController extends Notifier<AppLaunchSurface> {
 
 @Riverpod(keepAlive: true)
 class ThemeModeController extends _$ThemeModeController {
-  static const _storageKey = 'settings.theme_mode';
   bool _restored = false;
+
+  static const _storageKey = 'settings.theme_mode';
 
   @override
   ThemeMode build() {
@@ -3775,8 +2955,9 @@ final profileThemeModeControllerProvider =
     );
 
 class ProfileThemeModeController extends Notifier<Map<String, ThemeMode>> {
-  static const _storageKey = 'settings.profile_theme_modes';
   bool _restored = false;
+
+  static const _storageKey = 'settings.profile_theme_modes';
 
   @override
   Map<String, ThemeMode> build() {
@@ -3839,8 +3020,9 @@ final appFontFamilyControllerProvider =
     );
 
 class AppFontFamilyController extends Notifier<AppFontFamily> {
-  static const _storageKey = 'settings.font_family';
   bool _restored = false;
+
+  static const _storageKey = 'settings.font_family';
 
   @override
   AppFontFamily build() {
@@ -3898,8 +3080,9 @@ final profileFontFamilyControllerProvider =
     );
 
 class ProfileFontFamilyController extends Notifier<Map<String, AppFontFamily>> {
-  static const _storageKey = 'settings.profile_font_families';
   bool _restored = false;
+
+  static const _storageKey = 'settings.profile_font_families';
 
   @override
   Map<String, AppFontFamily> build() {
@@ -3983,8 +3166,9 @@ final effectiveAppColorThemeProvider = Provider<AppColorTheme>((ref) {
 });
 
 class AppColorThemeController extends Notifier<AppColorTheme> {
-  static const _storageKey = 'settings.color_theme';
   bool _restored = false;
+
+  static const _storageKey = 'settings.color_theme';
 
   @override
   AppColorTheme build() {
@@ -4026,8 +3210,9 @@ final profileColorThemeControllerProvider =
     );
 
 class ProfileColorThemeController extends Notifier<Map<String, AppColorTheme>> {
-  static const _storageKey = 'settings.profile_color_themes';
   bool _restored = false;
+
+  static const _storageKey = 'settings.profile_color_themes';
 
   @override
   Map<String, AppColorTheme> build() {
@@ -4098,8 +3283,9 @@ final appLocaleControllerProvider =
     );
 
 class AppLocaleController extends Notifier<AppLocaleSetting> {
-  static const _storageKey = 'settings.locale';
   bool _restored = false;
+
+  static const _storageKey = 'settings.locale';
 
   @override
   AppLocaleSetting build() {
@@ -4161,8 +3347,9 @@ final profileLocaleControllerProvider =
     );
 
 class ProfileLocaleController extends Notifier<Map<String, AppLocaleSetting>> {
-  static const _storageKey = 'settings.profile_locales';
   bool _restored = false;
+
+  static const _storageKey = 'settings.profile_locales';
 
   @override
   Map<String, AppLocaleSetting> build() {
@@ -4268,8 +3455,9 @@ class AppLockSettingsReadyController extends Notifier<bool> {
 }
 
 class AppLockSettingsController extends Notifier<bool> {
-  static const _storageKey = 'settings.app_lock_enabled';
   bool _restored = false;
+
+  static const _storageKey = 'settings.app_lock_enabled';
 
   @override
   bool build() {
@@ -4635,8 +3823,9 @@ final spotlightNoteIndexEnabledControllerProvider =
     );
 
 class SpotlightNoteIndexEnabledController extends Notifier<bool> {
-  static const _storageKey = 'settings.ios_spotlight_standard_notes_enabled';
   bool _restored = false;
+
+  static const _storageKey = 'settings.ios_spotlight_standard_notes_enabled';
 
   @override
   bool build() {
@@ -4683,8 +3872,9 @@ class SpotlightNoteIndexEnabledController extends Notifier<bool> {
 @Riverpod(keepAlive: true)
 class WidgetQuickCaptureSettingsController
     extends _$WidgetQuickCaptureSettingsController {
-  static const _storageKey = 'settings.widget_quick_capture_enabled';
   bool _restored = false;
+
+  static const _storageKey = 'settings.widget_quick_capture_enabled';
 
   @override
   bool build() {
@@ -4758,8 +3948,9 @@ final appLockRelockDelayControllerProvider =
     );
 
 class AppLockRelockDelayController extends Notifier<AppLockRelockDelay> {
-  static const _storageKey = 'settings.app_lock_relock_delay';
   bool _restored = false;
+
+  static const _storageKey = 'settings.app_lock_relock_delay';
 
   @override
   AppLockRelockDelay build() {
@@ -4797,172 +3988,10 @@ class AppLockRelockDelayController extends Notifier<AppLockRelockDelay> {
   }
 }
 
-final privateVaultLockOnAppLockControllerProvider =
-    NotifierProvider<PrivateVaultLockOnAppLockController, bool>(
-      PrivateVaultLockOnAppLockController.new,
-    );
-
-class PrivateVaultLockOnAppLockController extends Notifier<bool> {
-  static const _storageKey = 'settings.private_vault_lock_on_app_lock';
-  bool _restored = false;
-
-  @override
-  bool build() {
-    if (!_restored) {
-      _restored = true;
-      unawaited(_restore());
-    }
-    return true;
-  }
-
-  Future<void> setEnabled(bool enabled) async {
-    state = enabled;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(_storageKey, enabled);
-    } catch (_) {
-      logDiagnostic('app_lock', 'PIN enabled preference persistence failed');
-    }
-  }
-
-  Future<void> _restore() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      state = prefs.getBool(_storageKey) ?? true;
-    } catch (_) {
-      logDiagnostic('app_lock', 'PIN enabled preference restore failed');
-    }
-  }
-}
-
-final privateVaultSessionControllerProvider =
-    NotifierProvider<PrivateVaultSessionController, bool>(
-      PrivateVaultSessionController.new,
-    );
-
-class PrivateVaultSessionController extends Notifier<bool> {
-  @override
-  bool build() => false;
-
-  void unlock() => state = true;
-
-  void lock() {
-    ref.read(profileDataKeyServiceProvider).lockProfile(legacyPrivateVaultId);
-    state = false;
-  }
-}
-
-final privateVaultSecretControllerProvider =
-    NotifierProvider<PrivateVaultSecretController, bool>(
-      PrivateVaultSecretController.new,
-    );
-
-class PrivateVaultSecretController extends Notifier<bool> {
-  bool _restored = false;
-
-  @override
-  bool build() {
-    if (!_restored) {
-      _restored = true;
-      unawaited(_restore());
-    }
-    return false;
-  }
-
-  Future<void> configure(String secret) async {
-    await ref.read(privateVaultSecretStoreProvider).configure(secret);
-    await ref
-        .read(profileDataKeyServiceProvider)
-        .configureProfile(vaultId: legacyPrivateVaultId, password: secret);
-    state = true;
-    ref.read(privateVaultSessionControllerProvider.notifier).unlock();
-  }
-
-  Future<bool> verify(String secret) async {
-    try {
-      final matched = await ref
-          .read(privateVaultSecretStoreProvider)
-          .verify(secret);
-      if (matched) {
-        await ref
-            .read(profileDataKeyServiceProvider)
-            .unlockProfile(vaultId: legacyPrivateVaultId, password: secret);
-        ref.read(privateVaultSessionControllerProvider.notifier).unlock();
-      }
-      return matched;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  Future<void> clear() async {
-    try {
-      await ref.read(privateVaultSecretStoreProvider).clear();
-      await ref
-          .read(profileDataKeyServiceProvider)
-          .deleteProfileKey(legacyPrivateVaultId);
-    } catch (_) {
-      logDiagnostic('security', 'private vault secret cleanup failed');
-    }
-    state = false;
-    ref.read(privateVaultSessionControllerProvider.notifier).lock();
-  }
-
-  Future<void> _restore() async {
-    try {
-      state = await ref.read(privateVaultSecretStoreProvider).hasSecret();
-    } catch (_) {
-      logDiagnostic('security', 'private vault secret restore failed');
-    }
-  }
-}
-
 @Riverpod(keepAlive: true)
 class ActiveIdentity extends _$ActiveIdentity {
-  static const _storageKey = 'settings.active_identity';
-  bool _restored = false;
-
   @override
-  String build() {
-    if (!_restored) {
-      _restored = true;
-      unawaited(_restore());
-    }
-    return 'daily';
-  }
-
-  Future<void> switchTo(String identityId) async {
-    final previousIdentityId = state;
-    state = identityId;
-    if (previousIdentityId != identityId) {
-      logAudit(
-        'profile_switch',
-        data: {
-          'fromProfile': previousIdentityId,
-          'toProfile': identityId,
-          'adminMode': ref.read(adminModeSessionControllerProvider),
-        },
-      );
-    }
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_storageKey, identityId);
-    } catch (_) {
-      logDiagnostic('profile', 'profile identity persistence failed');
-    }
-  }
-
-  Future<void> _restore() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final stored = prefs.getString(_storageKey);
-      if (stored != null) {
-        state = stored;
-      }
-    } catch (_) {
-      logDiagnostic('profile', 'profile identity restore failed');
-    }
-  }
+  String build() => 'daily';
 }
 
 @Riverpod(keepAlive: true)
@@ -5169,25 +4198,19 @@ final archivedNoteCountProvider = Provider<int>((ref) {
 class NoteEditorDraftStore {
   NoteEditorDraftStore({
     required this._encryptionService,
-    required this._masterKeyService,
-    required this._profileDataKeyService,
-    Future<SecretKey?> Function(String vaultId)? keyForVault,
+    required Future<SecretKey?> Function(String vaultId) keyForVault,
     this._protectAttachments,
-    this._storageKey = 'notes.editor_draft.v1',
+    this._storageKey = 'notes.editor_draft.v2',
   }) : _keyResolver = keyForVault;
 
   final Future<void> Function(NoteEditorDraftSnapshot snapshot)?
   _protectAttachments;
   final String _storageKey;
-  final Future<SecretKey?> Function(String vaultId)? _keyResolver;
-  Future<SecretKey?> _keyForVault(String vaultId) =>
-      _keyResolver?.call(vaultId) ??
-      _profileDataKeyService.keyForVault(vaultId);
+  final Future<SecretKey?> Function(String vaultId) _keyResolver;
+  Future<SecretKey?> _keyForVault(String vaultId) => _keyResolver(vaultId);
   static const _envelopeVersion = 2;
 
   final EncryptionService _encryptionService;
-  final MasterKeyService _masterKeyService;
-  final ProfileDataKeyService _profileDataKeyService;
 
   Future<bool> hasSavedDraft() async {
     final prefs = await SharedPreferences.getInstance();
@@ -5206,13 +4229,11 @@ class NoteEditorDraftStore {
           decoded['encryptedPayload'] is String) {
         final vaultId = decoded['vaultId'] as String? ?? 'everyday';
         final profileKey = await _keyForVault(vaultId);
-        final usesMigrationKey = decoded['keyScope'] == 'deviceMigration';
+        if (decoded['keyScope'] != 'profile') return null;
         if (profileKey == null) {
           return null;
         }
-        final key = usesMigrationKey
-            ? await _masterKeyService.obtainOrCreate()
-            : profileKey;
+        final key = profileKey;
         final clear = await _encryptionService.decryptJson(
           encodedPayload: decoded['encryptedPayload'] as String,
           secretKey: key,
@@ -5221,32 +4242,13 @@ class NoteEditorDraftStore {
         if (snapshot.vaultId != vaultId) {
           throw const FormatException('Draft vault does not match envelope.');
         }
-        if (usesMigrationKey) {
-          await save(snapshot);
-        }
-        if (_keyResolver != null &&
-            !identical(await _keyForVault(vaultId), key)) {
+        if (!identical(await _keyForVault(vaultId), key)) {
           return null;
         }
         return snapshot;
       }
 
-      // Version 1 stored the entire draft as plaintext. Never reveal a legacy
-      // private draft unless that profile key is currently unlocked. Once it
-      // is accessible, immediately rewrite it using the encrypted envelope.
-      final snapshot = NoteEditorDraftSnapshot.fromJson(decoded);
-      final key = await _keyForVault(snapshot.vaultId);
-      if (key == null) {
-        final migrationKey = await _masterKeyService.obtainOrCreate();
-        await _writeEncryptedEnvelope(
-          snapshot,
-          secretKey: migrationKey,
-          keyScope: 'deviceMigration',
-        );
-        return null;
-      }
-      await save(snapshot);
-      return snapshot;
+      return null;
     } catch (_) {
       return null;
     }
@@ -5270,8 +4272,7 @@ class NoteEditorDraftStore {
       payload: snapshot.toJson(),
       secretKey: secretKey,
     );
-    if (_keyResolver != null &&
-        !identical(await _keyForVault(snapshot.vaultId), secretKey)) {
+    if (!identical(await _keyForVault(snapshot.vaultId), secretKey)) {
       return;
     }
     final prefs = await SharedPreferences.getInstance();
@@ -5292,74 +4293,6 @@ class NoteEditorDraftStore {
   }
 }
 
-const systemSyncExcludedTag = 'sync:excluded';
-
-final syncExclusionTagsControllerProvider =
-    NotifierProvider<SyncExclusionTagsController, List<String>>(
-      SyncExclusionTagsController.new,
-    );
-
-class SyncExclusionTagsController extends Notifier<List<String>> {
-  static const _storageKey = 'settings.sync_exclusion_tags.v1';
-  bool _restored = false;
-  Future<void>? _restoreFuture;
-
-  @override
-  List<String> build() {
-    if (!_restored) {
-      _restored = true;
-      _restoreFuture = _restore();
-      unawaited(_restoreFuture);
-    }
-    return const <String>[systemSyncExcludedTag];
-  }
-
-  Future<void> addTag(String rawTag) async {
-    await _restoreFuture;
-    final next = _normalizeSyncExclusionTags([...state, rawTag]);
-    if (_sameTagList(state, next)) {
-      return;
-    }
-    state = next;
-    await _persist();
-  }
-
-  Future<void> removeTag(String rawTag) async {
-    await _restoreFuture;
-    final key = canonicalizeNoteTag(rawTag);
-    if (key.isEmpty || key == canonicalizeNoteTag(systemSyncExcludedTag)) {
-      return;
-    }
-    final next = _normalizeSyncExclusionTags(
-      state.where((tag) => canonicalizeNoteTag(tag) != key),
-    );
-    if (_sameTagList(state, next)) {
-      return;
-    }
-    state = next;
-    await _persist();
-  }
-
-  Future<void> _restore() async {
-    final prefs = await SharedPreferences.getInstance();
-    state = _normalizeSyncExclusionTags([
-      ...?prefs.getStringList(_storageKey),
-      ...state,
-    ]);
-    await _persist();
-  }
-
-  Future<void> _persist() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(_storageKey, state);
-  }
-}
-
-List<String> _normalizeSyncExclusionTags(Iterable<String> tags) {
-  final normalized = dedupeNoteTags([systemSyncExcludedTag, ...tags]);
-  return List.unmodifiable(normalized);
-}
-
 bool _sameTagList(List<String> left, List<String> right) {
   if (left.length != right.length) {
     return false;
@@ -5370,20 +4303,6 @@ bool _sameTagList(List<String> left, List<String> right) {
     }
   }
   return true;
-}
-
-bool isSystemSyncExclusionTag(String tag) =>
-    canonicalizeNoteTag(tag) == canonicalizeNoteTag(systemSyncExcludedTag);
-
-bool noteExcludedFromSync(NoteEntry note, Iterable<String> exclusionTags) {
-  final excluded = {for (final tag in exclusionTags) canonicalizeNoteTag(tag)}
-    ..remove('');
-  if (excluded.isEmpty) {
-    return false;
-  }
-  return note.normalizedTags.any(
-    (tag) => excluded.contains(canonicalizeNoteTag(tag)),
-  );
 }
 
 class AutoTagRule {
@@ -5469,8 +4388,10 @@ final autoTagRulesControllerProvider =
     );
 
 class AutoTagRulesController extends Notifier<List<AutoTagRule>> {
-  static const _storageKey = 'settings.auto_tag_rules.v1';
   bool _restored = false;
+
+  static const _storageKey = 'settings.auto_tag_rules.v1';
+
   Future<void>? _restoreTask;
 
   @override
@@ -5495,9 +4416,7 @@ class AutoTagRulesController extends Notifier<List<AutoTagRule>> {
     await _restoreTask;
     final normalizedTag = normalizeNoteTag(tag);
     final normalizedKeywords = _normalizeAutoTagKeywords(keywords);
-    if (normalizedTag.isEmpty ||
-        normalizedKeywords.isEmpty ||
-        isSystemSyncExclusionTag(normalizedTag)) {
+    if (normalizedTag.isEmpty || normalizedKeywords.isEmpty) {
       return;
     }
     final rule = AutoTagRule(
@@ -5545,7 +4464,6 @@ class AutoTagRulesController extends Notifier<List<AutoTagRule>> {
     final normalizedKeywords = _normalizeAutoTagKeywords(keywords);
     if (normalizedTag.isEmpty ||
         normalizedKeywords.isEmpty ||
-        isSystemSyncExclusionTag(normalizedTag) ||
         (!matchTitle && !matchBody && !matchAttachments)) {
       return;
     }
@@ -5695,8 +4613,10 @@ NoteEntry applyAutoTagRules(NoteEntry note, Iterable<AutoTagRule> rules) {
 
 @Riverpod(keepAlive: true)
 class NotesListDensityController extends _$NotesListDensityController {
-  static const _storageKey = 'notes.list_density';
   bool _restored = false;
+
+  static const _storageKey = 'notes.list_density';
+
   bool _changedBeforeRestoreCompleted = false;
 
   @override
@@ -5733,8 +4653,9 @@ class NotesListDensityController extends _$NotesListDensityController {
 
 @Riverpod(keepAlive: true)
 class AttachmentPreviewFitController extends _$AttachmentPreviewFitController {
-  static const _storageKey = 'notes.attachment_preview_fit';
   bool _restored = false;
+
+  static const _storageKey = 'notes.attachment_preview_fit';
 
   @override
   AttachmentPreviewFit build() {
@@ -5770,8 +4691,9 @@ final videoPlaybackMutedByDefaultControllerProvider =
     );
 
 class VideoPlaybackMutedByDefaultController extends Notifier<bool> {
-  static const _storageKey = 'settings.video_playback_muted_by_default';
   bool _restored = false;
+
+  static const _storageKey = 'settings.video_playback_muted_by_default';
 
   @override
   bool build() {
@@ -5796,9 +4718,11 @@ class VideoPlaybackMutedByDefaultController extends Notifier<bool> {
 
 @Riverpod(keepAlive: true)
 class NotesListSortController extends _$NotesListSortController {
+  bool _restored = false;
+
   static const _storageKey = 'notes.list_sort_field';
   static const _defaultSortField = NotesListSortField.createdAt;
-  bool _restored = false;
+
   bool _changedBeforeRestoreCompleted = false;
 
   @override
@@ -5836,10 +4760,12 @@ class NotesListSortController extends _$NotesListSortController {
 @Riverpod(keepAlive: true)
 class LastNoteEditorSettingsController
     extends _$LastNoteEditorSettingsController {
+  bool _restored = false;
+
   static const _modeKey = 'notes.last_editor_mode';
   static const _vaultKey = 'notes.last_vault_id';
   static const _captureLocationKey = 'notes.last_capture_location';
-  bool _restored = false;
+
   bool _changedBeforeRestoreCompleted = false;
   Future<void>? _restoreTask;
 
@@ -5900,7 +4826,11 @@ class LastNoteEditorSettingsController
         mode: modeName == null || modeName.isEmpty
             ? NoteEditorMode.rich
             : NoteEditorMode.values.byName(modeName),
-        vaultId: vaultId == null || vaultId.isEmpty ? 'everyday' : vaultId,
+        vaultId:
+            vaultId == 'everyday' ||
+                (vaultId?.startsWith(customPrivateVaultPrefix) ?? false)
+            ? vaultId!
+            : 'everyday',
         captureLocation: captureLocation,
       );
     }
@@ -5910,11 +4840,12 @@ class LastNoteEditorSettingsController
 
 @Riverpod(keepAlive: true)
 class NotesController extends _$NotesController {
+  bool _restored = false;
+
   static const _deletedSeedNoteIdsKey = 'notes.deleted_seed_note_ids.v1';
   static const _storeAssetsSeedDemoNotesKey = 'store_assets.seed_demo_notes.v1';
   static const trashRetention = Duration(days: 7);
 
-  bool _restored = false;
   bool _restoreFailed = false;
   Future<void>? _restoreTask;
   Future<void> _upsertQueue = Future<void>.value();
@@ -5930,6 +4861,69 @@ class NotesController extends _$NotesController {
     return const <NoteEntry>[];
   }
 
+  // All note mutations and reloads share one queue. A full save must never
+  // use state captured before a concurrent load discovered remote notes.
+  Future<T> _exclusive<T>(Future<T> Function() action) {
+    final operation = _upsertQueue.then((_) => action());
+    _upsertQueue = operation
+        .then<void>((_) {})
+        .catchError((Object _, StackTrace _) {});
+    return operation;
+  }
+
+  Future<int> applyAutoTagRulesToExisting({Iterable<String>? vaultIds}) =>
+      _exclusive(() => _performApplyAutoTagRulesToExisting(vaultIds: vaultIds));
+
+  Future<void> delete(String noteId) =>
+      _exclusive(() => _performDelete(noteId));
+
+  Future<void> restoreFromTrash(String noteId) =>
+      _exclusive(() => _performRestoreFromTrash(noteId));
+
+  Future<int> purgeTrashOlderThan([Duration retention = trashRetention]) =>
+      _exclusive(() => _performPurgeTrashOlderThan(retention));
+
+  Future<void> archive(String noteId) =>
+      _exclusive(() => _performArchive(noteId));
+
+  Future<void> unarchive(String noteId) =>
+      _exclusive(() => _performUnarchive(noteId));
+
+  Future<void> togglePinned(String noteId) =>
+      _exclusive(() => _performTogglePinned(noteId));
+
+  Future<int> renameTag({
+    required String from,
+    required String to,
+    Iterable<String>? vaultIds,
+  }) => _exclusive(
+    () => _performRenameTag(from: from, to: to, vaultIds: vaultIds),
+  );
+
+  Future<int> deleteTag(String tag, {Iterable<String>? vaultIds}) =>
+      _exclusive(() => _performDeleteTag(tag, vaultIds: vaultIds));
+
+  Future<int> archiveNotesOlderThan(Duration age) =>
+      _exclusive(() => _performArchiveNotesOlderThan(age));
+
+  Future<int> unarchiveAll() => _exclusive(() => _performUnarchiveAll());
+
+  Future<void> seedIfEmpty() => _exclusive(() => _performSeedIfEmpty());
+
+  Future<int> createDemoNotes() => _exclusive(() => _performCreateDemoNotes());
+
+  Future<int> createPerformanceTestNotes({
+    required int count,
+    int attachmentsPerNote = 0,
+  }) => _exclusive(
+    () => _performCreatePerformanceTestNotes(
+      count: count,
+      attachmentsPerNote: attachmentsPerNote,
+    ),
+  );
+
+  Future<int> deleteDemoNotes() => _exclusive(() => _performDeleteDemoNotes());
+
   Future<void> upsert(NoteEntry note) {
     final operation = _upsertQueue.then((_) => _performUpsert(note));
     _upsertQueue = operation.catchError((Object _, StackTrace _) {});
@@ -5944,12 +4938,25 @@ class NotesController extends _$NotesController {
     await runFirebaseTrace(
       'notes_upsert',
       () async {
+        final existing = state.cast<NoteEntry?>().firstWhere(
+          (entry) => entry?.id == note.id,
+          orElse: () => null,
+        );
+        if (existing?.isPermanentlyDeleted == true) return;
+        if (existing != null && _isLockedPrivatePlaceholder(existing)) {
+          throw const SyncV2NoteStoreLocked('note');
+        }
+        created = existing == null;
+        final concealVersion = _privateConcealVersion;
+        final prepared = await _prepareForSave(note, previous: existing);
+        if (!ref.mounted) return;
+        if ((isPrivateVaultId(note.vaultId) ||
+                (existing != null && isPrivateVaultId(existing.vaultId))) &&
+            concealVersion != _privateConcealVersion) {
+          throw const SyncV2NoteStoreLocked('note');
+        }
         final next = [...state];
         final index = next.indexWhere((entry) => entry.id == note.id);
-        final existing = index == -1 ? null : next[index];
-        if (existing?.isPermanentlyDeleted == true) return;
-        created = existing == null;
-        final prepared = await _prepareForSave(note, previous: existing);
         if (index == -1) {
           next.add(prepared);
         } else {
@@ -5968,7 +4975,11 @@ class NotesController extends _$NotesController {
             if (existing == null) {
               rollback.removeAt(rollbackIndex);
             } else {
-              rollback[rollbackIndex] = existing;
+              rollback[rollbackIndex] =
+                  isPrivateVaultId(existing.vaultId) &&
+                      concealVersion != _privateConcealVersion
+                  ? _concealedPrivateNote(existing)
+                  : existing;
             }
             _sort(rollback);
             state = rollback;
@@ -5993,7 +5004,9 @@ class NotesController extends _$NotesController {
     }
   }
 
-  Future<int> applyAutoTagRulesToExisting({Iterable<String>? vaultIds}) async {
+  Future<int> _performApplyAutoTagRulesToExisting({
+    Iterable<String>? vaultIds,
+  }) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
     await ref.read(autoTagRulesControllerProvider.notifier).restoreCompleted;
@@ -6006,7 +5019,8 @@ class NotesController extends _$NotesController {
     var changed = 0;
     final next = <NoteEntry>[];
     for (final note in state) {
-      if (note.deletedAt != null ||
+      if (_isLockedPrivatePlaceholder(note) ||
+          note.deletedAt != null ||
           note.archivedAt != null ||
           (targetVaultIds != null && !targetVaultIds.contains(note.vaultId))) {
         next.add(note);
@@ -6039,11 +5053,10 @@ class NotesController extends _$NotesController {
     return changed;
   }
 
-  Future<void> delete(String noteId) async {
+  Future<void> _performDelete(String noteId) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
     NoteEntry? deletedNote;
-    var lockedPlaceholder = false;
     await runFirebaseTrace('notes_delete', () async {
       final next = [...state];
       for (var i = 0; i < next.length; i++) {
@@ -6052,12 +5065,6 @@ class NotesController extends _$NotesController {
           continue;
         }
         if (_isLockedPrivatePlaceholder(note)) {
-          next.removeAt(i);
-          state = next;
-          await ref.read(noteStoreProvider).deleteById(noteId);
-          ref.invalidate(storageUsageSummaryProvider);
-          deletedNote = note;
-          lockedPlaceholder = true;
           return;
         }
         final now = DateTime.now();
@@ -6080,24 +5087,19 @@ class NotesController extends _$NotesController {
     });
     final auditedNote = deletedNote;
     if (auditedNote != null) {
-      logAudit(
-        'note_delete',
-        data: {
-          ..._auditNoteData(auditedNote),
-          'lockedPlaceholder': lockedPlaceholder,
-        },
-      );
+      logAudit('note_delete', data: {..._auditNoteData(auditedNote)});
     }
   }
 
-  Future<void> restoreFromTrash(String noteId) async {
+  Future<void> _performRestoreFromTrash(String noteId) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
     NoteEntry? restoredNote;
     final next = [...state];
     for (var i = 0; i < next.length; i++) {
       final note = next[i];
-      if (note.id != noteId ||
+      if (_isLockedPrivatePlaceholder(note) ||
+          note.id != noteId ||
           note.deletedAt == null ||
           note.isPermanentlyDeleted) {
         continue;
@@ -6109,7 +5111,13 @@ class NotesController extends _$NotesController {
         revision: note.revision + 1,
         syncState: _syncStateForLocalChange(note, deleted: false),
       );
+      final concealVersion = _privateConcealVersion;
       final prepared = await _protectAttachmentsForVault(restored);
+      if (!ref.mounted) return;
+      if (isPrivateVaultId(note.vaultId) &&
+          concealVersion != _privateConcealVersion) {
+        throw const SyncV2NoteStoreLocked('note');
+      }
       final withHash = prepared.copyWith(
         contentHash: _computeContentHash(prepared),
       );
@@ -6120,8 +5128,12 @@ class NotesController extends _$NotesController {
     if (restoredNote == null) {
       return;
     }
-    _sort(next);
-    state = next;
+    final current = [
+      for (final entry in state)
+        entry.id == restoredNote.id ? restoredNote : entry,
+    ];
+    _sort(current);
+    state = current;
     await _persistOne(restoredNote);
     logAudit('note_restore', data: _auditNoteData(restoredNote));
   }
@@ -6153,65 +5165,31 @@ class NotesController extends _$NotesController {
     logAudit('note_permanent_delete', data: _auditNoteData(note));
   }
 
-  Future<int> deleteVaultLocally(String vaultId) async {
-    await _waitForInitialRestore();
-    _ensureRestoreSucceeded();
-    final removed = [
-      for (final note in state)
-        if (note.vaultId == vaultId) note,
-    ];
-    if (removed.isEmpty) {
-      await ref.read(noteStoreProvider).deleteByVaultId(vaultId);
-      return 0;
-    }
-    final removedIds = {for (final note in removed) note.id};
-    state = [
-      for (final note in state)
-        if (!removedIds.contains(note.id)) note,
-    ];
-    final selectedNoteId = ref.read(selectedNoteIdProvider);
-    if (selectedNoteId != null && removedIds.contains(selectedNoteId)) {
-      ref.read(selectedNoteIdProvider.notifier).select(null);
-    }
-    final filters = ref.read(searchFiltersControllerProvider);
-    if (filters.vaultId == vaultId) {
-      ref.read(searchFiltersControllerProvider.notifier).setVault(null);
-    }
-    await _deleteAttachments([
-      for (final note in removed)
-        if (!_isLockedPrivatePlaceholder(note)) ..._attachmentsIn(note),
-    ]);
-    await ref.read(noteStoreProvider).deleteByVaultId(vaultId);
-    ref.invalidate(storageUsageSummaryProvider);
-    ref.invalidate(syncQueueSummaryProvider);
-    logAudit(
-      'private_profile_notes_delete',
-      data: {'vaultId': vaultId, 'count': removed.length},
-    );
-    return removed.length;
-  }
-
-  Future<int> purgeTrashOlderThan([Duration retention = trashRetention]) async {
+  Future<int> _performPurgeTrashOlderThan([
+    Duration retention = trashRetention,
+  ]) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
     return _purgeTrashOlderThan(retention);
   }
 
-  Future<void> archive(String noteId) async {
+  Future<void> _performArchive(String noteId) async {
     await _setArchiveState(noteId, archived: true);
   }
 
-  Future<void> unarchive(String noteId) async {
+  Future<void> _performUnarchive(String noteId) async {
     await _setArchiveState(noteId, archived: false);
   }
 
-  Future<void> togglePinned(String noteId) async {
+  Future<void> _performTogglePinned(String noteId) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
     final next = [...state];
     for (var i = 0; i < next.length; i++) {
       final note = next[i];
-      if (note.id != noteId || note.deletedAt != null) {
+      if (_isLockedPrivatePlaceholder(note) ||
+          note.id != noteId ||
+          note.deletedAt != null) {
         continue;
       }
       final now = DateTime.now();
@@ -6233,7 +5211,7 @@ class NotesController extends _$NotesController {
     }
   }
 
-  Future<int> renameTag({
+  Future<int> _performRenameTag({
     required String from,
     required String to,
     Iterable<String>? vaultIds,
@@ -6243,11 +5221,7 @@ class NotesController extends _$NotesController {
     final fromKey = canonicalizeNoteTag(from);
     final normalizedTo = normalizeNoteTag(to);
     final toKey = canonicalizeNoteTag(normalizedTo);
-    if (fromKey.isEmpty ||
-        toKey.isEmpty ||
-        fromKey == toKey ||
-        isSystemSyncExclusionTag(from) ||
-        isSystemSyncExclusionTag(normalizedTo)) {
+    if (fromKey.isEmpty || toKey.isEmpty || fromKey == toKey) {
       return 0;
     }
     final targetVaultIds = vaultIds?.toSet();
@@ -6255,7 +5229,8 @@ class NotesController extends _$NotesController {
     var changed = 0;
     final next = <NoteEntry>[];
     for (final note in state) {
-      if (note.deletedAt != null ||
+      if (_isLockedPrivatePlaceholder(note) ||
+          note.deletedAt != null ||
           note.archivedAt != null ||
           (targetVaultIds != null && !targetVaultIds.contains(note.vaultId)) ||
           !note.tags.any((tag) => canonicalizeNoteTag(tag) == fromKey)) {
@@ -6292,11 +5267,14 @@ class NotesController extends _$NotesController {
     return changed;
   }
 
-  Future<int> deleteTag(String tag, {Iterable<String>? vaultIds}) async {
+  Future<int> _performDeleteTag(
+    String tag, {
+    Iterable<String>? vaultIds,
+  }) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
     final key = canonicalizeNoteTag(tag);
-    if (key.isEmpty || isSystemSyncExclusionTag(tag)) {
+    if (key.isEmpty) {
       return 0;
     }
     final targetVaultIds = vaultIds?.toSet();
@@ -6304,7 +5282,8 @@ class NotesController extends _$NotesController {
     var changed = 0;
     final next = <NoteEntry>[];
     for (final note in state) {
-      if (note.deletedAt != null ||
+      if (_isLockedPrivatePlaceholder(note) ||
+          note.deletedAt != null ||
           note.archivedAt != null ||
           (targetVaultIds != null && !targetVaultIds.contains(note.vaultId)) ||
           !note.tags.any((entry) => canonicalizeNoteTag(entry) == key)) {
@@ -6349,14 +5328,15 @@ class NotesController extends _$NotesController {
     };
   }
 
-  Future<int> archiveNotesOlderThan(Duration age) async {
+  Future<int> _performArchiveNotesOlderThan(Duration age) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
     final cutoff = DateTime.now().subtract(age);
     var changed = 0;
     final next = <NoteEntry>[];
     for (final note in state) {
-      if (note.deletedAt != null ||
+      if (_isLockedPrivatePlaceholder(note) ||
+          note.deletedAt != null ||
           note.archivedAt != null ||
           note.isPinned ||
           !note.createdAt.isBefore(cutoff)) {
@@ -6383,13 +5363,15 @@ class NotesController extends _$NotesController {
     return changed;
   }
 
-  Future<int> unarchiveAll() async {
+  Future<int> _performUnarchiveAll() async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
     var changed = 0;
     final next = <NoteEntry>[];
     for (final note in state) {
-      if (note.deletedAt != null || note.archivedAt == null) {
+      if (_isLockedPrivatePlaceholder(note) ||
+          note.deletedAt != null ||
+          note.archivedAt == null) {
         next.add(note);
         continue;
       }
@@ -6419,7 +5401,9 @@ class NotesController extends _$NotesController {
     final next = [...state];
     for (var i = 0; i < next.length; i++) {
       final note = next[i];
-      if (note.id != noteId || note.deletedAt != null) {
+      if (_isLockedPrivatePlaceholder(note) ||
+          note.id != noteId ||
+          note.deletedAt != null) {
         continue;
       }
       final now = DateTime.now();
@@ -6444,7 +5428,7 @@ class NotesController extends _$NotesController {
     }
   }
 
-  Future<void> seedIfEmpty() async {
+  Future<void> _performSeedIfEmpty() async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
     if (state.isNotEmpty) {
@@ -6456,7 +5440,7 @@ class NotesController extends _$NotesController {
     await _persist();
   }
 
-  Future<int> createDemoNotes() async {
+  Future<int> _performCreateDemoNotes() async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
     final existingIds = state.map((note) => note.id).toSet();
@@ -6476,7 +5460,7 @@ class NotesController extends _$NotesController {
     return notesToAdd.length;
   }
 
-  Future<int> createPerformanceTestNotes({
+  Future<int> _performCreatePerformanceTestNotes({
     required int count,
     int attachmentsPerNote = 0,
   }) async {
@@ -6637,10 +5621,15 @@ class NotesController extends _$NotesController {
 
   Future<void> get restoreCompleted => _waitForInitialRestore();
 
-  Future<void> reloadFromStorage() async {
-    await _waitForInitialRestore();
-    _restoreFailed = false;
-    await _restore();
+  Future<void> reloadFromStorage() {
+    final operation = _upsertQueue.then((_) async {
+      await _waitForInitialRestore();
+      if (!ref.mounted) return;
+      _restoreFailed = false;
+      await _restore();
+    });
+    _upsertQueue = operation.catchError((Object _, StackTrace _) {});
+    return operation;
   }
 
   /// Drop decrypted content immediately when private access changes. The
@@ -6676,7 +5665,7 @@ class NotesController extends _$NotesController {
     syncState: note.syncState,
   );
 
-  Future<int> deleteDemoNotes() async {
+  Future<int> _performDeleteDemoNotes() async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
     final seedIds = ref
@@ -6711,72 +5700,11 @@ class NotesController extends _$NotesController {
     return idsToDelete.length;
   }
 
-  Future<int> resetLocalStorage() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (prefs.getBool('settings.sync_v2.enabled') == true) {
-      throw StateError(
-        'Legacy storage reset is unavailable while sync v2 is active',
-      );
-    }
-    await _waitForInitialRestore();
-    _ensureRestoreSucceeded();
-    if (prefs.getBool('settings.sync_v2.enabled') == true) {
-      throw StateError(
-        'Legacy storage reset is unavailable while sync v2 is active',
-      );
-    }
-    final removedNotes = state
-        .where((note) => note.deletedAt == null)
-        .toList(growable: false);
-    final removedCount = removedNotes.length;
-    final attachmentsToDelete = [
-      for (final note in state) ..._attachmentsIn(note),
-    ];
-    // resetLocalStorage intentionally removes every local payload, including
-    // paths currently referenced by the in-memory notes.
-    await _deleteAttachments(
-      attachmentsToDelete,
-      ignoreCurrentStateReferences: true,
-    );
-    state = const <NoteEntry>[];
-    ref.read(selectedNoteIdProvider.notifier).select(null);
-    await ref.read(noteEditorDraftStoreProvider).clear();
-    await _rememberDeletedSeedNoteIds(
-      ref
-          .read(homeRepositoryProvider)
-          .seededNotes
-          .map((note) => note.id)
-          .toSet(),
-    );
-    await ref.read(noteStoreProvider).save(const <NoteEntry>[]);
-    await _syncSpotlightIndexForAll();
-    ref.invalidate(storageUsageSummaryProvider);
-    return removedCount;
-  }
-
   Future<void> cleanupCommittedAttachmentDrafts(NoteEntry draft) async {
-    if (!usesSyncV2NoteBackend ||
-        await ref.read(noteEditorDraftStoreProvider).hasSavedDraft()) {
+    if (await ref.read(noteEditorDraftStoreProvider).hasSavedDraft()) {
       return;
     }
     await _deleteAttachments(_attachmentsIn(draft).toList());
-  }
-
-  Future<int> cleanupUnreferencedAttachments() async {
-    await _waitForInitialRestore();
-    _ensureRestoreSucceeded();
-    // Locked notes and saved drafts can reference attachments that do not
-    // appear in the loaded note bodies.
-    if (await ref.read(noteEditorDraftStoreProvider).hasSavedDraft() ||
-        state.any(_isLockedPrivatePlaceholder)) {
-      return 0;
-    }
-    final retainedAttachmentReferences = <String>{
-      for (final note in state) ..._attachmentFilePathsIn(note),
-    };
-    return ref
-        .read(encryptedAttachmentStoreProvider)
-        .deleteUnreferencedAttachments(retainedAttachmentReferences);
   }
 
   Future<int> clearStorageCaches() async {
@@ -6788,728 +5716,6 @@ class NotesController extends _$NotesController {
     ref.invalidate(storageUsageSummaryProvider);
     ref.invalidate(storageDiagnosticsSummaryProvider);
     return deletedBytes;
-  }
-
-  Future<void> replaceFromSync(List<NoteEntry> notes) async {
-    await _waitForInitialRestore();
-    _ensureRestoreSucceeded();
-    final syncExclusionTags = ref.read(syncExclusionTagsControllerProvider);
-    final permanentlyDeletedIds = {
-      for (final note in state)
-        if (note.isPermanentlyDeleted) note.id,
-    };
-    final incomingNotes = [
-      for (final note in notes)
-        if (!noteExcludedFromSync(note, syncExclusionTags) &&
-            !permanentlyDeletedIds.contains(note.id))
-          note,
-    ];
-    final incomingIds = incomingNotes.map((note) => note.id).toSet();
-    final retainedLocalNotes = [
-      for (final note in state)
-        if (note.isPermanentlyDeleted ||
-            noteExcludedFromSync(note, syncExclusionTags) ||
-            (isPrivateVaultId(note.vaultId) && !incomingIds.contains(note.id)))
-          note,
-    ];
-    final incomingPaths = {
-      for (final note in incomingNotes) ..._attachmentFilePathsIn(note),
-      for (final note in retainedLocalNotes) ..._attachmentFilePathsIn(note),
-    };
-    final removedAttachments = [
-      for (final existing in state)
-        for (final attachment in _attachmentsIn(existing))
-          if (attachment.filePath != null &&
-              !incomingPaths.contains(attachment.filePath))
-            attachment,
-    ];
-    final next = [
-      ...incomingNotes,
-      for (final note in retainedLocalNotes)
-        if (!incomingIds.contains(note.id)) note,
-    ];
-    _sort(next);
-    state = next;
-    await _persist();
-    // Delete replaced files only after the new note set is durable.  The
-    // current-state guard now sees `next`, so attachments shared by an
-    // incoming or retained note are preserved.
-    await _deleteAttachments(removedAttachments);
-  }
-
-  /// Apply downloaded bytes to the latest notes, without replaying the note
-  /// snapshot captured before the network request. Serialize with editor saves
-  /// so an attachment download cannot overwrite a concurrent text edit.
-  Future<void> applyDownloadedAttachment({
-    required String vaultId,
-    required String sourceReference,
-    required NoteAttachment downloaded,
-    bool clearPreview = false,
-  }) {
-    final operation = _upsertQueue.then((_) async {
-      await _waitForInitialRestore();
-      _ensureRestoreSucceeded();
-      NoteAttachment replace(NoteAttachment current) {
-        if (current.filePath != sourceReference ||
-            current.type != downloaded.type) {
-          return current;
-        }
-        return current.copyWith(
-          filePath: downloaded.filePath,
-          previewBytesBase64: clearPreview
-              ? null
-              : current.previewBytesBase64 ?? downloaded.previewBytesBase64,
-          syncAttachmentContentHash: downloaded.syncAttachmentContentHash,
-          localPayloadSizeBytes: downloaded.localPayloadSizeBytes,
-          localPayloadModifiedAtMillis: downloaded.localPayloadModifiedAtMillis,
-        );
-      }
-
-      final changed = <NoteEntry>[];
-      final previous = <String, NoteEntry>{};
-      final next = [
-        for (final note in state)
-          if (note.vaultId != vaultId ||
-              !_attachmentsIn(note).any(
-                (attachment) =>
-                    attachment.filePath == sourceReference &&
-                    attachment.type == downloaded.type,
-              ))
-            note
-          else
-            note.copyWith(
-              attachments: note.attachments.map(replace).toList(),
-              blocks: [
-                for (final block in note.blocks)
-                  block.attachment == null
-                      ? block
-                      : block.copyWith(attachment: replace(block.attachment!)),
-              ],
-            ),
-      ];
-      for (var index = 0; index < next.length; index++) {
-        if (next[index] != state[index]) {
-          changed.add(next[index]);
-          previous[state[index].id] = state[index];
-        }
-      }
-      if (changed.isEmpty) {
-        return;
-      }
-      state = next;
-      try {
-        await _persistChanged(changed);
-      } catch (_) {
-        state = [
-          for (final current in state)
-            if (previous.containsKey(current.id) && changed.contains(current))
-              previous[current.id]!
-            else
-              current,
-        ];
-        rethrow;
-      }
-    });
-    _upsertQueue = operation.catchError((Object _, StackTrace _) {});
-    return operation;
-  }
-
-  /// [publishedByThisDevice] marks a bundle this device uploaded itself; its
-  /// older note versions are ancestors of local pending edits, not conflicts.
-  /// [replayingOlderRecord] marks an older record of a history walk, which
-  /// must not re-queue newer local notes. [isPublishedLocalVersion] reports
-  /// whether a pending local version already exists in the cloud history.
-  Future<void> mergeFromSync(
-    List<PreparedSyncNote> changes, {
-    bool publishedByThisDevice = false,
-    bool replayingOlderRecord = false,
-    bool Function(String noteId, String? contentHash)? isPublishedLocalVersion,
-  }) async {
-    await _waitForInitialRestore();
-    _ensureRestoreSucceeded();
-    if (changes.isEmpty) {
-      return;
-    }
-    final syncExclusionTags = ref.read(syncExclusionTagsControllerProvider);
-    final next = [...state];
-    final indexesById = {for (var i = 0; i < next.length; i++) next[i].id: i};
-    final removedAttachments = <NoteAttachment>[];
-    final changedNotes = <NoteEntry>[];
-
-    void replaceAt(int index, NoteEntry note) {
-      next[index] = note;
-      changedNotes.add(note);
-    }
-
-    for (final change in changes) {
-      final incoming = change.note.copyWith(syncState: NoteSyncState.synced);
-      final index = indexesById[incoming.id] ?? -1;
-      final current = index == -1 ? null : next[index];
-      if ((current != null &&
-              noteExcludedFromSync(current, syncExclusionTags)) ||
-          noteExcludedFromSync(incoming, syncExclusionTags)) {
-        continue;
-      }
-      final shouldDelete = change.action == PendingNoteChangeAction.delete;
-
-      if (current?.isPermanentlyDeleted == true) {
-        if (!shouldDelete && current!.syncState != NoteSyncState.localOnly) {
-          replaceAt(
-            index,
-            current.copyWith(syncState: NoteSyncState.pendingDelete),
-          );
-        }
-        continue;
-      }
-      if (shouldDelete && incoming.isPermanentlyDeleted && current != null) {
-        replaceAt(index, incoming);
-        removedAttachments.addAll(_attachmentsIn(current));
-        continue;
-      }
-
-      if (shouldDelete && current != null && current.deletedAt != null) {
-        replaceAt(index, _mergeRemoteDeleteIntoCurrent(current, incoming));
-        continue;
-      }
-
-      if (!shouldDelete && current != null && current.deletedAt != null) {
-        if (!_sameSyncedContent(current, incoming)) {
-          final queued = current.copyWith(
-            syncState: _incomingWins(current, incoming)
-                ? NoteSyncState.conflict
-                : NoteSyncState.pendingDelete,
-          );
-          replaceAt(
-            index,
-            queued.contentHash == null
-                ? queued.copyWith(contentHash: _computeContentHash(queued))
-                : queued,
-          );
-        }
-        continue;
-      }
-
-      if (current != null && _hasUnuploadedLocalChange(current)) {
-        if (!_sameSyncedContent(current, incoming)) {
-          final revisionOrder = incoming.revision < current.revision
-              ? 'remote_older'
-              : incoming.revision == current.revision
-              ? 'same'
-              : 'remote_newer';
-          if (publishedByThisDevice && revisionOrder != 'remote_newer') {
-            // Replaying this device's own upload at or before the pending
-            // revision: the local version descends from it, so keep it queued.
-            logDiagnostic(
-              'sync',
-              'pending note superseded own remote version',
-              data: {'revisionOrder': revisionOrder},
-            );
-            continue;
-          }
-          if (revisionOrder == 'remote_older' &&
-              (isPublishedLocalVersion?.call(current.id, current.contentHash) ??
-                  false)) {
-            // The pending local version is already in the cloud history, so
-            // this older remote version is history, not a concurrent edit.
-            logDiagnostic(
-              'sync',
-              'pending note already published; older remote skipped',
-            );
-            continue;
-          }
-          logDiagnostic(
-            'sync',
-            'pending note conflict candidate',
-            data: {
-              'publishedByThisDevice': publishedByThisDevice,
-              'revisionOrder': revisionOrder,
-            },
-          );
-          replaceAt(index, current.copyWith(syncState: NoteSyncState.conflict));
-        }
-        continue;
-      }
-
-      if (current != null && !_incomingWins(current, incoming)) {
-        // Older records are expected while replaying history; only the newest
-        // remote state proves the cloud is behind this device.
-        if (!replayingOlderRecord &&
-            !_sameSyncedContent(current, incoming) &&
-            !_hasUnuploadedLocalChange(current)) {
-          final queued = current.copyWith(
-            syncState: current.deletedAt == null
-                ? NoteSyncState.pendingUpload
-                : NoteSyncState.pendingDelete,
-          );
-          replaceAt(
-            index,
-            queued.contentHash == null
-                ? queued.copyWith(contentHash: _computeContentHash(queued))
-                : queued,
-          );
-        }
-        continue;
-      }
-
-      final applied = shouldDelete
-          ? (current == null
-                ? incoming.copyWith(
-                    deletedAt: incoming.deletedAt ?? DateTime.now(),
-                    syncState: NoteSyncState.synced,
-                  )
-                : _mergeRemoteDeleteIntoCurrent(current, incoming))
-          : incoming.copyWith(deletedAt: null, syncState: NoteSyncState.synced);
-
-      if (current == null) {
-        indexesById[applied.id] = next.length;
-        next.add(applied);
-        changedNotes.add(applied);
-      } else {
-        replaceAt(index, applied);
-        if (!shouldDelete) {
-          removedAttachments.addAll(_attachmentsIn(current));
-        }
-      }
-    }
-
-    _sort(next);
-    state = next;
-    await _persistChanged(changedNotes);
-
-    // Delete replaced attachment files only after the merged notes are
-    // persisted, so a crash in between never leaves notes pointing at
-    // already-deleted files.
-    final stillRetained = <String>{
-      for (final note in next) ..._attachmentFilePathsIn(note),
-    };
-    await _deleteAttachments(
-      removedAttachments
-          .where((attachment) {
-            final filePath = attachment.filePath;
-            return filePath != null && !stillRetained.contains(filePath);
-          })
-          .toList(growable: false),
-    );
-  }
-
-  NoteEntry _mergeRemoteDeleteIntoCurrent(
-    NoteEntry current,
-    NoteEntry incoming,
-  ) {
-    return current.copyWith(
-      deletedAt: incoming.deletedAt ?? current.deletedAt ?? DateTime.now(),
-      revision: math.max(current.revision, incoming.revision),
-      deviceId: incoming.deviceId ?? current.deviceId,
-      contentHash: incoming.contentHash ?? current.contentHash,
-      syncState: NoteSyncState.synced,
-    );
-  }
-
-  Future<void> resolveConflictKeepingLocal(
-    String noteId, {
-    required int remoteRevision,
-  }) async {
-    await _waitForInitialRestore();
-    _ensureRestoreSucceeded();
-    final next = [...state];
-    final index = next.indexWhere((note) => note.id == noteId);
-    if (index == -1) {
-      return;
-    }
-    final current = next[index];
-    final now = DateTime.now();
-    final queued = current.copyWith(
-      updatedAt: now,
-      deletedAt: current.deletedAt == null ? null : now,
-      revision: math.max(current.revision, remoteRevision) + 1,
-      syncState: current.deletedAt == null
-          ? NoteSyncState.pendingUpload
-          : NoteSyncState.pendingDelete,
-    );
-    final withHash = queued.copyWith(contentHash: _computeContentHash(queued));
-    next[index] = withHash;
-    _sort(next);
-    state = next;
-    await _persistChanged([withHash]);
-  }
-
-  Future<void> resolveConflictUsingRemote(NoteEntry remoteNote) async {
-    await _waitForInitialRestore();
-    _ensureRestoreSucceeded();
-    final next = [...state];
-    final index = next.indexWhere((note) => note.id == remoteNote.id);
-    final applied = remoteNote.copyWith(
-      deletedAt: null,
-      syncState: NoteSyncState.synced,
-    );
-    final removedAttachments = <NoteAttachment>[];
-    if (index == -1) {
-      next.add(applied);
-    } else {
-      removedAttachments.addAll(_attachmentsIn(next[index]));
-      next[index] = applied;
-    }
-    _sort(next);
-    state = next;
-    await _persistChanged([applied]);
-
-    // Delete the replaced attachment files only after persisting, so a crash
-    // in between never leaves notes pointing at already-deleted files.
-    final retained = <String>{
-      for (final note in next) ..._attachmentFilePathsIn(note),
-    };
-    try {
-      await _deleteAttachments(
-        removedAttachments
-            .where((attachment) {
-              final filePath = attachment.filePath;
-              return filePath != null && !retained.contains(filePath);
-            })
-            .toList(growable: false),
-      );
-    } catch (error, stackTrace) {
-      // The remote choice is already durable. Cleanup failure must not make
-      // the stale comparison dialog retry a decision against changed data.
-      debugPrint(
-        'Remote conflict was resolved but old attachment cleanup failed: '
-        '$error\n$stackTrace',
-      );
-      unawaited(
-        recordNonFatalError(
-          error,
-          stackTrace,
-          reason: 'conflict_remote_attachment_cleanup_failed',
-        ),
-      );
-    }
-  }
-
-  Future<void> resolveConflictUsingRemoteDelete(NoteEntry remoteNote) async {
-    await _waitForInitialRestore();
-    _ensureRestoreSucceeded();
-    final next = [...state];
-    final index = next.indexWhere((note) => note.id == remoteNote.id);
-    final changedAt = remoteNote.deletedAt ?? remoteNote.updatedAt;
-    final deletion = remoteNote.copyWith(
-      deletedAt: changedAt ?? DateTime.now(),
-      syncState: NoteSyncState.synced,
-    );
-    final applied = index == -1
-        ? deletion
-        : _mergeRemoteDeleteIntoCurrent(next[index], deletion);
-    if (index == -1) {
-      next.add(applied);
-    } else {
-      next[index] = applied;
-    }
-    _sort(next);
-    state = next;
-    await _persistChanged([applied]);
-  }
-
-  Future<void> resolveConflictByMerging(NoteEntry remoteNote) async {
-    await _waitForInitialRestore();
-    _ensureRestoreSucceeded();
-    final next = [...state];
-    final index = next.indexWhere((note) => note.id == remoteNote.id);
-    if (index == -1) {
-      final queued = remoteNote.copyWith(
-        syncState: NoteSyncState.pendingUpload,
-      );
-      final withHash = queued.copyWith(
-        contentHash: _computeContentHash(queued),
-      );
-      next.add(withHash);
-      _sort(next);
-      state = next;
-      await _persistChanged([withHash]);
-      return;
-    }
-    final local = next[index];
-    final mergedBody = _mergedConflictBody(local, remoteNote);
-    final mergedAttachments = <NoteAttachment>[
-      ...local.attachments,
-      for (final attachment in remoteNote.attachments)
-        if (!_hasEquivalentAttachment(local.attachments, attachment))
-          attachment,
-    ];
-    final mergedBlocks = <NoteBlock>[
-      NoteBlock(type: NoteBlockType.paragraph, text: mergedBody),
-      for (final attachment in mergedAttachments)
-        NoteBlock(
-          type: _blockTypeForAttachment(attachment.type),
-          attachment: attachment,
-        ),
-    ];
-    final merged = local.copyWith(
-      title: local.title.trim().isEmpty ? remoteNote.title : local.title,
-      body: mergedBody,
-      updatedAt: DateTime.now(),
-      revision: math.max(local.revision, remoteNote.revision) + 1,
-      attachments: mergedAttachments,
-      blocks: mergedBlocks,
-      syncState: NoteSyncState.pendingUpload,
-    );
-    final withHash = merged.copyWith(contentHash: _computeContentHash(merged));
-    next[index] = withHash;
-    _sort(next);
-    state = next;
-    await _persistChanged([withHash]);
-  }
-
-  Future<void> markCurrentStateSynced() async {
-    await _waitForInitialRestore();
-    _ensureRestoreSucceeded();
-    var changed = false;
-    final next = <NoteEntry>[];
-    final changedNotes = <NoteEntry>[];
-    for (final note in state) {
-      if (note.syncState == NoteSyncState.pendingUpload ||
-          note.syncState == NoteSyncState.pendingDelete ||
-          note.syncState == NoteSyncState.conflict) {
-        final synced = note.copyWith(syncState: NoteSyncState.synced);
-        next.add(synced);
-        changedNotes.add(synced);
-        changed = true;
-      } else {
-        next.add(note);
-      }
-    }
-    if (!changed) {
-      return;
-    }
-    _sort(next);
-    state = next;
-    await _persistChanged(changedNotes);
-  }
-
-  Future<void> markSnapshotChangesSynced(
-    Map<String, String?> pendingContentHashes, {
-    List<PreparedSyncNote> preparedNotes = const <PreparedSyncNote>[],
-  }) async {
-    await _waitForInitialRestore();
-    _ensureRestoreSucceeded();
-    if (pendingContentHashes.isEmpty) {
-      return;
-    }
-    final preparedByNoteId = {
-      for (final prepared in preparedNotes) prepared.note.id: prepared.note,
-    };
-    var changed = false;
-    final next = <NoteEntry>[];
-    final changedNotes = <NoteEntry>[];
-    for (final note in state) {
-      final pendingHash = pendingContentHashes[note.id];
-      if (!pendingContentHashes.containsKey(note.id) ||
-          (pendingHash != null && note.contentHash != pendingHash) ||
-          (pendingHash == null && note.contentHash != null)) {
-        next.add(note);
-        continue;
-      }
-      final prepared = preparedByNoteId[note.id];
-      var syncedNote = prepared == null
-          ? note
-          : _copyPreparedSyncAttachmentMetadata(note, prepared);
-      if (note.syncState == NoteSyncState.pendingUpload ||
-          note.syncState == NoteSyncState.pendingDelete ||
-          note.syncState == NoteSyncState.conflict) {
-        syncedNote = syncedNote.copyWith(syncState: NoteSyncState.synced);
-        changed = true;
-      } else {
-        changed = changed || syncedNote != note;
-      }
-      if (syncedNote != note) {
-        changedNotes.add(syncedNote);
-      }
-      next.add(syncedNote);
-    }
-    if (!changed) {
-      return;
-    }
-    _sort(next);
-    state = next;
-    await _persistChanged(changedNotes);
-  }
-
-  NoteEntry _copyPreparedSyncAttachmentMetadata(
-    NoteEntry current,
-    NoteEntry prepared,
-  ) {
-    NoteAttachment merge(NoteAttachment local, NoteAttachment remote) {
-      final remoteHash =
-          remote.syncAttachmentContentHash ??
-          syncAttachmentObjectContentHash(remote.filePath);
-      if (remoteHash == null || remoteHash.isEmpty) {
-        return local;
-      }
-      final next = local.copyWith(
-        localPayloadSizeBytes: remote.localPayloadSizeBytes,
-        localPayloadModifiedAtMillis: remote.localPayloadModifiedAtMillis,
-        syncAttachmentContentHash: remoteHash,
-      );
-      return next == local ? local : next;
-    }
-
-    var changed = false;
-    final attachments = <NoteAttachment>[];
-    for (var i = 0; i < current.attachments.length; i++) {
-      final local = current.attachments[i];
-      if (i >= prepared.attachments.length) {
-        attachments.add(local);
-        continue;
-      }
-      final next = merge(local, prepared.attachments[i]);
-      changed = changed || next != local;
-      attachments.add(next);
-    }
-
-    final blocks = <NoteBlock>[];
-    for (var i = 0; i < current.blocks.length; i++) {
-      final localBlock = current.blocks[i];
-      final localAttachment = localBlock.attachment;
-      final preparedAttachment = i < prepared.blocks.length
-          ? prepared.blocks[i].attachment
-          : null;
-      if (localAttachment == null || preparedAttachment == null) {
-        blocks.add(localBlock);
-        continue;
-      }
-      final nextAttachment = merge(localAttachment, preparedAttachment);
-      changed = changed || nextAttachment != localAttachment;
-      blocks.add(localBlock.copyWith(attachment: nextAttachment));
-    }
-
-    if (!changed) {
-      return current;
-    }
-    return current.copyWith(attachments: attachments, blocks: blocks);
-  }
-
-  Future<List<NoteEntry>> notesForSyncSnapshot({
-    Set<String>? pendingNoteIds,
-  }) async {
-    await _waitForInitialRestore();
-    _ensureRestoreSucceeded();
-    final syncExclusionTags = ref.read(syncExclusionTagsControllerProvider);
-    bool canUpload(NoteEntry note) =>
-        !_isLockedPrivatePlaceholder(note) &&
-        !isPrivateVaultId(note.vaultId) &&
-        !noteExcludedFromSync(note, syncExclusionTags);
-    if (pendingNoteIds == null) {
-      return List<NoteEntry>.unmodifiable(state.where(canUpload));
-    }
-    return List<NoteEntry>.unmodifiable(
-      state.where(
-        (note) => pendingNoteIds.contains(note.id) && canUpload(note),
-      ),
-    );
-  }
-
-  Future<bool> restoreMissingAttachmentRemoteReference({
-    required String noteId,
-    required int index,
-    required NoteAttachment remoteAttachment,
-    String? expectedLocalPath,
-  }) async {
-    await _waitForInitialRestore();
-    _ensureRestoreSucceeded();
-    final remotePath = remoteAttachment.filePath;
-    if (!isSyncAttachmentObjectRef(remotePath)) {
-      return false;
-    }
-    final next = [...state];
-    final noteIndex = next.indexWhere((note) => note.id == noteId);
-    if (noteIndex == -1) {
-      return false;
-    }
-    final note = next[noteIndex];
-
-    NoteAttachment restore(NoteAttachment current) {
-      final remoteHash =
-          remoteAttachment.syncAttachmentContentHash ??
-          syncAttachmentObjectContentHash(remotePath);
-      return current.copyWith(
-        filePath: remotePath,
-        previewBytesBase64:
-            current.previewBytesBase64 ?? remoteAttachment.previewBytesBase64,
-        durationMs: current.durationMs ?? remoteAttachment.durationMs,
-        syncAttachmentContentHash: remoteHash,
-      );
-    }
-
-    NoteEntry? repaired;
-    if (index >= 0 && index < note.attachments.length) {
-      final attachments = [...note.attachments];
-      if (expectedLocalPath != null &&
-          attachments[index].filePath != expectedLocalPath) {
-        return false;
-      }
-      attachments[index] = restore(attachments[index]);
-      repaired = note.copyWith(attachments: attachments);
-    } else {
-      final blockIndex = index - note.attachments.length;
-      if (blockIndex < 0 || blockIndex >= note.blocks.length) {
-        return false;
-      }
-      final block = note.blocks[blockIndex];
-      final attachment = block.attachment;
-      if (attachment == null ||
-          (expectedLocalPath != null &&
-              attachment.filePath != expectedLocalPath)) {
-        return false;
-      }
-      final blocks = [...note.blocks];
-      blocks[blockIndex] = block.copyWith(attachment: restore(attachment));
-      repaired = note.copyWith(blocks: blocks);
-    }
-    final queued = repaired.copyWith(
-      syncState: NoteSyncState.pendingUpload,
-      contentHash: null,
-    );
-    final withHash = queued.copyWith(contentHash: _computeContentHash(queued));
-    next[noteIndex] = withHash;
-    _sort(next);
-    state = next;
-    await _persistOne(withHash);
-    return true;
-  }
-
-  Future<void> queueCurrentStateForSync() async {
-    await _waitForInitialRestore();
-    _ensureRestoreSucceeded();
-    final syncExclusionTags = ref.read(syncExclusionTagsControllerProvider);
-    var changed = false;
-    final next = <NoteEntry>[];
-    final changedNotes = <NoteEntry>[];
-    for (final note in state) {
-      if (_isLockedPrivatePlaceholder(note) ||
-          isPrivateVaultId(note.vaultId) ||
-          isGeneratedSampleNote(note) ||
-          noteExcludedFromSync(note, syncExclusionTags)) {
-        next.add(note);
-        continue;
-      }
-      final syncState = note.deletedAt == null
-          ? NoteSyncState.pendingUpload
-          : NoteSyncState.pendingDelete;
-      if (note.syncState == syncState && note.contentHash != null) {
-        next.add(note);
-        continue;
-      }
-      final queued = note.copyWith(syncState: syncState);
-      final withHash = queued.contentHash == null
-          ? queued.copyWith(contentHash: _computeContentHash(queued))
-          : queued;
-      next.add(withHash);
-      changedNotes.add(withHash);
-      changed = true;
-    }
-    if (!changed) {
-      return;
-    }
-    _sort(next);
-    state = next;
-    await _persistChanged(changedNotes);
   }
 
   Future<void> createWidgetQuickCapture(String rawText) async {
@@ -7631,9 +5837,19 @@ class NotesController extends _$NotesController {
       editorMode: NoteEditorMode.quick,
     );
     await upsert(captured);
-    if (usesSyncV2NoteBackend) await cleanupCommittedAttachmentDrafts(captured);
+    await cleanupCommittedAttachmentDrafts(captured);
     if (deferredPreviews.isNotEmpty) {
-      unawaited(_applyDeferredPreviewsToNote(noteId, deferredPreviews));
+      unawaited(
+        _applyDeferredPreviewsToNote(noteId, deferredPreviews).catchError((
+          Object _,
+          StackTrace _,
+        ) {
+          logDiagnostic(
+            'media_import',
+            'optional shared preview update failed',
+          );
+        }),
+      );
     }
   }
 
@@ -7655,14 +5871,18 @@ class NotesController extends _$NotesController {
     if (resolved.isEmpty) {
       return;
     }
-    final note = state.cast<NoteEntry?>().firstWhere(
-      (n) => n?.id == noteId,
-      orElse: () => null,
-    );
-    if (note == null) {
-      return;
-    }
-    if (usesSyncV2NoteBackend) {
+    await _exclusive(() async {
+      if (!ref.mounted) return;
+      final note = state.cast<NoteEntry?>().firstWhere(
+        (n) => n?.id == noteId,
+        orElse: () => null,
+      );
+      if (note == null ||
+          note.deletedAt != null ||
+          note.isPermanentlyDeleted ||
+          _isLockedPrivatePlaceholder(note)) {
+        return;
+      }
       final store = ref.read(noteStoreProvider) as SyncV2NoteStore;
       for (final source in deferredPreviews.keys) {
         for (final type in AttachmentType.values) {
@@ -7676,30 +5896,32 @@ class NotesController extends _$NotesController {
           }
         }
       }
-    }
-    NoteAttachment applyPreview(NoteAttachment a) {
-      final preview = a.filePath != null ? resolved[a.filePath] : null;
-      return preview != null ? a.copyWith(previewBytesBase64: preview) : a;
-    }
+      NoteAttachment applyPreview(NoteAttachment a) {
+        final preview = a.filePath != null ? resolved[a.filePath] : null;
+        return preview != null ? a.copyWith(previewBytesBase64: preview) : a;
+      }
 
-    await upsert(
-      note.copyWith(
-        attachments: note.attachments.map(applyPreview).toList(),
-        blocks: note.blocks
-            .map(
-              (b) => b.attachment != null
-                  ? b.copyWith(attachment: applyPreview(b.attachment!))
-                  : b,
-            )
-            .toList(),
-      ),
-    );
+      await _performUpsert(
+        note.copyWith(
+          attachments: note.attachments.map(applyPreview).toList(),
+          blocks: note.blocks
+              .map(
+                (b) => b.attachment != null
+                    ? b.copyWith(attachment: applyPreview(b.attachment!))
+                    : b,
+              )
+              .toList(),
+        ),
+      );
+    });
   }
 
   Future<void> _restore() async {
     final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
     final concealVersion = _privateConcealVersion;
     try {
+      final workspace = ref.read(syncV2WorkspaceProvider);
+      final sessionRevision = workspace.privateSessionRevision;
       final deletedSeedNoteIds = await _deletedSeedNoteIds();
       final restored = [
         ...await ref
@@ -7714,23 +5936,6 @@ class NotesController extends _$NotesController {
           .toList(growable: false);
       var next = restoredWithoutDeletedSeeds;
       var changed = restoredWithoutDeletedSeeds.length != restored.length;
-      if (!usesSyncV2NoteBackend &&
-          !kIsWeb &&
-          next.any((note) => note.syncState == NoteSyncState.conflict)) {
-        final pendingChanges = await ref
-            .read(encryptedNoteDatabaseProvider)
-            .loadPendingChanges();
-        final pendingIds = pendingChanges
-            .map((change) => change.noteId)
-            .toSet();
-        if (next.any(
-          (note) =>
-              note.syncState == NoteSyncState.conflict &&
-              !pendingIds.contains(note.id),
-        )) {
-          changed = true;
-        }
-      }
       if (next.isEmpty && await _shouldSeedDemoNotesForStoreAssets()) {
         next = ref
             .read(homeRepositoryProvider)
@@ -7739,12 +5944,16 @@ class NotesController extends _$NotesController {
             .toList(growable: false);
         changed = true;
       }
-      if (concealVersion != _privateConcealVersion) {
-        final keys = ref.read(profileDataKeyServiceProvider);
+      if (concealVersion != _privateConcealVersion ||
+          sessionRevision != workspace.privateSessionRevision) {
+        final session = ref.read(syncV2WorkspaceProvider).noteStoreSession;
         next = [
           for (final note in next)
             if (isPrivateVaultId(note.vaultId) &&
-                !keys.isProfileUnlocked(note.vaultId))
+                (session == null ||
+                    !session.profiles.containsKey(
+                      SyncV2NoteStore.profileIdFor(session, note.vaultId),
+                    )))
               _concealedPrivateNote(note)
             else
               note,
@@ -7752,7 +5961,10 @@ class NotesController extends _$NotesController {
       }
       _sort(next);
       state = next;
-      final purgedTrash = await _purgeTrashOlderThan(trashRetention);
+      final purgedTrash = await _purgeTrashOlderThan(
+        trashRetention,
+        bestEffort: true,
+      );
       changed = changed || purgedTrash > 0;
       _restoreFailed = false;
       stopwatch?.stop();
@@ -7800,11 +6012,15 @@ class NotesController extends _$NotesController {
     await prefs.setStringList(_deletedSeedNoteIdsKey, ids.toList()..sort());
   }
 
-  Future<int> _purgeTrashOlderThan(Duration retention) async {
+  Future<int> _purgeTrashOlderThan(
+    Duration retention, {
+    bool bestEffort = false,
+  }) async {
     final cutoff = DateTime.now().subtract(retention);
     final expired = [
       for (final note in state)
         if (note.deletedAt != null &&
+            note.syncState != NoteSyncState.conflict &&
             !note.isPermanentlyDeleted &&
             !_isLockedPrivatePlaceholder(note) &&
             note.deletedAt!.isBefore(cutoff))
@@ -7813,52 +6029,41 @@ class NotesController extends _$NotesController {
     if (expired.isEmpty) {
       return 0;
     }
+    var purged = 0;
     for (final note in expired) {
-      await _purgeDeletedNote(note);
+      try {
+        await _purgeDeletedNote(note);
+        purged++;
+      } catch (_) {
+        if (!bestEffort) rethrow;
+        logDiagnostic('notes', 'Automatic trash cleanup deferred.');
+      }
     }
     ref.invalidate(storageUsageSummaryProvider);
-    logAudit('note_trash_purge', data: {'count': expired.length});
-    return expired.length;
+    if (purged > 0) logAudit('note_trash_purge', data: {'count': purged});
+    return purged;
   }
 
   Future<void> _purgeDeletedNote(NoteEntry note) async {
     final store = ref.read(noteStoreProvider);
-    final keepDeletion =
-        note.syncState != NoteSyncState.localOnly &&
-        !noteExcludedFromSync(
-          note,
-          ref.read(syncExclusionTagsControllerProvider),
-        );
-    if (keepDeletion) {
-      final deletedAt = note.deletedAt!;
-      final tombstone = NoteEntry(
-        id: note.id,
-        vaultId: note.vaultId,
-        title: '',
-        body: '',
-        createdAt: deletedAt,
-        updatedAt: deletedAt,
-        deletedAt: deletedAt,
-        revision: note.revision + 1,
-        contentHash: permanentNoteDeletionHash,
-        syncState: NoteSyncState.pendingDelete,
-      );
-      final next = [
-        for (final entry in state) entry.id == note.id ? tombstone : entry,
-      ];
-      if (kIsWeb) {
-        await store.save(next, preserveOmittedPrivateNotes: true);
-      } else {
-        await store.saveOne(tombstone);
-      }
-      state = next;
-      ref.invalidate(syncQueueSummaryProvider);
-    } else {
-      await store.deleteById(note.id);
-      state = state
-          .where((entry) => entry.id != note.id)
-          .toList(growable: false);
-    }
+    final deletedAt = note.deletedAt!;
+    final tombstone = NoteEntry(
+      id: note.id,
+      vaultId: note.vaultId,
+      title: '',
+      body: '',
+      createdAt: deletedAt,
+      updatedAt: deletedAt,
+      deletedAt: deletedAt,
+      revision: note.revision + 1,
+      contentHash: permanentNoteDeletionHash,
+      syncState: NoteSyncState.pendingDelete,
+    );
+    await store.saveOne(tombstone);
+    if (!ref.mounted) return;
+    state = [
+      for (final entry in state) entry.id == note.id ? tombstone : entry,
+    ];
     await _deleteAttachments([..._attachmentsIn(note)]);
   }
 
@@ -7891,7 +6096,9 @@ class NotesController extends _$NotesController {
     }
     final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
     try {
-      final saving = state;
+      final saving = state
+          .where((note) => !_isLockedPrivatePlaceholder(note))
+          .toList();
       final saved = await ref
           .read(noteStoreProvider)
           .save(saving, preserveOmittedPrivateNotes: true);
@@ -7909,7 +6116,7 @@ class NotesController extends _$NotesController {
               current,
         ];
       }
-      ref.invalidate(syncQueueSummaryProvider);
+
       ref.invalidate(storageUsageSummaryProvider);
       await _syncSpotlightIndexForAll();
       stopwatch?.stop();
@@ -7932,26 +6139,11 @@ class NotesController extends _$NotesController {
 
   // Above this count (or half the library), per-note transactions cost more
   // than one full save.
-  static const _incrementalPersistMaxNotes = 25;
 
   // Persists only the given notes. Incremental saves never delete rows, so
   // this must only be used by callers that modify or add notes (sync merge,
   // queue/synced state flips, conflict resolution) — removals still need the
   // full _persist().
-  Future<void> _persistChanged(List<NoteEntry> changedNotes) async {
-    if (_restoreFailed || changedNotes.isEmpty) {
-      return;
-    }
-    if (kIsWeb ||
-        changedNotes.length > _incrementalPersistMaxNotes ||
-        changedNotes.length * 2 >= state.length) {
-      await _persist();
-      return;
-    }
-    for (final note in changedNotes) {
-      await _persistOne(note);
-    }
-  }
 
   Future<void> _persistOne(NoteEntry note) async {
     if (_restoreFailed) {
@@ -7970,7 +6162,7 @@ class NotesController extends _$NotesController {
             identical(current, note) ? saved : current,
         ];
       }
-      ref.invalidate(syncQueueSummaryProvider);
+
       ref.invalidate(storageUsageSummaryProvider);
       await _syncSpotlightIndexForNote(note);
       stopwatch?.stop();
@@ -7987,8 +6179,7 @@ class NotesController extends _$NotesController {
         stackTrace,
         reason: 'note_persist_one_failed',
       );
-      if (usesSyncV2NoteBackend) Error.throwWithStackTrace(error, stackTrace);
-      await _persist();
+      Error.throwWithStackTrace(error, stackTrace);
     }
   }
 
@@ -8075,77 +6266,18 @@ class NotesController extends _$NotesController {
     }
   }
 
+  NoteBlockType _blockTypeForAttachment(AttachmentType type) => switch (type) {
+    AttachmentType.photo => NoteBlockType.photo,
+    AttachmentType.video => NoteBlockType.video,
+    AttachmentType.audio => NoteBlockType.audio,
+    AttachmentType.file => NoteBlockType.file,
+  };
+
   Future<NoteEntry> _prepareForSave(
     NoteEntry note, {
     NoteEntry? previous,
   }) async {
     await ref.read(autoTagRulesControllerProvider.notifier).restoreCompleted;
-    // An editor may still hold remote references from before a download.
-    // Retain the newly saved local files when that draft is later committed.
-    if (previous != null && previous.vaultId == note.vaultId) {
-      final localByHash = <String, NoteAttachment>{
-        for (final attachment in _attachmentsIn(previous))
-          if (attachment.syncAttachmentContentHash != null &&
-              attachment.filePath != null &&
-              !isSyncAttachmentObjectRef(attachment.filePath))
-            '${attachment.type.name}:${attachment.syncAttachmentContentHash}':
-                attachment,
-      };
-      Future<NoteAttachment> reuseDownloaded(NoteAttachment attachment) async {
-        final hash =
-            syncAttachmentObjectContentHash(attachment.filePath) ??
-            attachment.syncAttachmentContentHash;
-        final local = localByHash['${attachment.type.name}:$hash'];
-        if (hash == null ||
-            local == null ||
-            attachment.filePath == local.filePath) {
-          return attachment;
-        }
-        // Keep an intentionally replaced local file. An editor's old local
-        // path should only be repaired when its payload has gone missing.
-        if (!isSyncAttachmentObjectRef(attachment.filePath) &&
-            attachment.filePath != null) {
-          try {
-            final draftBytes = await ref
-                .read(encryptedAttachmentStoreProvider)
-                .readAttachment(attachment.filePath!, type: attachment.type);
-            if (draftBytes != null && draftBytes.isNotEmpty) {
-              return attachment;
-            }
-          } catch (_) {
-            // The draft can still point at an unreadable old container.
-          }
-        }
-        final metadata = await ref
-            .read(encryptedAttachmentStoreProvider)
-            .storedPayloadMetadata(local.filePath!);
-        if (metadata == null) {
-          return attachment;
-        }
-        return attachment.copyWith(
-          filePath: local.filePath,
-          syncAttachmentContentHash: hash,
-          localPayloadSizeBytes: metadata.sizeBytes,
-          localPayloadModifiedAtMillis: metadata.modifiedAtMillis,
-          previewBytesBase64: local.previewBytesBase64,
-        );
-      }
-
-      note = note.copyWith(
-        attachments: [
-          for (final attachment in note.attachments)
-            await reuseDownloaded(attachment),
-        ],
-        blocks: [
-          for (final block in note.blocks)
-            block.attachment == null
-                ? block
-                : block.copyWith(
-                    attachment: await reuseDownloaded(block.attachment!),
-                  ),
-        ],
-      );
-    }
     final autoTagged = applyAutoTagRules(
       note,
       ref.read(autoTagRulesControllerProvider),
@@ -8172,10 +6304,6 @@ class NotesController extends _$NotesController {
     NoteEntry note, {
     required bool deleted,
   }) {
-    final syncExclusionTags = ref.read(syncExclusionTagsControllerProvider);
-    if (noteExcludedFromSync(note, syncExclusionTags)) {
-      return NoteSyncState.localOnly;
-    }
     return deleted ? NoteSyncState.pendingDelete : NoteSyncState.pendingUpload;
   }
 
@@ -8256,69 +6384,6 @@ class NotesController extends _$NotesController {
     };
   }
 
-  bool _hasUnuploadedLocalChange(NoteEntry note) {
-    return note.syncState == NoteSyncState.pendingUpload ||
-        note.syncState == NoteSyncState.pendingDelete ||
-        note.syncState == NoteSyncState.conflict;
-  }
-
-  String _mergedConflictBody(NoteEntry local, NoteEntry remote) {
-    final localBody = local.body.trim();
-    final remoteBody = remote.body.trim();
-    if (localBody == remoteBody) {
-      return local.body;
-    }
-    final buffer = StringBuffer()
-      ..writeln('Local version')
-      ..writeln(localBody.isEmpty ? '(empty)' : localBody)
-      ..writeln()
-      ..writeln('Remote version')
-      ..write(remoteBody.isEmpty ? '(empty)' : remoteBody);
-    return buffer.toString();
-  }
-
-  bool _hasEquivalentAttachment(
-    List<NoteAttachment> attachments,
-    NoteAttachment candidate,
-  ) {
-    return attachments.any((attachment) {
-      if (attachment.filePath != null &&
-          candidate.filePath != null &&
-          attachment.filePath == candidate.filePath) {
-        return true;
-      }
-      return attachment.type == candidate.type &&
-          attachment.label == candidate.label &&
-          attachment.previewBytesBase64 == candidate.previewBytesBase64;
-    });
-  }
-
-  NoteBlockType _blockTypeForAttachment(AttachmentType type) {
-    return switch (type) {
-      AttachmentType.photo => NoteBlockType.photo,
-      AttachmentType.video => NoteBlockType.video,
-      AttachmentType.audio => NoteBlockType.audio,
-      AttachmentType.file => NoteBlockType.file,
-    };
-  }
-
-  bool _sameSyncedContent(NoteEntry current, NoteEntry incoming) {
-    return current.contentHash != null &&
-        incoming.contentHash != null &&
-        current.contentHash == incoming.contentHash;
-  }
-
-  bool _incomingWins(NoteEntry current, NoteEntry incoming) {
-    if (incoming.revision != current.revision) {
-      return incoming.revision > current.revision;
-    }
-    return _syncMoment(incoming).isAfter(_syncMoment(current));
-  }
-
-  DateTime _syncMoment(NoteEntry note) {
-    return note.deletedAt ?? note.updatedAt ?? note.createdAt;
-  }
-
   void _sort(List<NoteEntry> notes) {
     notes.sort((left, right) {
       final leftMoment = left.updatedAt ?? left.createdAt;
@@ -8357,11 +6422,6 @@ class UnlockedPrivateProfileVaultIdController extends Notifier<String?> {
 
   void unlock(String vaultId, {List<String> additionalVaultIds = const []}) {
     final previousVaultId = state;
-    if (previousVaultId != null &&
-        previousVaultId != vaultId &&
-        !additionalVaultIds.contains(previousVaultId)) {
-      ref.read(profileDataKeyServiceProvider).lockProfile(previousVaultId);
-    }
     ref
         .read(_additionalUnlockedPrivateVaultIdsProvider.notifier)
         .replace(additionalVaultIds);
@@ -8377,11 +6437,8 @@ class UnlockedPrivateProfileVaultIdController extends Notifier<String?> {
 
   void lock() {
     final vaultId = state;
+    ref.read(syncV2WorkspaceProvider).lockPrivate();
     if (vaultId != null) {
-      if (usesSyncV2NoteBackend) {
-        ref.read(syncV2WorkspaceProvider).lockPrivate();
-      }
-      ref.read(profileDataKeyServiceProvider).lockAllPrivateProfiles();
       final filters = ref.read(searchFiltersControllerProvider);
       if (filters.vaultId == vaultId) {
         ref.read(searchFiltersControllerProvider.notifier).setVault(null);
@@ -8410,64 +6467,14 @@ class AdminModeSessionController extends Notifier<bool> {
   bool build() => false;
 
   void syncWorkspaceSession() {
-    if (usesSyncV2NoteBackend) {
+    {
       state = ref.read(syncV2WorkspaceProvider).adminUnlocked;
     }
   }
 
   /// The caller must complete device authentication before entering admin mode.
   Future<List<String>> unlock() async {
-    if (usesSyncV2NoteBackend) return _unlockSyncV2();
-    final operation = ++_operation;
-    final profiles = await ref
-        .read(privateMemoProfileStoreProvider)
-        .listProfiles();
-    final hasLegacy = await ref
-        .read(privateVaultSecretStoreProvider)
-        .hasSecret();
-    if (!ref.mounted || operation != _operation) return const [];
-    ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
-    ref.read(privateVaultSessionControllerProvider.notifier).lock();
-    final keys = ref.read(profileDataKeyServiceProvider);
-    try {
-      await keys.unlockProfilesForAdmin([
-        if (hasLegacy) legacyPrivateVaultId,
-        for (final profile in profiles) profile.vaultId,
-      ]);
-      if (!ref.mounted) {
-        keys.lockAllPrivateProfiles();
-        return const [];
-      }
-      if (operation != _operation) {
-        return const [];
-      }
-      state = true;
-      ref.read(searchFiltersControllerProvider.notifier).setVault(null);
-      await ref.read(privateMemoProfilesControllerProvider.notifier).refresh();
-      await _reloadPrivateNotes();
-      if (!ref.mounted || operation != _operation) return const [];
-      final currentProfiles = await ref
-          .read(privateMemoProfileStoreProvider)
-          .listProfiles();
-      if (!ref.mounted || operation != _operation) return const [];
-      final stillMissing = [
-        if (hasLegacy && !keys.isProfileUnlocked(legacyPrivateVaultId))
-          legacyPrivateVaultId,
-        for (final profile in currentProfiles)
-          if (!keys.isProfileUnlocked(profile.vaultId)) profile.vaultId,
-      ];
-      logAudit(
-        'admin_mode_login',
-        data: {
-          'allProfilesReadable': stillMissing.isEmpty,
-          'profilesNeedingPassword': stillMissing.length,
-        },
-      );
-      return stillMissing;
-    } catch (_) {
-      if (ref.mounted && operation == _operation) lock();
-      rethrow;
-    }
+    return _unlockSyncV2();
   }
 
   /// v2: the device-remembered ADMIN key opens every profile. Without it, the
@@ -8476,16 +6483,22 @@ class AdminModeSessionController extends Notifier<bool> {
     final operation = ++_operation;
     final workspace = ref.read(syncV2WorkspaceProvider);
     ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
-    ref.read(privateVaultSessionControllerProvider.notifier).lock();
+    final revision = workspace.privateSessionRevision;
+    bool active() =>
+        ref.mounted &&
+        operation == _operation &&
+        revision == workspace.privateSessionRevision;
+
     // `unlockAdminFromSettings` requires this session to be active.
     state = true;
     try {
       var unlocked = await workspace.unlockAdminFromSettings();
+      if (!active()) return const [];
       if (!unlocked && workspace.biometricEnabled) {
         await workspace.unlockAdminBiometric();
         unlocked = workspace.adminUnlocked;
       }
-      if (!ref.mounted || operation != _operation) return const [];
+      if (!active()) return const [];
       if (!unlocked) {
         throw const SyncV2WorkspaceException('admin_required');
       }
@@ -8496,65 +6509,24 @@ class AdminModeSessionController extends Notifier<bool> {
       );
       return const [];
     } catch (_) {
-      if (ref.mounted && operation == _operation) lock();
+      if (active()) lock();
       rethrow;
     }
   }
 
   Future<void> unlockWithAdminPassword(String password) async {
     final operation = ++_operation;
-    await ref.read(syncV2WorkspaceProvider).unlockAdmin(password);
-    if (!ref.mounted || operation != _operation) return;
+    final workspace = ref.read(syncV2WorkspaceProvider);
+    final revision = workspace.privateSessionRevision;
+    await workspace.unlockAdmin(password);
+    if (!ref.mounted ||
+        operation != _operation ||
+        revision != workspace.privateSessionRevision) {
+      return;
+    }
     state = true;
     ref.read(searchFiltersControllerProvider.notifier).setVault(null);
     logAudit('admin_mode_login', data: {'backend': 'sync_v2'});
-  }
-
-  /// Migrate a profile created before local admin keys existed, or imported
-  /// from another device, without leaving the authenticated admin session.
-  Future<bool> unlockProfile(String vaultId, String password) async {
-    if (!state) return false;
-    final operation = _operation;
-    final keys = ref.read(profileDataKeyServiceProvider);
-    final unlocked = await AuthenticationThrottle(
-      store: ref.read(secureKeyValueStoreProvider),
-      storageKey: 'security.private_profiles.attempts.v1',
-    ).verify(() => keys.unlockProfile(vaultId: vaultId, password: password));
-    if (!ref.mounted || operation != _operation || !state) {
-      return false;
-    }
-    if (unlocked) await _reloadPrivateNotes(vaultId);
-    return unlocked &&
-        ref.mounted &&
-        state &&
-        operation == _operation &&
-        keys.isProfileUnlocked(vaultId);
-  }
-
-  Future<void> _reloadPrivateNotes([String? vaultId]) async {
-    await ref
-        .read(syncTransferControllerProvider.notifier)
-        .applyPendingPrivateDownloadedBundleIfNeeded();
-    await ref.read(notesControllerProvider.notifier).reloadFromStorage();
-    unawaited(
-      ref
-          .read(syncTransferControllerProvider.notifier)
-          .refreshUnlockedPrivateProfiles(),
-    );
-    if (vaultId != null) {
-      unawaited(
-        ref
-            .read(syncTransferControllerProvider.notifier)
-            .restoreUnlockedPrivateAttachments(vaultId),
-      );
-    }
-    if (!state) {
-      ref
-          .read(notesControllerProvider.notifier)
-          .concealPrivateNotes(
-            exceptVaultId: ref.read(unlockedPrivateProfileVaultIdProvider),
-          );
-    }
   }
 
   void lock({
@@ -8564,15 +6536,7 @@ class AdminModeSessionController extends Notifier<bool> {
     _operation++;
     final changed = state;
     state = false;
-    if (changed && usesSyncV2NoteBackend) {
-      ref.read(syncV2WorkspaceProvider).lockPrivate();
-    }
-    ref
-        .read(profileDataKeyServiceProvider)
-        .lockAllPrivateProfiles(
-          exceptVaultId: exceptVaultId,
-          additionalVaultIds: additionalVaultIds,
-        );
+    ref.read(syncV2WorkspaceProvider).lockPrivate();
     ref
         .read(notesControllerProvider.notifier)
         .concealPrivateNotes(
@@ -8593,129 +6557,46 @@ final privateProfileUnlockControllerProvider =
     );
 
 class PrivateProfileUnlockController extends Notifier<AsyncValue<void>> {
+  int _operation = 0;
+
   @override
   AsyncValue<void> build() => const AsyncData(null);
 
   Future<UnlockProfileResult?> unlockWithPassword(String password) async {
-    if (usesSyncV2NoteBackend) return _unlockSyncV2(password);
-    state = const AsyncLoading();
-    try {
-      UnlockProfileResult? candidate;
-      var legacyMatched = false;
-      // Count one supplied password, not every profile it is tested against.
-      await AuthenticationThrottle(
-        store: ref.read(secureKeyValueStoreProvider),
-        storageKey: 'security.private_profiles.attempts.v1',
-      ).verify(() async {
-        candidate = await ref
-            .read(privateMemoProfileStoreProvider)
-            .verifyAny(password);
-        if (candidate != null) return true;
-        legacyMatched = await ref
-            .read(privateVaultSecretStoreProvider)
-            .verifyWithoutThrottle(password);
-        return legacyMatched;
-      });
-      final custom = candidate;
-      if (custom != null) {
-        ref.read(privateVaultSessionControllerProvider.notifier).lock();
-        ref
-            .read(adminModeSessionControllerProvider.notifier)
-            .lock(
-              exceptVaultId: custom.vaultId,
-              additionalVaultIds: custom.additionalVaultIds,
-            );
-        ref
-            .read(unlockedPrivateProfileVaultIdProvider.notifier)
-            .unlock(
-              custom.vaultId,
-              additionalVaultIds: custom.additionalVaultIds,
-            );
-        await _applyPendingDownloadedBundle();
-        await ref.read(notesControllerProvider.notifier).reloadFromStorage();
-        unawaited(
-          ref
-              .read(syncTransferControllerProvider.notifier)
-              .refreshUnlockedPrivateProfiles(),
-        );
-        for (final vaultId in [custom.vaultId, ...custom.additionalVaultIds]) {
-          unawaited(
-            ref
-                .read(syncTransferControllerProvider.notifier)
-                .restoreUnlockedPrivateAttachments(vaultId),
-          );
-        }
-        state = const AsyncData(null);
-        return custom;
-      }
-      var legacyUnlocked = false;
-      if (legacyMatched) {
-        legacyUnlocked = await ref
-            .read(profileDataKeyServiceProvider)
-            .unlockProfile(vaultId: legacyPrivateVaultId, password: password);
-        if (legacyUnlocked) {
-          ref.read(privateVaultSessionControllerProvider.notifier).unlock();
-        }
-      }
-      if (legacyUnlocked) {
-        const result = UnlockProfileResult(
-          vaultId: legacyPrivateVaultId,
-          label: 'Private profile',
-          isLegacy: true,
-        );
-        ref
-            .read(adminModeSessionControllerProvider.notifier)
-            .lock(exceptVaultId: result.vaultId);
-        ref
-            .read(unlockedPrivateProfileVaultIdProvider.notifier)
-            .unlock(result.vaultId);
-        await _applyPendingDownloadedBundle();
-        await ref.read(notesControllerProvider.notifier).reloadFromStorage();
-        unawaited(
-          ref
-              .read(syncTransferControllerProvider.notifier)
-              .refreshUnlockedPrivateProfiles(),
-        );
-        unawaited(
-          ref
-              .read(syncTransferControllerProvider.notifier)
-              .restoreUnlockedPrivateAttachments(result.vaultId),
-        );
-        state = const AsyncData(null);
-        return result;
-      }
-      state = const AsyncData(null);
-      return null;
-    } catch (error, stackTrace) {
-      ref.read(profileDataKeyServiceProvider).lockAllPrivateProfiles();
-      state = AsyncError(error, stackTrace);
-      return null;
-    }
-  }
-
-  Future<void> _applyPendingDownloadedBundle() async {
-    await ref
-        .read(syncTransferControllerProvider.notifier)
-        .applyPendingPrivateDownloadedBundleIfNeeded();
+    return _unlockSyncV2(password);
   }
 
   /// v2: every profile whose passcode matches opens together. A mismatch
   /// returns null without revealing whether any profile exists.
   Future<UnlockProfileResult?> _unlockSyncV2(String password) async {
+    final operation = ++_operation;
     state = const AsyncLoading();
     final workspace = ref.read(syncV2WorkspaceProvider);
+    int? revision;
+    bool current() => ref.mounted && operation == _operation;
     try {
       ref.read(adminModeSessionControllerProvider.notifier).lock();
       ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
       workspace.lockPrivate();
+      revision = workspace.privateSessionRevision;
       try {
         await workspace.unlockPrivate(password);
       } on SyncV2WorkspaceException catch (error) {
+        if (!current()) return null;
+        if (revision != workspace.privateSessionRevision) {
+          state = const AsyncData(null);
+          return null;
+        }
         if (error.code == 'wrong_password') {
           state = const AsyncData(null);
           return null;
         }
         rethrow;
+      }
+      if (!current()) return null;
+      if (revision != workspace.privateSessionRevision) {
+        state = const AsyncData(null);
+        return null;
       }
       final opened = [
         for (final profile in workspace.profiles)
@@ -8728,7 +6609,6 @@ class PrivateProfileUnlockController extends Notifier<AsyncValue<void>> {
       final result = UnlockProfileResult(
         vaultId: opened.first.id,
         label: opened.first.name,
-        isLegacy: false,
         additionalVaultIds: [for (final p in opened.skip(1)) p.id],
       );
       ref
@@ -8738,10 +6618,20 @@ class PrivateProfileUnlockController extends Notifier<AsyncValue<void>> {
             additionalVaultIds: result.additionalVaultIds,
           );
       await ref.read(notesControllerProvider.notifier).reloadFromStorage();
+      if (!current()) return null;
+      if (revision != workspace.privateSessionRevision) {
+        state = const AsyncData(null);
+        return null;
+      }
       state = const AsyncData(null);
       return result;
     } catch (error, stackTrace) {
-      workspace.lockPrivate();
+      if (!current()) return null;
+      if (revision != workspace.privateSessionRevision) {
+        state = const AsyncData(null);
+        return null;
+      }
+      ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
       state = AsyncError(error, stackTrace);
       return null;
     }
@@ -8758,24 +6648,15 @@ final privateMemoProfilesControllerProvider =
     );
 
 class PrivateMemoProfilesController extends Notifier<List<PrivateMemoProfile>> {
-  bool _restored = false;
-
   @override
   List<PrivateMemoProfile> build() {
-    if (usesSyncV2NoteBackend) {
-      // v2 profile names are only readable while unlocked, so the list
-      // follows the workspace's unlocked profiles.
-      final workspace = ref.watch(syncV2WorkspaceProvider);
-      void onChange() => state = _syncV2Profiles(workspace);
-      workspace.addListener(onChange);
-      ref.onDispose(() => workspace.removeListener(onChange));
-      return _syncV2Profiles(workspace);
-    }
-    if (!_restored) {
-      _restored = true;
-      unawaited(refresh());
-    }
-    return const <PrivateMemoProfile>[];
+    // v2 profile names are only readable while unlocked, so the list
+    // follows the workspace's unlocked profiles.
+    final workspace = ref.watch(syncV2WorkspaceProvider);
+    void onChange() => state = _syncV2Profiles(workspace);
+    workspace.addListener(onChange);
+    ref.onDispose(() => workspace.removeListener(onChange));
+    return _syncV2Profiles(workspace);
   }
 
   static List<PrivateMemoProfile> _syncV2Profiles(
@@ -8786,16 +6667,12 @@ class PrivateMemoProfilesController extends Notifier<List<PrivateMemoProfile>> {
         PrivateMemoProfile(
           id: profile.id.substring(customPrivateVaultPrefix.length),
           name: profile.name,
-          createdAt: DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
         ),
   ];
 
   Future<void> refresh() async {
-    if (usesSyncV2NoteBackend) {
-      state = _syncV2Profiles(ref.read(syncV2WorkspaceProvider));
-      return;
-    }
-    state = await ref.read(privateMemoProfileStoreProvider).listProfiles();
+    state = _syncV2Profiles(ref.read(syncV2WorkspaceProvider));
+    return;
   }
 
   static const syncV2AdminRequiredMessage =
@@ -8844,21 +6721,8 @@ class PrivateMemoProfilesController extends Notifier<List<PrivateMemoProfile>> {
   Future<String?> addProfile({
     required String name,
     required String password,
-    bool usePin = false,
-    String? recoveryPassword,
   }) async {
-    if (usesSyncV2NoteBackend) return _addSyncV2Profile(name, password);
-    final error = await ref
-        .read(privateMemoProfileStoreProvider)
-        .addProfile(
-          name: name,
-          password: password,
-          usePin: usePin,
-          recoveryPassword: recoveryPassword,
-        );
-    if (error == null && usePin) ref.invalidate(syncQueueSummaryProvider);
-    await refresh();
-    return error;
+    return _addSyncV2Profile(name, password);
   }
 
   Future<bool> deleteProfile(String id) async {
@@ -8866,51 +6730,28 @@ class PrivateMemoProfilesController extends Notifier<List<PrivateMemoProfile>> {
       return false;
     }
     final vaultId = '$customPrivateVaultPrefix$id';
-    if (usesSyncV2NoteBackend) {
-      try {
-        await ref.read(syncV2WorkspaceProvider).deleteProfile(vaultId);
-      } on SyncV2WorkspaceException {
-        return false;
-      }
-      await ref
-          .read(profileColorThemeControllerProvider.notifier)
-          .clearTheme(vaultId);
-      if (ref.read(searchFiltersControllerProvider).vaultId == vaultId) {
-        ref.read(searchFiltersControllerProvider.notifier).setVault(null);
-      }
-      await refresh();
-      logAudit(
-        'private_profile_delete',
-        data: {'vaultId': vaultId, 'backend': 'sync_v2'},
-      );
-      return true;
+
+    try {
+      await ref.read(syncV2WorkspaceProvider).deleteProfile(vaultId);
+    } on SyncV2WorkspaceException {
+      return false;
     }
-    final removedNoteCount = await ref
-        .read(notesControllerProvider.notifier)
-        .deleteVaultLocally(vaultId);
-    await ref.read(privateMemoProfileStoreProvider).deleteProfile(id);
-    ref.invalidate(syncQueueSummaryProvider);
-    final unlockedVaultId = ref.read(unlockedPrivateProfileVaultIdProvider);
     await ref
         .read(profileColorThemeControllerProvider.notifier)
         .clearTheme(vaultId);
-    if (unlockedVaultId == vaultId) {
-      ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
-    }
-    final filters = ref.read(searchFiltersControllerProvider);
-    if (filters.vaultId == vaultId) {
+    if (ref.read(searchFiltersControllerProvider).vaultId == vaultId) {
       ref.read(searchFiltersControllerProvider.notifier).setVault(null);
     }
     await refresh();
     logAudit(
       'private_profile_delete',
-      data: {'vaultId': vaultId, 'removedNoteCount': removedNoteCount},
+      data: {'vaultId': vaultId, 'backend': 'sync_v2'},
     );
     return true;
   }
 
   Future<bool> renameProfile({required String id, required String name}) async {
-    if (usesSyncV2NoteBackend) {
+    {
       if (!ref.read(adminModeSessionControllerProvider)) return false;
       try {
         await ref
@@ -8922,56 +6763,24 @@ class PrivateMemoProfilesController extends Notifier<List<PrivateMemoProfile>> {
         return false;
       }
     }
-    final changed = await ref
-        .read(privateMemoProfileStoreProvider)
-        .renameProfile(id: id, name: name);
-    ref.invalidate(syncQueueSummaryProvider);
-    await refresh();
-    return changed;
-  }
-
-  Future<bool> resolveNameConflict({
-    required String id,
-    required String name,
-    required Set<String> expectedChangeIds,
-  }) async {
-    if (!ref.read(adminModeSessionControllerProvider)) return false;
-    final changed = await ref
-        .read(privateMemoProfileStoreProvider)
-        .resolveNameConflict(
-          id: id,
-          name: name,
-          expectedChangeIds: expectedChangeIds,
-        );
-    ref.invalidate(syncQueueSummaryProvider);
-    await refresh();
-    return changed;
   }
 
   Future<String?> updateProfilePassword({
     required String id,
     required String password,
   }) async {
-    if (usesSyncV2NoteBackend) {
-      try {
-        await ref
-            .read(syncV2WorkspaceProvider)
-            .changeProfilePassword('$customPrivateVaultPrefix$id', password);
-      } on ArgumentError catch (error) {
-        return '${error.message}';
-      } on SyncV2WorkspaceException catch (error) {
-        return error.code == 'duplicate_passcode'
-            ? 'Use a passcode different from the administrator passcode.'
-            : 'Could not change the passcode (${error.code}).';
-      }
-      return null;
+    try {
+      await ref
+          .read(syncV2WorkspaceProvider)
+          .changeProfilePassword('$customPrivateVaultPrefix$id', password);
+    } on ArgumentError catch (error) {
+      return '${error.message}';
+    } on SyncV2WorkspaceException catch (error) {
+      return error.code == 'duplicate_passcode'
+          ? 'Use a passcode different from the administrator passcode.'
+          : 'Could not change the passcode (${error.code}).';
     }
-    final error = await ref
-        .read(privateMemoProfileStoreProvider)
-        .updateProfilePassword(id: id, password: password);
-    ref.invalidate(syncQueueSummaryProvider);
-    await refresh();
-    return error;
+    return null;
   }
 }
 
@@ -8979,12 +6788,9 @@ final accessiblePrivateVaultIdsProvider = Provider<List<String>>((ref) {
   final adminMode = ref.watch(adminModeSessionControllerProvider);
   final unlockedVaultId = ref.watch(unlockedPrivateProfileVaultIdProvider);
   final profiles = ref.watch(privateMemoProfilesControllerProvider);
-  final legacyConfigured = ref.watch(privateVaultSecretControllerProvider);
+
   if (adminMode) {
-    return [
-      if (legacyConfigured) legacyPrivateVaultId,
-      for (final profile in profiles) profile.vaultId,
-    ];
+    return [for (final profile in profiles) profile.vaultId];
   }
   return [
     ?unlockedVaultId,
@@ -9001,9 +6807,6 @@ final activePrivateProfileLabelProvider = Provider<String?>((ref) {
   if (unlockedVaultId == null) {
     return null;
   }
-  if (unlockedVaultId == legacyPrivateVaultId) {
-    return 'Private profile';
-  }
   final profiles = ref.watch(privateMemoProfilesControllerProvider);
   final match = profiles.where((profile) => profile.vaultId == unlockedVaultId);
   if (match.isEmpty) {
@@ -9013,12 +6816,9 @@ final activePrivateProfileLabelProvider = Provider<String?>((ref) {
 });
 
 final privacyScreenActiveProvider = Provider<bool>((ref) {
-  final legacyPrivateUnlocked = ref.watch(
-    privateVaultSessionControllerProvider,
-  );
   final adminMode = ref.watch(adminModeSessionControllerProvider);
   final unlockedVaultId = ref.watch(unlockedPrivateProfileVaultIdProvider);
-  return legacyPrivateUnlocked || adminMode || unlockedVaultId != null;
+  return adminMode || unlockedVaultId != null;
 });
 
 @riverpod
@@ -9048,13 +6848,6 @@ List<VaultBucket> visibleVaults(Ref ref) {
   );
   final profiles = ref.watch(privateMemoProfilesControllerProvider);
   VaultBucket? privateVaultFor(String vaultId) {
-    if (vaultId == legacyPrivateVaultId) {
-      return const VaultBucket(
-        id: legacyPrivateVaultId,
-        name: 'Private profile',
-        description: '__unlocked_private_notes__',
-      );
-    }
     final match = profiles.where((profile) => profile.vaultId == vaultId);
     if (match.isEmpty) {
       return null;
@@ -9717,40 +7510,32 @@ final visibleTagSummariesProvider = Provider<List<VisibleTagSummary>>((ref) {
 final noteEditorDraftStoreProvider = Provider<NoteEditorDraftStore>(
   (ref) => NoteEditorDraftStore(
     encryptionService: ref.watch(encryptionServiceProvider),
-    masterKeyService: ref.watch(masterKeyServiceProvider),
-    profileDataKeyService: ref.watch(profileDataKeyServiceProvider),
-    protectAttachments: !usesSyncV2NoteBackend
-        ? null
-        : (snapshot) async {
-            final store = ref.read(encryptedAttachmentStoreProvider);
-            final seen = <String>{};
-            for (final attachment in [
-              ...snapshot.quickAttachments,
-              for (final block in snapshot.richBlocks)
-                if (block.attachment != null) block.attachment!,
-            ]) {
-              final source = attachment.filePath;
-              if (source != null && seen.add(source)) {
-                await store.protectAttachmentForVault(
-                  source,
-                  type: attachment.type,
-                  vaultId: snapshot.vaultId,
-                );
-              }
-            }
-          },
-    storageKey: usesSyncV2NoteBackend
-        ? 'notes.editor_draft.v2'
-        : 'notes.editor_draft.v1',
-    keyForVault: !usesSyncV2NoteBackend
-        ? null
-        : (vaultId) async {
-            final session = ref.read(syncV2WorkspaceProvider).noteStoreSession;
-            if (session == null) return null;
-            return session
-                .profiles[SyncV2NoteStore.profileIdFor(session, vaultId)]
-                ?.key;
-          },
+    protectAttachments: (snapshot) async {
+      final store = ref.read(encryptedAttachmentStoreProvider);
+      final seen = <String>{};
+      for (final attachment in [
+        ...snapshot.quickAttachments,
+        for (final block in snapshot.richBlocks)
+          if (block.attachment != null) block.attachment!,
+      ]) {
+        final source = attachment.filePath;
+        if (source != null && seen.add(source)) {
+          await store.protectAttachmentForVault(
+            source,
+            type: attachment.type,
+            vaultId: snapshot.vaultId,
+          );
+        }
+      }
+    },
+    storageKey: 'notes.editor_draft.v2',
+    keyForVault: (vaultId) async {
+      final session = ref.read(syncV2WorkspaceProvider).noteStoreSession;
+      if (session == null) return null;
+      return session
+          .profiles[SyncV2NoteStore.profileIdFor(session, vaultId)]
+          ?.key;
+    },
   ),
 );
 
@@ -9843,13 +7628,6 @@ List<DateTime> visibleNoteDays(Ref ref) {
 @riverpod
 List<NoteEntry> notesForVault(Ref ref, String vaultId) {
   return ref.watch(visibleNotesByVaultProvider)[vaultId] ?? const <NoteEntry>[];
-}
-
-@riverpod
-SyncAuthState selectedSyncAuthState(Ref ref) {
-  final provider = ref.watch(syncProviderControllerProvider);
-  final states = ref.watch(syncAuthControllerProvider);
-  return states[provider] ?? SyncAuthState.idle(provider);
 }
 
 @riverpod

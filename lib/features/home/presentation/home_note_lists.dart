@@ -299,11 +299,6 @@ String _vaultDisplayName(BuildContext context, VaultBucket vault) {
   if (vault.id == 'everyday') {
     return context.strings.notes;
   }
-  if (vault.id == legacyPrivateVaultId &&
-      (vault.name == 'Private profile' ||
-          vault.name == '__private_profile__')) {
-    return context.strings.text('home.private.profile');
-  }
   if (vault.name == 'Notes' || vault.name == '__notes__') {
     return context.strings.notes;
   }

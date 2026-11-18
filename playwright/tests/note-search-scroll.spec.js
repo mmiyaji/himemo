@@ -1,4 +1,5 @@
 const { test, expect } = require('@playwright/test');
+const { resetV2App, createNotesThroughUi } = require('../support/v2-app');
 
 test('note detail search jumps across media without reverse scroll motion', async ({
   page,
@@ -13,7 +14,7 @@ test('note detail search jumps across media without reverse scroll motion', asyn
   await page.getByRole('button', { name: /Search in note|メモ内を検索/ }).click();
   const detailSearchInput = page.getByLabel(/Search in this note|このメモ内を検索/);
   await detailSearchInput.click();
-  await detailSearchInput.pressSequentially('ump-target');
+  await detailSearchInput.fill('ump-target');
   await expect(detailSearchInput).toHaveValue('ump-target');
 
   const nextMatch = page.getByRole('button', { name: /Next match|次の一致へ/ }).first();
@@ -69,7 +70,7 @@ test('note detail search jumps to the exact match inside a long text block', asy
   await page.getByRole('button', { name: /Search in note|繝｡繝｢蜀・ｒ讀懃ｴ｢/ }).click();
   const detailSearchInput = page.getByLabel(/Search in this note|縺薙・繝｡繝｢蜀・ｒ讀懃ｴ｢/);
   await detailSearchInput.click();
-  await detailSearchInput.pressSequentially('exact-target');
+  await detailSearchInput.fill('exact-target');
   await expect(detailSearchInput).toHaveValue('exact-target');
 
   const nextMatch = page.getByRole('button', { name: /Next match|谺｡縺ｮ荳閾ｴ縺ｸ/ }).first();
@@ -137,46 +138,8 @@ function createSearchScrollNote(overrides = {}) {
 }
 
 async function seedScrollableNote(page, note = createSearchScrollNote()) {
-  await page.evaluate(async () => {
-    localStorage.clear();
-    sessionStorage.clear();
-    if (indexedDB.databases) {
-      const databases = await indexedDB.databases();
-      await Promise.all(
-        databases
-          .map((database) => database.name)
-          .filter(Boolean)
-          .map(
-            (name) =>
-              new Promise((resolve) => {
-                const request = indexedDB.deleteDatabase(name);
-                request.onsuccess = request.onerror = request.onblocked = resolve;
-              }),
-          ),
-      );
-    }
-  });
-  await page.evaluate((seedNote) => {
-    localStorage.setItem('flutter.app.onboarding_completed', JSON.stringify(true));
-    localStorage.setItem('flutter.app.onboarding_completed_version', JSON.stringify(2));
-    localStorage.setItem('flutter.release_notes.last_seen', JSON.stringify('1.0.0+46'));
-    localStorage.setItem(
-      'flutter.notes.entries.v1',
-      JSON.stringify(JSON.stringify([seedNote])),
-    );
-  }, note);
-  await page.reload();
-  await expect
-    .poll(
-      async () =>
-        (await page.getByRole('button', { name: 'Add note' }).count()) +
-        (await page.getByRole('button', { name: 'Next' }).count()) +
-        (await page.getByRole('button', { name: 'Skip' }).count()) +
-        (await page.getByRole('button', { name: '次へ' }).count()) +
-        (await page.getByRole('button', { name: 'スキップ' }).count()),
-      { timeout: 15000 },
-    )
-    .toBeGreaterThan(0);
+  await resetV2App(page);
+  await createNotesThroughUi(page, [note]);
 }
 
 async function expectNoteCard(page, name) {

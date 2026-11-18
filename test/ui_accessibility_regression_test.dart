@@ -6,7 +6,6 @@ import 'package:himemo/features/sync/data/sync_v2_icloud_session.dart';
 import 'dart:math';
 import 'dart:ui' as ui;
 
-import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/rendering.dart';
@@ -21,17 +20,15 @@ import 'package:himemo/app/app_router.dart';
 import 'package:himemo/features/home/presentation/home_page.dart';
 import 'package:himemo/features/home/domain/note_entry.dart';
 import 'package:himemo/features/home/presentation/home_providers.dart';
-import 'package:himemo/features/security/data/encrypted_note_database.dart';
-import 'package:himemo/features/security/data/encrypted_note_store.dart';
 import 'package:himemo/features/security/data/encryption_service.dart';
-import 'package:himemo/features/security/data/master_key_service.dart';
 import 'package:himemo/features/security/data/secure_key_value_store.dart';
 import 'package:himemo/l10n/app_localizations.dart';
 import 'package:himemo/l10n/app_strings.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:himemo/features/sync/presentation/sync_v2_note_store_provider.dart'
+    show noteStoreProvider;
 import 'package:himemo/features/sync/presentation/sync_v2_workspace.dart';
-import 'package:himemo/features/sync/presentation/sync_v2_note_store_provider.dart';
 
 import 'support/sync_v2_workspace_fixture.dart';
 import 'support/sync_v2_conflict_fixture.dart';
@@ -113,7 +110,7 @@ void main() {
       expect(image, findsWidgets);
       final saved = harness.container.read(notesControllerProvider).single;
       expect(saved.attachments.single.filePath, startsWith('v2attachment:'));
-      expect(harness.container.exists(syncTransferControllerProvider), isFalse);
+
       expect(find.text('Download'), findsNothing);
       for (
         var frame = 0;
@@ -139,7 +136,7 @@ void main() {
       }
       await tester.pump(const Duration(milliseconds: 300));
       expect(find.byTooltip('Zoom in'), findsOneWidget);
-      expect(harness.container.exists(syncTransferControllerProvider), isFalse);
+
       await tester.tap(find.byTooltip('Close').last);
       await tester.pumpAndSettle();
       expect(find.byTooltip('Zoom in'), findsNothing);
@@ -148,7 +145,6 @@ void main() {
       harness.container.dispose();
       await tester.pump();
     },
-    skip: !usesSyncV2NoteBackend,
   );
 
   testWidgets(
@@ -182,8 +178,6 @@ void main() {
           .read(appSessionUnlockControllerProvider.notifier)
           .unlock();
       await tester.pumpAndSettle();
-      // Pass the last (45-second) probe of the retired startup scheduler.
-      await tester.pump(const Duration(seconds: 46));
       final tutorial = harness.container.read(
         appTutorialControllerProvider.notifier,
       );
@@ -193,9 +187,7 @@ void main() {
         contains(AppTutorialStep.syncStatus),
       );
       tutorial.close();
-      expect(harness.container.exists(syncProviderControllerProvider), isFalse);
-      expect(harness.container.exists(syncTransferControllerProvider), isFalse);
-      expect(harness.container.exists(syncQueueSummaryProvider), isFalse);
+
       expect(find.byKey(AppShell.syncIndicatorKey), findsNothing);
       final workspace = harness.container.read(syncV2WorkspaceProvider);
       await tester.runAsync(() async {
@@ -232,9 +224,7 @@ void main() {
         '/settings',
       );
       expect(find.text('Retry sync'), findsOneWidget);
-      expect(harness.container.exists(syncProviderControllerProvider), isFalse);
-      expect(harness.container.exists(syncTransferControllerProvider), isFalse);
-      expect(harness.container.exists(syncQueueSummaryProvider), isFalse);
+
       final syncSection = tester.widget<ExpansionTile>(
         find
             .ancestor(
@@ -250,7 +240,6 @@ void main() {
       harness.container.dispose();
       await tester.pump();
     },
-    skip: !usesSyncV2NoteBackend,
   );
 
   testWidgets(
@@ -352,7 +341,6 @@ void main() {
       expect(find.text('Choose the version to keep'), findsNothing);
       expect(tester.takeException(), isNull);
     },
-    skip: !usesSyncV2NoteBackend,
   );
 
   testWidgets('settings adapts across repeated fold and unfold sizes', (
@@ -616,8 +604,7 @@ void main() {
       'Notes and organization',
       'Private profiles',
       'App security',
-      if (usesSyncV2NoteBackend) 'Sync and security' else 'Device sync',
-      if (!usesSyncV2NoteBackend) 'File backup',
+      'Sync and security',
       'Storage',
       'About',
     ]) {
@@ -683,7 +670,7 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     harness.container.dispose();
     await tester.pump();
-  }, skip: !usesSyncV2NoteBackend);
+  });
 
   testWidgets('wide settings retains the status overview', (tester) async {
     final harness = await _createHarness(
@@ -692,11 +679,6 @@ void main() {
     _configureView(tester, size: const Size(1024, 900));
     await _pumpSettingsScreen(tester, harness.container);
 
-    // Opening v2 settings must not initialize the retired sync pipeline.
-    expect(harness.container.exists(syncTransferControllerProvider), isFalse);
-    expect(harness.container.exists(syncQueueSummaryProvider), isFalse);
-    expect(harness.container.exists(syncHistoryProvider), isFalse);
-    expect(harness.container.exists(syncBundleFingerprintProvider), isFalse);
     final overview = find.byKey(SettingsScreen.overviewKey);
     expect(overview, findsOneWidget);
     expect(
@@ -1134,10 +1116,9 @@ void main() {
 }
 
 class _TestHarness {
-  const _TestHarness({required this.container, required this.database});
+  const _TestHarness({required this.container});
 
   final ProviderContainer container;
-  final EncryptedNoteDatabase database;
 }
 
 class _PendingAppLockSettingsController extends AppLockSettingsReadyController {
@@ -1157,24 +1138,16 @@ Future<_TestHarness> _createHarness({
   configureFlavor(flavor);
   final secureStore = MemorySecureKeyValueStore();
   final encryptionService = EncryptionService(random: Random(71));
-  final masterKeyService = MasterKeyService(
-    secureStore: secureStore,
-    keyFactory: encryptionService.generateKeyBytes,
-  );
-  final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
-  final workspace = usesSyncV2NoteBackend
-      ? await TestWidgetsFlutterBinding.instance.runAsync(
-          () => createSyncV2TestWorkspace(
-            register: registerWorkspace,
-            syncOperation: syncOperation,
-          ),
-        )
-      : null;
-  if (workspace != null) addTearDown(workspace.dispose);
+  final workspace = (await TestWidgetsFlutterBinding.instance.runAsync(
+    () => createSyncV2TestWorkspace(
+      register: registerWorkspace,
+      syncOperation: syncOperation,
+    ),
+  ))!;
+  addTearDown(workspace.dispose);
   final container = ProviderContainer(
     overrides: [
-      if (workspace != null)
-        syncV2WorkspaceProvider.overrideWithValue(workspace),
+      syncV2WorkspaceProvider.overrideWithValue(workspace),
       ...overrides,
       packageInfoProvider.overrideWith(
         (ref) async => const AppPackageDetails(
@@ -1185,16 +1158,6 @@ Future<_TestHarness> _createHarness({
       ),
       secureKeyValueStoreProvider.overrideWithValue(secureStore),
       encryptionServiceProvider.overrideWithValue(encryptionService),
-      masterKeyServiceProvider.overrideWithValue(masterKeyService),
-      encryptedNoteDatabaseProvider.overrideWithValue(database),
-      encryptedNoteStoreProvider.overrideWithValue(
-        EncryptedNoteStore(
-          encryptionService: encryptionService,
-          masterKeyService: masterKeyService,
-          database: database,
-          directoryProvider: () async => Directory.systemTemp,
-        ),
-      ),
       if (keepAppLockSettingsPending)
         appLockSettingsReadyProvider.overrideWith(
           _PendingAppLockSettingsController.new,
@@ -1202,8 +1165,7 @@ Future<_TestHarness> _createHarness({
     ],
   );
   addTearDown(container.dispose);
-  addTearDown(database.close);
-  return _TestHarness(container: container, database: database);
+  return _TestHarness(container: container);
 }
 
 Future<_TestHarness> _pumpHiMemoApp(

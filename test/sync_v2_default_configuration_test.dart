@@ -6,20 +6,19 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   test('a build with no backend flag uses v2', () {
     expect(noteBackend, 'v2');
-    expect(usesSyncV2NoteBackend, isTrue);
   }, skip: const bool.hasEnvironment('HIMEMO_NOTE_BACKEND'));
 
   test('production rejects unsupported startup backends', () {
     configureFlavor(AppFlavor.production);
     expect(isDevelopmentFlavor, isFalse);
-    if (noteBackend == 'v1') {
-      expect(noteBackendOverrides, throwsStateError);
-    } else if (noteBackend == 'v2-local') {
+    if (noteBackend == 'v2-local') {
       expect(noteBackendOverrides, throwsStateError);
       configureFlavor(AppFlavor.development);
       expect(noteBackendOverrides(), hasLength(1));
-    } else {
+    } else if (noteBackend == 'v2') {
       expect(noteBackendOverrides(), isEmpty);
+    } else {
+      expect(noteBackendOverrides, throwsStateError);
     }
   });
 }

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import 'dart:async';
 
-import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:himemo/app/app.dart';
@@ -10,9 +9,11 @@ import 'package:himemo/app/app_flavor.dart';
 import 'package:himemo/app/app_router.dart';
 import 'package:himemo/features/home/presentation/home_page.dart';
 import 'package:himemo/features/home/presentation/home_providers.dart';
-import 'package:himemo/features/security/data/encrypted_note_database.dart';
+import 'package:himemo/features/sync/presentation/sync_v2_workspace.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../test/support/sync_v2_workspace_fixture.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -33,13 +34,11 @@ void main() {
         'settings.app_lock_relock_delay': 'immediate',
       });
       final fakeDeviceAuthGateway = _DelayedDeviceAuthGateway();
-      final noteDatabase = EncryptedNoteDatabase(
-        executor: NativeDatabase.memory(),
-      );
-      addTearDown(noteDatabase.close);
+      final workspace = (await tester.runAsync(createSyncV2TestWorkspace))!;
+      addTearDown(workspace.dispose);
       final container = ProviderContainer(
         overrides: [
-          encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+          syncV2WorkspaceProvider.overrideWithValue(workspace),
           deviceAuthGatewayProvider.overrideWithValue(fakeDeviceAuthGateway),
         ],
       );
@@ -110,13 +109,11 @@ void main() {
       final fakeDeviceAuthGateway = _FakeDeviceAuthGateway(
         authenticateResults: [true, true],
       );
-      final noteDatabase = EncryptedNoteDatabase(
-        executor: NativeDatabase.memory(),
-      );
-      addTearDown(noteDatabase.close);
+      final workspace = (await tester.runAsync(createSyncV2TestWorkspace))!;
+      addTearDown(workspace.dispose);
       final container = ProviderContainer(
         overrides: [
-          encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+          syncV2WorkspaceProvider.overrideWithValue(workspace),
           deviceAuthGatewayProvider.overrideWithValue(fakeDeviceAuthGateway),
         ],
       );
@@ -143,6 +140,8 @@ void main() {
       expect(addError, isNull);
       await _pumpUi(tester);
       expect(container.read(privateMemoProfilesProvider).length, 1);
+      container.read(adminModeSessionControllerProvider.notifier).lock();
+      container.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
 
       container.read(appRouterProvider).go('/notes');
       await _pumpUi(tester);

@@ -114,6 +114,17 @@ void main() {
     );
   });
 
+  test('plans sync tag text as an ordinary auto-tag rule', () {
+    final note = entry();
+    final result = planSyncV2AutoTagEdits(
+      notes: [note],
+      rules: [invoiceRule.copyWith(tag: 'sync:excluded')],
+      selectedProfileId: 'v2-profile',
+      locked: false,
+    );
+    expect(result[note], ['sync:excluded']);
+  });
+
   testWidgets('English editor returns normalized, validated fields', (
     tester,
   ) async {
@@ -156,44 +167,55 @@ void main() {
     expect(saved?.matchAttachments, isTrue);
   });
 
-  testWidgets('Japanese editor validates reserved tag and asks for a target', (
-    tester,
-  ) async {
-    var saves = 0;
-    await tester.pumpWidget(
-      MaterialApp(
-        locale: const Locale('ja'),
-        localizationsDelegates: GlobalMaterialLocalizations.delegates,
-        supportedLocales: const [Locale('en'), Locale('ja')],
-        home: Builder(
-          builder: (context) => Scaffold(
-            body: TextButton(
-              onPressed: () => showSyncV2AutoTagRuleEditor(
-                context,
-                onSave: (_) async => saves++,
+  testWidgets(
+    'Japanese editor accepts ordinary sync tag text and requires a target',
+    (tester) async {
+      SyncV2AutoTagRuleDraft? saved;
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('ja'),
+          localizationsDelegates: GlobalMaterialLocalizations.delegates,
+          supportedLocales: const [Locale('en'), Locale('ja')],
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () => showSyncV2AutoTagRuleEditor(
+                  context,
+                  onSave: (value) async => saved = value,
+                ),
+                child: const Text('開く'),
               ),
-              child: const Text('開く'),
             ),
           ),
         ),
-      ),
-    );
-    await tester.tap(find.text('開く'));
-    await tester.pumpAndSettle();
-    expect(find.text('自動タグルールを作成'), findsOneWidget);
-    await tester.enterText(
-      find.byKey(const ValueKey('sync-v2-auto-tag-name')),
-      'sync:excluded',
-    );
-    await tester.enterText(
-      find.byKey(const ValueKey('sync-v2-auto-tag-keywords')),
-      'invoice',
-    );
-    await tester.tap(find.byKey(const ValueKey('sync-v2-auto-tag-save')));
-    await tester.pumpAndSettle();
-    expect(find.text('このタグ名はアプリが使用しています。'), findsOneWidget);
-    expect(saves, 0);
-  });
+      );
+      await tester.tap(find.text('開く'));
+      await tester.pumpAndSettle();
+      expect(find.text('自動タグルールを作成'), findsOneWidget);
+      await tester.enterText(
+        find.byKey(const ValueKey('sync-v2-auto-tag-name')),
+        'sync:excluded',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('sync-v2-auto-tag-keywords')),
+        'invoice',
+      );
+      for (final title in ['タイトル', '本文', '添付ファイル名']) {
+        await tester.tap(find.text(title));
+      }
+      await tester.tap(find.byKey(const ValueKey('sync-v2-auto-tag-save')));
+      await tester.pumpAndSettle();
+      expect(find.text('照合対象を1つ以上選択してください。'), findsOneWidget);
+      expect(saved, isNull);
+      await tester.tap(find.text('タイトル'));
+      await tester.tap(find.byKey(const ValueKey('sync-v2-auto-tag-save')));
+      await tester.pumpAndSettle();
+      expect(saved?.tag, 'sync:excluded');
+      expect(saved?.matchTitle, isTrue);
+      expect(saved?.matchBody, isFalse);
+      expect(saved?.matchAttachments, isFalse);
+    },
+  );
 
   testWidgets('rules panel fits a narrow mobile width in English', (
     tester,

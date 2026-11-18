@@ -8,9 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:himemo/features/security/data/authentication_throttle.dart';
 import 'package:himemo/features/security/data/encryption_service.dart';
 import 'package:himemo/features/security/data/master_key_service.dart';
-import 'package:himemo/features/security/data/private_vault_secret_store.dart';
 import 'package:himemo/features/security/data/secure_key_value_store.dart';
-import 'package:himemo/features/sync/data/sync_bundle_key_service.dart';
 
 class _NoConfirmStore extends MemorySecureKeyValueStore {
   @override
@@ -93,52 +91,6 @@ void main() {
       expect(await store.read('security.master_key.v1'), isNull);
       final key = await service.obtainOrCreate();
       expect(await key.extractBytes(), List.filled(32, 4));
-    });
-  });
-
-  group('SyncBundleKeyService', () {
-    test('cross-instance generation and import serialize on the shared store', () async {
-      final store = MemorySecureKeyValueStore();
-      var creations = 0;
-      final generated = SyncBundleKeyService(
-        secureStore: store,
-        keyFactory: () {
-          creations++;
-          return List.filled(32, 3);
-        },
-      );
-      final importing = SyncBundleKeyService(
-        secureStore: store,
-        keyFactory: () {
-          creations++;
-          return List.filled(32, 8);
-        },
-      );
-      final code =
-          '${SyncBundleKeyService.backupCodePrefix}${base64Encode(List.filled(32, 6))}';
-      final results = await Future.wait([
-        generated.obtainOrCreate(),
-        importing.importBackupCode(code),
-      ]);
-      expect(creations, lessThanOrEqualTo(1));
-      final existing = await importing.exportExistingBackupCode();
-      expect(existing, code);
-      expect(results, hasLength(2));
-    });
-
-    test('existing-only reads do not generate a key', () async {
-      var creations = 0;
-      final service = SyncBundleKeyService(
-        secureStore: MemorySecureKeyValueStore(),
-        keyFactory: () {
-          creations++;
-          return List.filled(32, 2);
-        },
-      );
-      expect(await service.existingFullFingerprint(), isNull);
-      expect(await service.exportExistingBackupCode(), isNull);
-      await expectLater(service.requireExisting(), throwsStateError);
-      expect(creations, 0);
     });
   });
 
@@ -330,55 +282,6 @@ void main() {
     await expectLater(
       create().verify('cover-secret'),
       throwsA(isA<AuthenticationThrottledException>()),
-    );
-  });
-
-  group('PrivateVaultSecretStore migration', () {
-    late SharedPreferences prefs;
-    late EncryptionService encryption;
-
-    setUp(() async {
-      SharedPreferences.setMockInitialValues({});
-      prefs = await SharedPreferences.getInstance();
-      encryption = EncryptionService();
-    });
-
-    Future<void> setLegacySecret() async {
-      final salt = encryption.generateSalt();
-      final verifier = await encryption.deriveSecretVerifier(
-        secret: 'vault-pin',
-        salt: salt,
-      );
-      await prefs.setString('security.private_vault_salt', base64Encode(salt));
-      await prefs.setString('security.private_vault_digest', verifier);
-    }
-
-    test('unconfirmed migration retains legacy values and throws', () async {
-      await setLegacySecret();
-      final store = PrivateVaultSecretStore(
-        secureStore: _NoConfirmStore(),
-        encryptionService: encryption,
-        sharedPreferencesProvider: () async => prefs,
-      );
-      await expectLater(store.hasSecret(), throwsStateError);
-      expect(prefs.getString('security.private_vault_salt'), isNotNull);
-      expect(prefs.getString('security.private_vault_digest'), isNotNull);
-    });
-
-    test(
-      'successful migration removes legacy values and verifies secret',
-      () async {
-        await setLegacySecret();
-        final store = PrivateVaultSecretStore(
-          secureStore: MemorySecureKeyValueStore(),
-          encryptionService: encryption,
-          sharedPreferencesProvider: () async => prefs,
-        );
-        expect(await store.hasSecret(), isTrue);
-        expect(prefs.getString('security.private_vault_salt'), isNull);
-        expect(prefs.getString('security.private_vault_digest'), isNull);
-        expect(await store.verify('vault-pin'), isTrue);
-      },
     );
   });
 }

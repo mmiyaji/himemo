@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:himemo/features/home/presentation/home_page.dart';
 import 'package:himemo/features/sync/presentation/sync_v2_workspace.dart';
-import 'package:himemo/features/sync/presentation/sync_v2_note_store_provider.dart';
 
 import 'support/sync_v2_workspace_fixture.dart';
 
@@ -50,7 +49,6 @@ void main() {
       expect(find.text('Setup'), findsOneWidget);
       expect(find.byType(TextField), findsNothing);
     },
-    skip: !usesSyncV2NoteBackend,
   );
 
   testWidgets(

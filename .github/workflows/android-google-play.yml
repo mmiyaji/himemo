@@ -142,13 +142,8 @@ jobs:
       - name: Analyze Flutter sources
         run: flutter analyze --fatal-infos
 
-      - name: Run legacy compatibility tests
-        run: >-
-          flutter test test --concurrency=2 --tags legacy
-          --dart-define=HIMEMO_NOTE_BACKEND=v1
-
       - name: Test default v2 and shared code
-        run: flutter test test --concurrency=2 --exclude-tags legacy
+        run: flutter test test --concurrency=2
 
       - name: Build development Web app
         run: >-
@@ -184,7 +179,6 @@ jobs:
 
       - name: Build production Android App Bundle
         env:
-          HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID: ${{ secrets.HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID }}
           HIMEMO_FIREBASE_PROJECT_NUMBER: ${{ secrets.HIMEMO_FIREBASE_PROJECT_NUMBER }}
         run: |
           flutter build appbundle --release \
@@ -192,7 +186,6 @@ jobs:
             -t lib/main_production.dart \
             --build-name="$VERSION_NAME" \
             --build-number="$VERSION_CODE" \
-            --dart-define=HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID="${HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID:-}" \
             --dart-define=HIMEMO_BUILD_DATE="$(date -u +%Y-%m-%d)"
 
       - name: Locate Android App Bundle

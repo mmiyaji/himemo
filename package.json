@@ -9,7 +9,7 @@
     "web:prepare:sqljs": "node tools/copy_sqljs_assets.js",
     "web:build:flutter": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/flutter_with_env.ps1 build web --no-wasm-dry-run -t lib/main_development.dart",
     "web:build": "npm run web:prepare:sqljs && npm run web:build:flutter",
-    "web:build:e2e": "npm run web:prepare:sqljs && npm run web:build:flutter -- --dart-define=HIMEMO_FAKE_GOOGLE_DRIVE_SYNC=true",
+    "web:build:e2e": "npm run web:prepare:sqljs && npm run web:build:flutter -- --dart-define=HIMEMO_NOTE_BACKEND=v2-local",
     "web:serve:test": "npm run web:build:e2e && serve -s -l tcp://127.0.0.1:4173 --no-port-switching build/web"
   },
   "repository": {

@@ -1,4 +1,3 @@
-import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -6,9 +5,11 @@ import 'package:himemo/app/app.dart';
 import 'package:himemo/app/app_flavor.dart';
 import 'package:himemo/features/home/presentation/home_page.dart';
 import 'package:himemo/features/home/presentation/home_providers.dart';
-import 'package:himemo/features/security/data/encrypted_note_database.dart';
+import 'package:himemo/features/sync/presentation/sync_v2_workspace.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../test/support/sync_v2_workspace_fixture.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -26,14 +27,10 @@ void main() {
       'release_notes.last_seen': '1.0.0+46',
       'settings.locale': 'english',
     });
-    final noteDatabase = EncryptedNoteDatabase(
-      executor: NativeDatabase.memory(),
-    );
-    addTearDown(noteDatabase.close);
+    final workspace = (await tester.runAsync(createSyncV2TestWorkspace))!;
+    addTearDown(workspace.dispose);
     final container = ProviderContainer(
-      overrides: [
-        encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
-      ],
+      overrides: [syncV2WorkspaceProvider.overrideWithValue(workspace)],
     );
     addTearDown(container.dispose);
 

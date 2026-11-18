@@ -5,9 +5,6 @@ import 'package:drift/native.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 
-QueryExecutor createEncryptedNoteDatabaseExecutor() =>
-    _createDatabase('himemo_notes.sqlite');
-
 QueryExecutor createSyncV2DatabaseExecutor() =>
     _createDatabase('himemo_sync_v2.sqlite');
 

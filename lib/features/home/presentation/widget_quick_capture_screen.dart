@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart' show XFile;
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../l10n/app_strings.dart';
 import '../../sync/data/sync_v2_attachment_service.dart';
@@ -169,42 +168,31 @@ class _WidgetQuickCaptureScreenState
       );
       final shareId = request?.shareId;
       if (text.isNotEmpty || files.isNotEmpty) {
-        final prefs = await SharedPreferences.getInstance();
-        if (prefs.getBool(syncV2EnabledPreference) == true) {
-          final workspace = ref.read(syncV2WorkspaceProvider);
-          if (workspace.registered) {
-            await workspace.resume();
-          } else {
-            await workspace.initialize();
-          }
-          await workspace.captureShared(
-            rawText: text,
-            requestId: shareId ?? request?.nonce ?? _fallbackRequestId,
-            readFiles: () async {
-              final captures = <SyncV2CaptureFile>[];
-              for (final file in files) {
-                final source = XFile(file.path);
-                if (await source.length() > SyncV2AttachmentService.maxBytes) {
-                  throw const FormatException('Attachment exceeds size limit');
-                }
-                captures.add((
-                  label: file.name,
-                  type: (file.attachmentType ?? AttachmentType.file).name,
-                  bytes: await source.readAsBytes(),
-                ));
-              }
-              return captures;
-            },
-          );
+        final workspace = ref.read(syncV2WorkspaceProvider);
+        if (workspace.registered) {
+          await workspace.resume();
         } else {
-          await ref
-              .read(notesControllerProvider.notifier)
-              .createSharedFileCapture(
-                rawText: text,
-                files: files,
-                shareId: shareId,
-              );
+          await workspace.initialize();
         }
+        await workspace.captureShared(
+          rawText: text,
+          requestId: shareId ?? request?.nonce ?? _fallbackRequestId,
+          readFiles: () async {
+            final captures = <SyncV2CaptureFile>[];
+            for (final file in files) {
+              final source = XFile(file.path);
+              if (await source.length() > SyncV2AttachmentService.maxBytes) {
+                throw const FormatException('Attachment exceeds size limit');
+              }
+              captures.add((
+                label: file.name,
+                type: (file.attachmentType ?? AttachmentType.file).name,
+                bytes: await source.readAsBytes(),
+              ));
+            }
+            return captures;
+          },
+        );
       }
       if (shareId == null) {
         await bridge.deleteImportedFiles(files);

@@ -109,8 +109,6 @@ class SyncV2CloudKitSandboxSession {
         transportFactory: (account) =>
             (reader: transport(account), writer: transport(account)),
       ).syncOnce(),
-      activate: () async {},
-      deactivate: () async {},
       supported: true,
       automaticSync: true,
     );

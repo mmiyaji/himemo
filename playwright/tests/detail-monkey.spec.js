@@ -1,11 +1,12 @@
 const { test, expect } = require("@playwright/test");
+const { resetV2App, createNotesThroughUi } = require("../support/v2-app");
 
 const detailSeeds = [2101, 2102, 2103];
 
 test.describe("detail monkey coverage", () => {
   for (const seed of detailSeeds) {
     test(`detail search/navigation monkey seed ${seed}`, async ({ page }) => {
-      test.setTimeout(90_000);
+      test.setTimeout(180_000);
       const failures = [];
       page.on("pageerror", (error) => failures.push(`pageerror: ${error}`));
       page.on("console", (message) => {
@@ -216,92 +217,21 @@ async function expectNoRawFlutterError(page, seed, trace) {
 }
 
 async function seedDetailNotes(page, seed) {
-  await resetBrowserState(page);
-  const notes = Array.from({ length: 6 }, (_, index) =>
-    createDetailNote(seed, index),
-  );
-  await page.evaluate((seedNotes) => {
-    localStorage.setItem(
-      "flutter.app.onboarding_completed",
-      JSON.stringify(true),
-    );
-    localStorage.setItem(
-      "flutter.app.onboarding_completed_version",
-      JSON.stringify(2),
-    );
-    localStorage.setItem(
-      "flutter.release_notes.last_seen",
-      JSON.stringify("1.0.0+46"),
-    );
-    localStorage.setItem(
-      "flutter.notes.entries.v1",
-      JSON.stringify(JSON.stringify(seedNotes)),
-    );
-  }, notes);
-  await page.reload();
+  await resetV2App(page);
+  await createNotesThroughUi(page, Array.from({ length: 6 }, (_, index) => createDetailNote(seed, 5 - index)));
 }
 
 function createDetailNote(seed, index) {
-  const createdAt = new Date("2026-05-28T10:00:00.000Z").toISOString();
-  const body = [
-    `Detail monkey ${seed}-${index} top jump-target seed-${seed}`,
-    ...Array.from(
-      { length: 24 },
-      (_, line) => `alpha filler ${line} for detail note ${index}`,
-    ),
-    `Detail monkey ${seed}-${index} bottom jump-target`,
-  ].join("\n");
   return {
-    id: `e2e-detail-monkey-${seed}-${index}`,
-    vaultId: "everyday",
     title: `Detail monkey ${seed}-${index}`,
-    body,
-    createdAt,
-    updatedAt: null,
-    deletedAt: null,
-    archivedAt: null,
-    deviceId: "e2e",
-    contentHash: `e2e-detail-monkey-${seed}-${index}`,
-    attachments: [],
-    blocks: [
-      {
-        type: "paragraph",
-        text: body,
-        attachment: null,
-      },
-    ],
-    tags: [`detail-${index % 3}`, "alpha"],
-    isPinned: index === 0,
-    revision: 1,
-    syncState: "localOnly",
-    editorMode: "rich",
-    location: null,
+    body: [
+      `Detail monkey ${seed}-${index} top jump-target seed-${seed}`,
+      ...Array.from({ length: 24 }, (_, line) => `alpha filler ${line} for detail note ${index}`),
+      `Detail monkey ${seed}-${index} bottom jump-target`,
+    ].join('\n'),
+    tags: [`detail-${index % 3}`, 'alpha'],
+    editorMode: 'rich',
   };
-}
-
-async function resetBrowserState(page) {
-  await page.evaluate(async () => {
-    localStorage.clear();
-    sessionStorage.clear();
-    if (indexedDB.databases) {
-      const databases = await indexedDB.databases();
-      await Promise.all(
-        databases
-          .map((database) => database.name)
-          .filter(Boolean)
-          .map(
-            (name) =>
-              new Promise((resolve) => {
-                const request = indexedDB.deleteDatabase(name);
-                request.onsuccess =
-                  request.onerror =
-                  request.onblocked =
-                    resolve;
-              }),
-          ),
-      );
-    }
-  });
 }
 
 async function waitForHomeReady(page) {

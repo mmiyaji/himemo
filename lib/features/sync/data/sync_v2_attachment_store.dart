@@ -174,27 +174,4 @@ class SyncV2AttachmentStore extends EncryptedAttachmentStore {
       'sizeBytes': (await storedPayloadMetadata(storedReference))?.sizeBytes,
     };
   }
-
-  // Legacy sync must never publish staged or v2 ciphertext using its own format.
-  @override
-  Future<String?> readStoredPayload(String storedReference) async => null;
-
-  @override
-  Future<String?> storeEncryptedPayload({
-    required String encodedPayload,
-    required AttachmentType type,
-    required String fileNameHint,
-    String vaultId = 'everyday',
-  }) async {
-    throw UnsupportedError(
-      'Legacy attachment payloads are disabled with Sync v2.',
-    );
-  }
-
-  @override
-  Future<bool> migrateLegacyPrivateAttachment(
-    String storedReference, {
-    required AttachmentType type,
-    required String vaultId,
-  }) async => false;
 }

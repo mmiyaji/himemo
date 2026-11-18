@@ -42,8 +42,6 @@ Future<SyncV2WorkspaceController> createSyncV2TestWorkspace({
           publishedChanges: 0,
           errors: <String>[],
         ),
-    activate: () async {},
-    deactivate: () async {},
     supported: true,
     automaticSync: false,
   );

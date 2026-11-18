@@ -22,7 +22,7 @@ import 'package:himemo/features/sync/testing/sync_v2_local_preview.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   test(
-    'v2 providers commit canonical attachments and disable legacy sync',
+    'v2 providers commit canonical attachments and protect locked drafts',
     () async {
       SharedPreferences.setMockInitialValues({
         'settings.sync_provider': 'googleDrive',
@@ -53,8 +53,6 @@ void main() {
           publishedChanges: 0,
           errors: <String>[],
         ),
-        activate: () async {},
-        deactivate: () async {},
         supported: true,
         automaticSync: false,
       );
@@ -74,11 +72,6 @@ void main() {
       // Construct both default providers to exercise their lazy resolver cycle.
       final files = container.read(encryptedAttachmentStoreProvider);
       container.read(noteStoreProvider);
-      expect(container.read(syncProviderControllerProvider), SyncProvider.off);
-      await container
-          .read(syncProviderControllerProvider.notifier)
-          .setProvider(SyncProvider.googleDrive);
-      expect(container.read(syncProviderControllerProvider), SyncProvider.off);
       final controller = container.read(notesControllerProvider.notifier);
       await controller.restoreCompleted;
       // XFile source is real; override the filesystem platform directory used by the adapter.
@@ -136,6 +129,5 @@ void main() {
         throwsA(isA<Exception>()),
       );
     },
-    skip: !usesSyncV2NoteBackend,
   );
 }

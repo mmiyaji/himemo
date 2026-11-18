@@ -6,7 +6,10 @@ import 'package:himemo/features/home/domain/note_entry.dart';
 import 'package:himemo/features/home/presentation/home_page.dart'
     show showNoteEditorSheet;
 import 'package:himemo/features/home/presentation/home_providers.dart';
+import 'package:himemo/features/sync/presentation/sync_v2_workspace.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../test/support/sync_v2_workspace_fixture.dart';
 
 Future<void> main() async {
   enableFlutterDriverExtension();
@@ -15,13 +18,14 @@ Future<void> main() async {
     'settings.widget_quick_capture_enabled': true,
   });
   configureFlavor(AppFlavor.development);
+  final workspace = await createSyncV2TestWorkspace();
   runApp(
     ProviderScope(
       overrides: [
         deviceAuthGatewayProvider.overrideWithValue(
           _FakeDeviceAuthGateway(authenticateResults: [true, true]),
         ),
-        syncAuthGatewayProvider.overrideWithValue(_FakeSyncAuthGateway()),
+        syncV2WorkspaceProvider.overrideWithValue(workspace),
         mediaImportServiceProvider.overrideWithValue(_FakeMediaImportService()),
       ],
       child: const _MobileSmokeApp(),
@@ -96,23 +100,6 @@ class _FakeDeviceAuthGateway implements DeviceAuthGateway {
       methods: ['Fingerprint', 'Device credential'],
     );
   }
-}
-
-class _FakeSyncAuthGateway implements SyncAuthGateway {
-  @override
-  Future<SyncAuthState> connect(SyncProvider provider) async {
-    return const SyncAuthState(
-      provider: SyncProvider.googleDrive,
-      stage: SyncAuthStage.authenticated,
-      userId: 'sim-google-user',
-      displayName: 'Simulator Account',
-      email: 'simulator@example.com',
-      message: 'Simulator Google Drive account is connected.',
-    );
-  }
-
-  @override
-  Future<void> disconnect(SyncProvider provider) async {}
 }
 
 class _FakeMediaImportService implements MediaImportService {

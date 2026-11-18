@@ -13,7 +13,6 @@ import 'sync_v2_workspace.dart';
 
 /// Selects where `NotesController` persists notes.
 ///
-/// - `v1`: legacy compatibility tests only.
 /// - `v2` (default): Sync v2 history through the iCloud workspace.
 /// - `v2-local`: Sync v2 history with an in-process stub instead of iCloud,
 ///   registered automatically. Development only; keys are kept in memory.
@@ -22,22 +21,14 @@ const noteBackend = String.fromEnvironment(
   defaultValue: 'v2',
 );
 
-bool get usesSyncV2NoteBackend =>
-    noteBackend == 'v2' || noteBackend == 'v2-local';
-
 /// Provider overrides needed for [noteBackend]; pass to the root ProviderScope.
 List<Override> noteBackendOverrides() {
-  if (noteBackend == 'v1') {
-    throw StateError(
-      'The legacy backend is available only in compatibility tests.',
-    );
-  }
   if (noteBackend == 'v2-local' && !isDevelopmentFlavor) {
     throw StateError(
       'The local sync preview is available only in development.',
     );
   }
-  if (!const ['v1', 'v2', 'v2-local'].contains(noteBackend)) {
+  if (!const ['v2', 'v2-local'].contains(noteBackend)) {
     throw StateError('Unknown note backend: $noteBackend');
   }
   return [
@@ -45,7 +36,8 @@ List<Override> noteBackendOverrides() {
       syncV2WorkspaceProvider.overrideWith((ref) {
         final workspace = createLocalPreviewController();
         ref.onDispose(workspace.dispose);
-        unawaited(_registerLocalPreview(workspace));
+        // The workspace retains the failure for its settings/error UI.
+        unawaited(_registerLocalPreview(workspace).catchError((Object _) {}));
         return workspace;
       }),
   ];
@@ -78,7 +70,6 @@ final syncV2WorkspaceInitializationProvider = Provider<Future<void>>((ref) {
 });
 
 final Provider<NoteStore> noteStoreProvider = Provider<NoteStore>((ref) {
-  if (!usesSyncV2NoteBackend) return ref.watch(encryptedNoteStoreProvider);
   final workspace = ref.watch(syncV2WorkspaceProvider);
   if (noteBackend == 'v2') ref.watch(syncV2WorkspaceInitializationProvider);
   final store = SyncV2NoteStore(
@@ -95,7 +86,7 @@ final Provider<NoteStore> noteStoreProvider = Provider<NoteStore>((ref) {
   ref.onDispose(() {
     if (identical(lookup.store, store)) lookup.store = null;
   });
-  // Reload v1 state when readable profiles change or a sync delivers notes.
+  // Reload the note list when readable profiles change or sync delivers notes.
   String? lastKey;
   var adminWasUnlocked = false;
   void onChange() {

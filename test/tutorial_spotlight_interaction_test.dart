@@ -1,7 +1,3 @@
-import 'dart:io';
-import 'dart:math';
-
-import 'package:drift/native.dart';
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,15 +7,11 @@ import 'package:himemo/app/app_flavor.dart';
 import 'package:himemo/app/app_router.dart';
 import 'package:himemo/features/home/presentation/home_page.dart';
 import 'package:himemo/features/home/presentation/home_providers.dart';
-import 'package:himemo/features/security/data/encrypted_note_database.dart';
-import 'package:himemo/features/security/data/encrypted_note_store.dart';
 import 'package:himemo/features/security/data/encryption_service.dart';
-import 'package:himemo/features/security/data/master_key_service.dart';
 import 'package:himemo/features/security/data/secure_key_value_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:himemo/features/sync/presentation/sync_v2_workspace.dart';
-import 'package:himemo/features/sync/presentation/sync_v2_note_store_provider.dart';
 
 import 'support/sync_v2_workspace_fixture.dart';
 
@@ -39,20 +31,12 @@ void main() {
       });
 
       final secureStore = MemorySecureKeyValueStore();
-      final encryptionService = EncryptionService(random: Random(81));
-      final masterKeyService = MasterKeyService(
-        secureStore: secureStore,
-        keyFactory: encryptionService.generateKeyBytes,
-      );
-      final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
-      final workspace = usesSyncV2NoteBackend
-          ? await tester.runAsync(createSyncV2TestWorkspace)
-          : null;
-      if (workspace != null) addTearDown(workspace.dispose);
+      final encryptionService = EncryptionService();
+      final workspace = (await tester.runAsync(createSyncV2TestWorkspace))!;
+      addTearDown(workspace.dispose);
       final container = ProviderContainer(
         overrides: [
-          if (workspace != null)
-            syncV2WorkspaceProvider.overrideWithValue(workspace),
+          syncV2WorkspaceProvider.overrideWithValue(workspace),
           unseenReleaseNoteProvider.overrideWith((ref) async => null),
           packageInfoProvider.overrideWith(
             (ref) async => const AppPackageDetails(
@@ -63,20 +47,9 @@ void main() {
           ),
           secureKeyValueStoreProvider.overrideWithValue(secureStore),
           encryptionServiceProvider.overrideWithValue(encryptionService),
-          masterKeyServiceProvider.overrideWithValue(masterKeyService),
-          encryptedNoteDatabaseProvider.overrideWithValue(database),
-          encryptedNoteStoreProvider.overrideWithValue(
-            EncryptedNoteStore(
-              encryptionService: encryptionService,
-              masterKeyService: masterKeyService,
-              database: database,
-              directoryProvider: () async => Directory.systemTemp,
-            ),
-          ),
         ],
       );
       addTearDown(container.dispose);
-      addTearDown(database.close);
 
       configureFlavor(AppFlavor.development);
       await tester.pumpWidget(

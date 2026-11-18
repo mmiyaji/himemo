@@ -10,24 +10,27 @@ void main() {
     );
   });
 
-  test('v2 throttle blocks the fifth failure for 30 seconds and resets', () async {
-    var now = DateTime.utc(2026, 11, 17);
-    final store = MemorySecureKeyValueStore();
-    final throttle = AuthenticationThrottle(
-      store: store,
-      storageKey: syncV2UnlockAttemptsKey('g'),
-      delayFor: syncV2UnlockDelay,
-      now: () => now,
-    );
-    for (var i = 0; i < 5; i++) {
-      expect(await throttle.verify(() async => false), isFalse);
-    }
-    await expectLater(
-      throttle.verify(() async => true),
-      throwsA(isA<AuthenticationThrottledException>()),
-    );
-    now = now.add(const Duration(seconds: 31));
-    expect(await throttle.verify(() async => true), isTrue);
-    expect(await store.read(syncV2UnlockAttemptsKey('g')), isNull);
-  });
+  test(
+    'v2 throttle blocks the fifth failure for 30 seconds and resets',
+    () async {
+      var now = DateTime.utc(2026, 11, 17);
+      final store = MemorySecureKeyValueStore();
+      final throttle = AuthenticationThrottle(
+        store: store,
+        storageKey: syncV2UnlockAttemptsKey('g'),
+        delayFor: syncV2UnlockDelay,
+        now: () => now,
+      );
+      for (var i = 0; i < 5; i++) {
+        expect(await throttle.verify(() async => false), isFalse);
+      }
+      await expectLater(
+        throttle.verify(() async => true),
+        throwsA(isA<AuthenticationThrottledException>()),
+      );
+      now = now.add(const Duration(seconds: 31));
+      expect(await throttle.verify(() async => true), isTrue);
+      expect(await store.read(syncV2UnlockAttemptsKey('g')), isNull);
+    },
+  );
 }

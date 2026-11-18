@@ -43,8 +43,6 @@ Future<SyncV2WorkspaceController> workspace({bool register = true}) async {
       publishedChanges: 0,
       errors: <String>[],
     ),
-    activate: () async {},
-    deactivate: () async {},
     supported: true,
     automaticSync: false,
   );

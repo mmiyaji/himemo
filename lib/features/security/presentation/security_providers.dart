@@ -4,22 +4,6 @@ final secureKeyValueStoreProvider = Provider<SecureKeyValueStore>((ref) {
   return FlutterSecureKeyValueStore();
 });
 
-final iCloudSynchronizableKeyValueStoreProvider = Provider<SecureKeyValueStore>(
-  (ref) {
-    return FlutterSecureKeyValueStore(
-      iOptions: const IOSOptions(
-        accountName: 'org.ruhenheim.himemo.cloud_recovery_key',
-        synchronizable: true,
-        accessibility: KeychainAccessibility.first_unlock,
-      ),
-      mOptions: const MacOsOptions(
-        accountName: 'org.ruhenheim.himemo.cloud_recovery_key',
-        synchronizable: true,
-      ),
-    );
-  },
-);
-
 final encryptionServiceProvider = Provider<EncryptionService>((ref) {
   return EncryptionService();
 });
@@ -33,14 +17,6 @@ final appPinLockStoreProvider = Provider<AppPinLockStore>((ref) {
   );
 });
 
-final coverModeSecretStoreProvider = Provider<SecretVerifierStore>((ref) {
-  return SecretVerifierStore(
-    secureStore: ref.watch(secureKeyValueStoreProvider),
-    encryptionService: ref.watch(encryptionServiceProvider),
-    storageKey: 'security.cover_mode_secret.v1',
-  );
-});
-
 final masterKeyServiceProvider = Provider<MasterKeyService>((ref) {
   final encryption = ref.watch(encryptionServiceProvider);
   return MasterKeyService(
@@ -49,75 +25,19 @@ final masterKeyServiceProvider = Provider<MasterKeyService>((ref) {
   );
 });
 
-final encryptedNoteStoreProvider = Provider<EncryptedNoteStore>((ref) {
-  return EncryptedNoteStore(
-    encryptionService: ref.watch(encryptionServiceProvider),
-    masterKeyService: ref.watch(masterKeyServiceProvider),
-    profileDataKeyService: ref.watch(profileDataKeyServiceProvider),
-    database: ref.watch(encryptedNoteDatabaseProvider),
-  );
-});
-
-bool get supportsDeviceProfilePin =>
-    !kIsWeb &&
-    (defaultTargetPlatform == TargetPlatform.iOS ||
-        defaultTargetPlatform == TargetPlatform.android);
-
-final profileDataKeyServiceProvider = Provider<ProfileDataKeyService>((ref) {
-  final secureStore = ref.watch(secureKeyValueStoreProvider);
-  return ProfileDataKeyService(
-    secureStore: secureStore,
-    encryptionService: ref.watch(encryptionServiceProvider),
-    normalMasterKeyService: ref.watch(masterKeyServiceProvider),
-    enableLocalAdminAccess: !kIsWeb,
-    devicePinStore: !supportsDeviceProfilePin
-        ? null
-        : secureStore is FlutterSecureKeyValueStore
-        ? FlutterSecureKeyValueStore(
-            iOptions: const IOSOptions(
-              accountName: 'org.ruhenheim.himemo.device_profile_pin',
-              accessibility: KeychainAccessibility.unlocked_this_device,
-            ),
-          )
-        : secureStore,
-  );
-});
-
-final encryptedNoteDatabaseProvider = Provider<EncryptedNoteDatabase>((ref) {
-  final database = EncryptedNoteDatabase();
-  ref.onDispose(database.close);
-  return database;
-});
-
-final deviceIdentityStoreProvider = Provider<DeviceIdentityStore>((ref) {
-  return DeviceIdentityStore();
-});
-
 final Provider<EncryptedAttachmentStore> encryptedAttachmentStoreProvider =
     Provider<EncryptedAttachmentStore>((ref) {
-      if (usesSyncV2NoteBackend) {
-        final workspace = ref.watch(syncV2WorkspaceProvider);
-        final lookup = ref.watch(syncV2AttachmentLookupProvider);
-        return SyncV2AttachmentStore(
-          encryptionService: ref.watch(encryptionServiceProvider),
-          masterKeyService: ref.watch(masterKeyServiceProvider),
-          session: () => workspace.noteStoreSession,
-          noteStore: () =>
-              lookup.store ?? (throw const SyncV2NoteStoreLocked('attachment')),
-        );
-      }
-      return EncryptedAttachmentStore(
+      final workspace = ref.watch(syncV2WorkspaceProvider);
+      final lookup = ref.watch(syncV2AttachmentLookupProvider);
+      return SyncV2AttachmentStore(
         encryptionService: ref.watch(encryptionServiceProvider),
         masterKeyService: ref.watch(masterKeyServiceProvider),
-        profileDataKeyService: ref.watch(profileDataKeyServiceProvider),
+        session: () => workspace.noteStoreSession,
+        noteStore: () =>
+            lookup.store ?? (throw const SyncV2NoteStoreLocked('attachment')),
       );
     });
 
-final privateVaultSecretStoreProvider = Provider<PrivateVaultSecretStore>((
-  ref,
-) {
-  return PrivateVaultSecretStore(
-    secureStore: ref.watch(secureKeyValueStoreProvider),
-    encryptionService: ref.watch(encryptionServiceProvider),
-  );
-});
+final deviceIdentityStoreProvider = Provider<DeviceIdentityStore>(
+  (ref) => DeviceIdentityStore(),
+);

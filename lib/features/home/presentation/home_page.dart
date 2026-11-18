@@ -1,3 +1,5 @@
+import '../../security/data/sync_v2_profile_keys.dart';
+
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
@@ -32,7 +34,6 @@ import 'package:video_player/video_player.dart';
 import '../../../app/diagnostic_log.dart';
 import '../../../app/app_flavor.dart';
 import '../../../app/audit_log.dart';
-import '../../sync/presentation/sync_v2_note_store_provider.dart';
 import '../../sync/data/sync_v2_attachment_store.dart';
 import '../../security/data/authentication_throttle.dart';
 import '../../sync/presentation/sync_v2_workspace.dart';
@@ -291,10 +292,9 @@ class _AppShellState extends ConsumerState<AppShell> {
         titleSpacing: useRail ? 28 : null,
         title: const _AppBrandTitle(),
         actions: [
-          if (usesSyncV2NoteBackend)
-            _HeaderV2SyncIndicator(
-              forceVisible: tutorialStep == AppTutorialStep.syncStatus,
-            ),
+          _HeaderV2SyncIndicator(
+            forceVisible: tutorialStep == AppTutorialStep.syncStatus,
+          ),
           if (useRail)
             Padding(
               padding: const EdgeInsetsDirectional.only(end: 4),
@@ -2005,12 +2005,7 @@ Future<void> _showAddPrivateProfileDialogFromHeader(
   }
   final error = await ref
       .read(privateMemoProfilesControllerProvider.notifier)
-      .addProfile(
-        name: draft.name,
-        password: draft.password,
-        usePin: draft.usePin,
-        recoveryPassword: draft.recoveryPassword,
-      );
+      .addProfile(name: draft.name, password: draft.password);
   if (error == null) {
     await ref
         .read(privateProfileUnlockControllerProvider.notifier)
@@ -2070,7 +2065,7 @@ class _ProfileAccessDialogState extends ConsumerState<_ProfileAccessDialog> {
   /// Development builds only: five quick taps on the title clear the v2
   /// passcode retry delay so testers are not locked out for an hour.
   Future<void> _onTitleTap() async {
-    if (!isDevelopmentFlavor || !usesSyncV2NoteBackend) return;
+    if (!isDevelopmentFlavor) return;
     final now = DateTime.now();
     final first = _debugFirstTap;
     if (first == null || now.difference(first) > const Duration(seconds: 3)) {
@@ -2229,20 +2224,7 @@ String _formatDateTime(DateTime value, AppStrings strings) {
   return '$year/$month/$day $hour:$minute $zone';
 }
 
-String _displayNoteTag(BuildContext context, String tag) {
-  final strings = context.strings;
-  if (isSystemSyncExclusionTag(tag)) {
-    return strings.localized(
-      en: 'Local only',
-      ja: '\u3053\u306e\u7aef\u672b\u306e\u307f',
-      zh: '\u4ec5\u6b64\u8bbe\u5907',
-      ko: '\uc774 \uae30\uae30\uc5d0\ub9cc',
-      es: 'Solo este dispositivo',
-      de: 'Nur dieses Geraet',
-    );
-  }
-  return tag;
-}
+String _displayNoteTag(BuildContext context, String tag) => tag;
 
 String _displayNoteTagWithHash(BuildContext context, String tag) =>
     '#${_displayNoteTag(context, tag)}';

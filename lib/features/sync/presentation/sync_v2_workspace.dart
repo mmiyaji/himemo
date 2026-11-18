@@ -34,31 +34,6 @@ import '../data/sync_v2_profile_catalog.dart';
 
 export '../data/sync_v2_attachment_service.dart' show SyncV2AttachmentReference;
 
-const syncV2EnabledPreference = 'settings.sync_v2.enabled';
-
-/// Preserve the persisted legacy selection across interrupted activation.
-Future<void> activateSyncV2Preference(
-  SharedPreferences prefs,
-  Future<void> Function() suspendLegacy,
-) async {
-  const previousKey = 'settings.sync_v2.previous_provider';
-  const pendingKey = 'settings.sync_v2.activation_pending';
-  if (prefs.getBool(syncV2EnabledPreference) != true &&
-      prefs.getBool(pendingKey) != true) {
-    final previous =
-        prefs.getString('settings.sync_provider') ?? SyncProvider.off.name;
-    if (!await prefs.setString(previousKey, previous) ||
-        !await prefs.setBool(pendingKey, true)) {
-      throw StateError('Could not preserve legacy sync selection');
-    }
-  }
-  await suspendLegacy();
-  if (!await prefs.setBool(syncV2EnabledPreference, true)) {
-    throw StateError('Could not select v2');
-  }
-  await prefs.remove(pendingKey);
-}
-
 const syncV2MaxPendingAttachmentBytes = 128 * 1024 * 1024;
 
 String syncV2EditableBody(NoteEntry note) {
@@ -101,35 +76,6 @@ final syncV2WorkspaceProvider = Provider<SyncV2WorkspaceController>((ref) {
       inbox,
       stopOnQuarantine: true,
     ).syncOnce(),
-    activate: () async {
-      final prefs = await SharedPreferences.getInstance();
-      await activateSyncV2Preference(
-        prefs,
-        () => ref
-            .read(syncTransferControllerProvider.notifier)
-            .suspendLegacyForV2(),
-      );
-    },
-    deactivate: () async {
-      final prefs = await SharedPreferences.getInstance();
-      if (!await prefs.remove('settings.sync_v2.activation_pending')) {
-        throw StateError('Could not clear pending v2 activation');
-      }
-      if (!await prefs.setBool(syncV2EnabledPreference, false)) {
-        throw StateError('Could not select legacy workspace');
-      }
-      final previous = prefs.getString('settings.sync_v2.previous_provider');
-      if (previous != null) {
-        final provider = SyncProvider.values
-            .where((provider) => provider.name == previous)
-            .firstOrNull;
-        if (provider != null) {
-          await ref
-              .read(syncProviderControllerProvider.notifier)
-              .setProvider(provider);
-        }
-      }
-    },
     settingsAdminAuthenticated: () =>
         ref.read(adminModeSessionControllerProvider),
     deviceAdminStore: SyncV2DeviceAdminStore(
@@ -241,8 +187,6 @@ class SyncV2WorkspaceController extends ChangeNotifier {
     required this.registrationTransport,
     required this.registrationFactory,
     required this.syncOperation,
-    required this.activate,
-    required this.deactivate,
     required this.supported,
     SyncV2BiometricKeyStore? biometricStore,
     SyncV2DeviceAdminStore? deviceAdminStore,
@@ -303,7 +247,7 @@ class SyncV2WorkspaceController extends ChangeNotifier {
   /// A device-authenticated settings session may use this device's v2 key.
   /// SYNC-only enrollment never creates this grant. Older installs return false
   /// until a v2 password, biometric or ADMIN unlock has established the grant.
-  Future<bool> unlockAdminFromSettings() => _run(() async {
+  Future<bool> unlockAdminFromSettings() => _runUnlock(() async {
     if (!settingsAdminActive || !registered) {
       throw const SyncV2WorkspaceException('admin_required');
     }
@@ -394,7 +338,6 @@ class SyncV2WorkspaceController extends ChangeNotifier {
   final SyncV2GenerationRegistration Function(String account)
   registrationFactory;
   final Future<SyncV2ICloudProgress> Function() syncOperation;
-  final Future<void> Function() activate, deactivate;
   final bool supported;
   final _encryption = EncryptionService();
   Timer? _timer;
@@ -470,6 +413,7 @@ class SyncV2WorkspaceController extends ChangeNotifier {
   Future<T> _run<T>(
     Future<T> Function() operation, {
     bool allowPaused = false,
+    int? expectedEpoch,
   }) {
     final result = Completer<T>();
     _tail = _tail.then((_) async {
@@ -477,7 +421,8 @@ class SyncV2WorkspaceController extends ChangeNotifier {
         result.completeError(const SyncV2WorkspaceException('closed'));
         return;
       }
-      if (_paused && !allowPaused) {
+      if ((_paused && !allowPaused) ||
+          (expectedEpoch != null && expectedEpoch != _epoch)) {
         result.completeError(const SyncV2WorkspaceException('locked'));
         return;
       }
@@ -515,6 +460,10 @@ class SyncV2WorkspaceController extends ChangeNotifier {
     });
     return result.future;
   }
+
+  // Capture the lock generation before queuing, not when the operation starts.
+  Future<T> _runUnlock<T>(Future<T> Function() operation) =>
+      _run(operation, expectedEpoch: _epoch);
 
   String _platformError(String code) => switch (code) {
     'cancelled' => 'authentication_cancelled',
@@ -599,10 +548,6 @@ class SyncV2WorkspaceController extends ChangeNotifier {
     hasPending = false;
     _paused = false;
     await store.write('security.sync_v2.current_account', accountId!);
-    if (_paused || _disposed || attachedEpoch != _epoch) {
-      throw const SyncV2WorkspaceException('locked');
-    }
-    await activate();
     if (_paused || _disposed || attachedEpoch != _epoch) {
       throw const SyncV2WorkspaceException('locked');
     }
@@ -884,7 +829,7 @@ class SyncV2WorkspaceController extends ChangeNotifier {
     }
   }
 
-  Future<void> unlockPrivate(String password) => _run(() async {
+  Future<void> unlockPrivate(String password) => _runUnlock(() async {
     final epoch = _epoch;
     final unlocked = await _catalog.unlock(password);
     if (unlocked.isEmpty) {
@@ -894,7 +839,7 @@ class SyncV2WorkspaceController extends ChangeNotifier {
     selectedProfileId = unlocked.first.id;
     await _reloadNotes();
   });
-  Future<void> unlockAdmin(String password) => _run(() async {
+  Future<void> unlockAdmin(String password) => _runUnlock(() async {
     final epoch = _epoch;
     final admin = await _adminStore.unlock(password);
     if (admin == null) throw const SyncV2WorkspaceException('wrong_password');
@@ -905,6 +850,9 @@ class SyncV2WorkspaceController extends ChangeNotifier {
       );
       await _rememberDeviceAdmin(admin, epoch);
       await _refreshAdminProfiles(admin, epoch);
+      if (_paused || _disposed || epoch != _epoch) {
+        throw const SyncV2WorkspaceException('locked');
+      }
       _admin?.destroy();
       _admin = admin;
       _adminFromSettings = false;
@@ -927,7 +875,7 @@ class SyncV2WorkspaceController extends ChangeNotifier {
     await _unlockThrottle.reset();
   });
 
-  Future<void> unlockAdminBiometric() => _run(() async {
+  Future<void> unlockAdminBiometric() => _runUnlock(() async {
     if (!biometricEnabled) {
       throw const SyncV2WorkspaceException('biometric_unavailable');
     }
@@ -945,6 +893,9 @@ class SyncV2WorkspaceController extends ChangeNotifier {
       );
       await _rememberDeviceAdmin(admin, epoch);
       await _refreshAdminProfiles(admin, epoch);
+      if (_paused || _disposed || epoch != _epoch) {
+        throw const SyncV2WorkspaceException('locked');
+      }
       _admin?.destroy();
       _admin = admin;
       _adminFromSettings = false;
@@ -2191,10 +2142,6 @@ class SyncV2WorkspaceController extends ChangeNotifier {
         if (epoch != _epoch) throw const SyncV2WorkspaceException('locked');
         return (syncCode: sync, adminCode: admin);
       });
-  Future<void> leaveV2() => _run(() async {
-    background();
-    await deactivate();
-  });
   @override
   void dispose() {
     _disposed = true;

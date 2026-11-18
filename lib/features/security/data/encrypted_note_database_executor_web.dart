@@ -9,10 +9,6 @@ import 'package:drift/wasm.dart';
 import 'package:drift/web.dart';
 import 'package:web/web.dart' as web;
 
-QueryExecutor createEncryptedNoteDatabaseExecutor() {
-  return WebDatabase('himemo_notes_web');
-}
-
 QueryExecutor createSyncV2DatabaseExecutor() => _v2Database(
   'himemo_sync_v2_web_wasm',
   legacyDatabase: 'himemo_sync_v2_web',
