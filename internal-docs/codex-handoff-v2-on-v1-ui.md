@@ -225,3 +225,13 @@ python -m http.server 8765 --directory build/web
 - 実データの写真をv2チャンクに保存し、統合メモ詳細に正しい画像バイト列が表示され、旧同期controllerを初期化せず拡大画面を開いて閉じられるテストを追加。関連44件で暗号化添付の読出し・写真／動画／音声の一時ファイル化・ロック後の拒否・中断配信なども確認した。ネイティブの音声／動画再生・共有シート自体は実行していない。
 - フェーズ5は継続中。旧DB・旧同期エンジン・旧アーカイブサービス・v1互換分岐／関連テストの撤去が残る。フェーズ6の性能評価とiOS実機検証は未着手。
 - 最終検証: v2全505件、旧互換242件成功。旧UI専用5件を退役し、実データの写真表示／拡大の統合テスト1件を追加。関連44件、静的解析、変更Dartのformat／diff確認、development/v2-localのWebビルドも成功。iOS実機・実CloudKit・実機の動画／音声再生・共有シートは未検証。Windowsネイティブアプリは対象外のため起動していない。
+
+
+### 2026-11-18: フェーズ5・旧ローカルZIP APIと直接依存を撤去
+- 旧UI撤去後に残っていたSyncTransferControllerのローカルZIP書出し・プレビュー・適用APIを削除。ZIP専用モデル、isolate codec、添付のZIP内パス／ファイル名生成も撤去した。lib/test/integration_test/toolsのDartに旧ZIP専用API／型／package:archive importの参照はない。
+- archiveの直接依存をpubspecから削除。画像処理の推移依存としてlockfileには残るが、変更はdirect main→transitiveの分類だけでパッケージのバージョンは変更していない。
+- 旧ZIP書出し専用のlegacyテスト1件と、旧ZIP codecだけのソース文字列検査を退役。旧クラウド同期バンドルの暗号化／復号・共有プレビュー・mergeFromSyncは変更していない。通常のノートのisArchived機能も維持。
+- Opusレビューで確定的な重大問題なし。part内で共有されるhelperとimportについては全体検索・静的解析で確認した。依存解決時に削除されたl10n生成物は再生成し、内容がHEADと同じであることを確認。生成物の不要な差分はコミットに含めない。
+- 進捗: フェーズ5の旧アーカイブ処理の撤去は完了。旧DB・Google Drive／旧iCloudの同期エンジン・資格情報／互換テスト・v1バックエンド分岐の撤去は残る。フェーズ6の性能評価とiOS実機検証は未着手。
+- 依存解決後の翻訳生成を明示するため、通常CI・iOS／Android配布workflowにpub get直後のflutter gen-l10nを追加。YAML構文とstep順序を検証した。workflow自体の実行や配布は行っていない。
+- 最終検証: v2全505件、旧互換241件成功（旧ZIP専用1件を退役）。静的解析指摘なし、Dart format／diff確認、development/v2-localのWebビルド成功。Opus再レビューでも重大・中程度の問題なし。翻訳生成物の実質差分はなく、今回のコミットには含めない。iOS実機・実CloudKit・ネイティブ配布は未実施。

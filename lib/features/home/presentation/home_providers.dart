@@ -5,7 +5,6 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
-import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
 import 'package:cryptography/cryptography.dart';
 import 'package:file_picker/file_picker.dart';
@@ -1404,62 +1403,6 @@ class AuditLogSnapshot {
   final List<String> entries;
 
   String get text => entries.join('\n');
-}
-
-class LocalNoteArchive {
-  const LocalNoteArchive({
-    required this.bytes,
-    required this.fileName,
-    required this.noteCount,
-    required this.attachmentCount,
-    required this.isPasswordProtected,
-  });
-
-  final Uint8List bytes;
-  final String fileName;
-  final int noteCount;
-  final int attachmentCount;
-  final bool isPasswordProtected;
-}
-
-class _DecodedLocalZipArchive {
-  const _DecodedLocalZipArchive({
-    required this.manifest,
-    required this.notes,
-    required this.attachmentFiles,
-  });
-
-  final Map<String, dynamic> manifest;
-  final List<Map<String, dynamic>> notes;
-  final Map<String, Uint8List> attachmentFiles;
-}
-
-class _LocalArchiveFilePayload {
-  const _LocalArchiveFilePayload({required this.name, required this.bytes});
-
-  final String name;
-  final TransferableTypedData bytes;
-}
-
-class _LocalZipEncodeRequest {
-  const _LocalZipEncodeRequest({
-    required this.manifest,
-    required this.notes,
-    required this.files,
-    this.password,
-  });
-
-  final Map<String, dynamic> manifest;
-  final List<Map<String, dynamic>> notes;
-  final List<_LocalArchiveFilePayload> files;
-  final String? password;
-}
-
-class _LocalZipDecodeRequest {
-  const _LocalZipDecodeRequest({required this.bytes, this.password});
-
-  final TransferableTypedData bytes;
-  final String? password;
 }
 
 enum InAppUpdateStage {
@@ -3333,67 +3276,6 @@ Future<_DecodedSyncAttachmentBytes> _decodeSyncAttachmentBytes(
     bytes: transferable.materialize().asUint8List(),
     contentHash: result['contentHash']! as String,
   );
-}
-
-_DecodedLocalZipArchive _decodeLocalZipArchivePayloadInBackground(
-  _LocalZipDecodeRequest request,
-) {
-  final archive = ZipDecoder().decodeBytes(
-    request.bytes.materialize().asUint8List(),
-    password: request.password,
-  );
-  final manifestFile = archive.findFile('manifest.json');
-  final notesFile = archive.findFile('notes.json');
-  if (manifestFile == null || notesFile == null) {
-    throw StateError('This file is not a HiMemo ZIP archive.');
-  }
-  final manifest = Map<String, dynamic>.from(
-    jsonDecode(utf8.decode(manifestFile.content)) as Map,
-  );
-  final notesPayload = Map<String, dynamic>.from(
-    jsonDecode(utf8.decode(notesFile.content)) as Map,
-  );
-  final notes = [
-    for (final entry
-        in (notesPayload['notes'] as List<dynamic>? ?? const <dynamic>[]))
-      Map<String, dynamic>.from(entry as Map),
-  ];
-  final attachmentFiles = <String, Uint8List>{};
-  for (final file in archive.files) {
-    if (!file.isFile || !file.name.startsWith('attachments/')) {
-      continue;
-    }
-    attachmentFiles[file.name] = Uint8List.fromList(file.content);
-  }
-  return _DecodedLocalZipArchive(
-    manifest: manifest,
-    notes: notes,
-    attachmentFiles: attachmentFiles,
-  );
-}
-
-TransferableTypedData _encodeLocalZipArchivePayloadInBackground(
-  _LocalZipEncodeRequest request,
-) {
-  final archive = Archive();
-  archive.addFile(
-    ArchiveFile.string('manifest.json', jsonEncode(request.manifest)),
-  );
-  archive.addFile(
-    ArchiveFile.string(
-      'notes.json',
-      jsonEncode({'schemaVersion': 1, 'notes': request.notes}),
-    ),
-  );
-  for (final file in request.files) {
-    archive.addFile(
-      ArchiveFile.bytes(file.name, file.bytes.materialize().asUint8List()),
-    );
-  }
-  final encoded = ZipEncoder(password: request.password).encode(archive);
-  return TransferableTypedData.fromList([
-    encoded is Uint8List ? encoded : Uint8List.fromList(encoded),
-  ]);
 }
 
 final privateMemoProfileStoreProvider = Provider<PrivateMemoProfileStore>((

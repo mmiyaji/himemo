@@ -872,16 +872,6 @@ void main() {
     expect(attachmentStore, contains('TransferableTypedData.fromList'));
     expect(homeProviders, contains('Future<void> _yieldToUi()'));
     expect(homeProviders, contains('await _yieldToUi();'));
-    expect(homeProviders, contains('_encodeLocalZipArchive'));
-    expect(homeProviders, contains('_decodeLocalZipArchive'));
-    expect(
-      homeProviders,
-      contains('_encodeLocalZipArchivePayloadInBackground'),
-    );
-    expect(
-      homeProviders,
-      contains('_decodeLocalZipArchivePayloadInBackground'),
-    );
     expect(homeProviders, contains('onProgress: (progress) async'));
     expect(homeProviders, contains('detail'));
     expect(homeProviders, contains('completedItems'));
@@ -912,7 +902,6 @@ void main() {
       contains('Future<List<RemoteSyncBundleStatus>> readSyncReplayHistory'),
     );
     expect(syncControllers, contains('_listExistingRemoteAttachmentHashes'));
-    expect(syncControllers, contains('Isolate.run'));
     final syncAttachmentRefs = File(
       'lib/features/sync/data/sync_attachment_refs.dart',
     ).readAsStringSync();
