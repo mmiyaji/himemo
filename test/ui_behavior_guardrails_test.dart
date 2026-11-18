@@ -200,8 +200,6 @@ void main() {
       ),
     );
     expect(homePage, contains('unawaited(_resetAndLoad());'));
-    expect(homePage, contains('if (isSyncAttachmentObjectRef(filePath))'));
-    expect(homePage, contains('materializeDecryptedBytes('));
   });
 
   test('app lock background privacy cover prevents delayed relock flashes', () {
@@ -759,8 +757,6 @@ void main() {
     expect(attachmentStore, contains('_decryptAttachmentBytesFromStorage'));
     expect(attachmentStore, contains('_decryptAttachmentPayload'));
     expect(attachmentStore, contains('estimateStoredAttachmentPayloadBytes'));
-    expect(homePage, contains('.downloadAttachment(attachment)'));
-    expect(homePage, contains('RemoteAttachmentDownloadDialog'));
   });
 
   test('attachment diagnostics include image byte signatures', () {

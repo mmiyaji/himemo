@@ -7,35 +7,15 @@ Future<void> _openAttachmentViewer(
   List<NoteAttachment> photoAttachments = const [],
   int? initialPhotoIndex,
 }) async {
-  final requestedAttachment = attachment;
-  final downloadedAttachment = await _downloadRemoteAttachmentWithPrompt(
-    context,
-    ref,
-    attachment,
-  );
-  if (downloadedAttachment == null || !context.mounted) {
-    return;
-  }
-  attachment = downloadedAttachment;
   if (attachment.type == AttachmentType.photo) {
     final attachments = photoAttachments.isEmpty
         ? [attachment]
-        : photoAttachments
-              .map(
-                (item) =>
-                    item.filePath == requestedAttachment.filePath ||
-                        item.filePath == attachment.filePath ||
-                        (item.syncAttachmentContentHash != null &&
-                            (item.syncAttachmentContentHash ==
-                                    requestedAttachment
-                                        .syncAttachmentContentHash ||
-                                item.syncAttachmentContentHash ==
-                                    attachment.syncAttachmentContentHash))
-                    ? attachment
-                    : item,
-              )
-              .toList(growable: false);
-    final fallbackIndex = attachments.indexOf(attachment);
+        : photoAttachments;
+    final fallbackIndex = attachments.indexWhere(
+      (item) =>
+          identical(item, attachment) ||
+          (attachment.filePath != null && item.filePath == attachment.filePath),
+    );
     final resolvedIndex =
         initialPhotoIndex != null &&
             initialPhotoIndex >= 0 &&
@@ -1217,23 +1197,17 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
 
   void _showPreviousImage() {
     if (_selectedIndex <= 0) return;
-    unawaited(_showImageAt(_selectedIndex - 1));
+    _showImageAt(_selectedIndex - 1);
   }
 
   void _showNextImage() {
     if (_selectedIndex >= _attachments.length - 1) return;
-    unawaited(_showImageAt(_selectedIndex + 1));
+    _showImageAt(_selectedIndex + 1);
   }
 
-  Future<void> _showImageAt(int index) async {
-    final resolved = await _downloadRemoteAttachmentWithPrompt(
-      context,
-      ref,
-      _attachments[index],
-    );
-    if (!mounted || resolved == null) return;
+  void _showImageAt(int index) {
+    if (!mounted) return;
     setState(() {
-      _attachments[index] = resolved;
       _selectedIndex = index;
       _resetTransform();
     });
@@ -1713,11 +1687,6 @@ String _attachmentDiagnosticFileRef(String? filePath) {
   if (filePath == null || filePath.isEmpty) {
     return 'none';
   }
-  final hash = syncAttachmentObjectContentHash(filePath);
-  if (hash != null) {
-    final shortHash = hash.length <= 12 ? hash : hash.substring(0, 12);
-    return syncAttachmentObjectRef(shortHash);
-  }
   return path.basename(filePath);
 }
 
@@ -1734,9 +1703,6 @@ Future<List<int>?> _readDisplayAttachmentBytes(
     );
     return null;
   }
-  if (isSyncAttachmentObjectRef(filePath)) {
-    return _downloadRemoteSyncAttachmentBytes(ref, attachment);
-  }
   final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
   final bytes = await attachmentStore.readAttachment(
     filePath,
@@ -1751,24 +1717,6 @@ Future<List<int>?> _readDisplayAttachmentBytes(
     );
   }
   return bytes;
-}
-
-Future<List<int>?> _downloadRemoteSyncAttachmentBytes(
-  WidgetRef ref,
-  NoteAttachment attachment,
-) async {
-  final downloaded = await ref
-      .read(syncTransferControllerProvider.notifier)
-      .downloadAttachment(attachment);
-  final filePath = downloaded.filePath;
-  if (filePath == null ||
-      filePath.isEmpty ||
-      isSyncAttachmentObjectRef(filePath)) {
-    return null;
-  }
-  return ref
-      .read(encryptedAttachmentStoreProvider)
-      .readAttachment(filePath, type: downloaded.type);
 }
 
 Future<List<int>?> _readPhotoAttachmentDetailBytes(
@@ -2057,7 +2005,7 @@ class _VideoAttachmentViewerState
         'video playback load requested',
         data: {
           'playWhenLoaded': playWhenLoaded,
-          'isRemoteObject': isSyncAttachmentObjectRef(filePath),
+          'isV2Reference': filePath.startsWith(SyncV2AttachmentStore.prefix),
           'platform': kIsWeb ? 'web' : 'native',
         },
       );
@@ -2120,35 +2068,16 @@ class _VideoAttachmentViewerState
         );
         return;
       } else {
-        if (isSyncAttachmentObjectRef(filePath)) {
-          final bytes = await _readDisplayAttachmentBytes(
-            ref,
-            widget.attachment,
-          );
-          if (bytes != null && bytes.isNotEmpty) {
-            _logVideoPlaybackDiagnostic(
-              widget.attachment,
-              'video playback remote bytes read',
-              data: {'bytes': bytes.length, ..._videoByteDiagnosticData(bytes)},
-            );
-            tempFilePath = await attachmentStore.materializeDecryptedBytes(
-              bytes,
-              type: widget.attachment.type,
-              preferredFileName: widget.attachment.label,
-            );
-          }
-        } else {
-          _logVideoPlaybackDiagnostic(
-            widget.attachment,
-            'video playback local materialize requested',
-            data: await attachmentStore.storedPayloadDiagnostics(filePath),
-          );
-          tempFilePath = await attachmentStore.materializeDecryptedFile(
-            filePath,
-            type: widget.attachment.type,
-            preferredFileName: widget.attachment.label,
-          );
-        }
+        _logVideoPlaybackDiagnostic(
+          widget.attachment,
+          'video playback local materialize requested',
+          data: await attachmentStore.storedPayloadDiagnostics(filePath),
+        );
+        tempFilePath = await attachmentStore.materializeDecryptedFile(
+          filePath,
+          type: widget.attachment.type,
+          preferredFileName: widget.attachment.label,
+        );
         if (!mounted || generation != _loadGeneration) {
           if (tempFilePath != null) {
             await attachmentStore.deleteMaterializedFile(tempFilePath);
@@ -2159,7 +2088,11 @@ class _VideoAttachmentViewerState
           _logVideoPlaybackDiagnostic(
             widget.attachment,
             'video playback materialized file unavailable',
-            data: {'isRemoteObject': isSyncAttachmentObjectRef(filePath)},
+            data: {
+              'isV2Reference': filePath.startsWith(
+                SyncV2AttachmentStore.prefix,
+              ),
+            },
           );
           setState(() {
             _errorMessage = context.strings.videoPreviewUnavailableWeb;
@@ -2260,12 +2193,6 @@ class _VideoAttachmentViewerState
 
   @override
   Widget build(BuildContext context) {
-    if (isSyncAttachmentObjectRef(widget.attachment.filePath ?? '') &&
-        !widget.autoLoad) {
-      return Center(
-        child: RemoteAttachmentNotice(attachment: widget.attachment),
-      );
-    }
     final controller = _controller;
     final errorMessage = _errorMessage;
     if (errorMessage != null) {
@@ -3269,9 +3196,6 @@ class _AudioAttachmentViewerState
   @override
   void initState() {
     super.initState();
-    if (isSyncAttachmentObjectRef(widget.attachment.filePath ?? '')) {
-      return;
-    }
     unawaited(_startLoad());
   }
 
@@ -3368,22 +3292,11 @@ class _AudioAttachmentViewerState
       }
 
       String? tempFilePath;
-      if (isSyncAttachmentObjectRef(filePath)) {
-        final bytes = await _readDisplayAttachmentBytes(ref, widget.attachment);
-        if (bytes != null && bytes.isNotEmpty) {
-          tempFilePath = await attachmentStore.materializeDecryptedBytes(
-            bytes,
-            type: widget.attachment.type,
-            preferredFileName: widget.attachment.label,
-          );
-        }
-      } else {
-        tempFilePath = await attachmentStore.materializeDecryptedFile(
-          filePath,
-          type: widget.attachment.type,
-          preferredFileName: widget.attachment.label,
-        );
-      }
+      tempFilePath = await attachmentStore.materializeDecryptedFile(
+        filePath,
+        type: widget.attachment.type,
+        preferredFileName: widget.attachment.label,
+      );
       if (!mounted || generation != _loadGeneration) {
         if (tempFilePath != null) {
           await attachmentStore.deleteMaterializedFile(tempFilePath);
@@ -3420,11 +3333,6 @@ class _AudioAttachmentViewerState
 
   @override
   Widget build(BuildContext context) {
-    if (isSyncAttachmentObjectRef(widget.attachment.filePath ?? '')) {
-      return Center(
-        child: RemoteAttachmentNotice(attachment: widget.attachment),
-      );
-    }
     final errorMessage = _errorMessage;
     if (errorMessage != null) {
       return Center(child: Text(errorMessage));

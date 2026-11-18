@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:himemo/features/sync/data/sync_v2_icloud_session.dart';
 
@@ -38,6 +39,118 @@ import 'support/sync_v2_conflict_fixture.dart';
 import 'package:himemo/features/sync/data/sync_v2_note_store.dart';
 
 void main() {
+  testWidgets(
+    'v2 photo previews and opens without legacy attachment download',
+    (tester) async {
+      final temp = (await tester.runAsync(
+        () => Directory.systemTemp.createTemp('himemo-photo-ui-'),
+      ))!;
+      const paths = MethodChannel('plugins.flutter.io/path_provider');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(paths, (call) async => temp.path);
+      addTearDown(() async {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(paths, null);
+        await temp.delete(recursive: true);
+      });
+      final harness = await _createHarness(
+        preferences: const {
+          'settings.locale': 'english',
+          'app.onboarding_completed': true,
+          'app.onboarding_completed_version': 2,
+        },
+        overrides: [
+          unseenReleaseNoteProvider.overrideWith((ref) async => null),
+        ],
+      );
+      final workspace = harness.container.read(syncV2WorkspaceProvider);
+      final png = File('assets/app-icon.png').readAsBytesSync();
+      final encodedPng = base64Encode(png);
+      await tester.runAsync(
+        () => workspace.saveNote(
+          title: 'V2 photo',
+          body: 'Encrypted photo preview',
+          addedFiles: [
+            SyncV2PendingAttachment(
+              label: 'photo.png',
+              type: AttachmentType.photo,
+              bytes: Uint8List.fromList(png),
+            ),
+          ],
+        ),
+      );
+      harness.container
+          .read(selectedNoteIdProvider.notifier)
+          .select(SyncV2NoteStore.v1NoteId(workspace.notes.single.note.id));
+      _configureView(tester, size: const Size(1400, 1000));
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: harness.container,
+          child: const HiMemoApp(flavor: AppFlavor.development),
+        ),
+      );
+      await tester.pump();
+      await tester.runAsync(
+        () => harness.container
+            .read(notesControllerProvider.notifier)
+            .restoreCompleted,
+      );
+      harness.container
+          .read(appSessionUnlockControllerProvider.notifier)
+          .unlock();
+      final image = find.byWidgetPredicate(
+        (widget) =>
+            widget is Image &&
+            widget.image is MemoryImage &&
+            base64Encode((widget.image as MemoryImage).bytes) == encodedPng,
+      );
+      for (var frame = 0; frame < 200 && image.evaluate().isEmpty; frame++) {
+        await tester.pump(const Duration(milliseconds: 20));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 5)),
+        );
+      }
+      expect(image, findsWidgets);
+      final saved = harness.container.read(notesControllerProvider).single;
+      expect(saved.attachments.single.filePath, startsWith('v2attachment:'));
+      expect(harness.container.exists(syncTransferControllerProvider), isFalse);
+      expect(find.text('Download'), findsNothing);
+      for (
+        var frame = 0;
+        frame < 200 && image.hitTestable().evaluate().isEmpty;
+        frame++
+      ) {
+        await tester.pump(const Duration(milliseconds: 20));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 5)),
+        );
+      }
+      expect(image.hitTestable(), findsWidgets);
+      await tester.tap(image.hitTestable().last);
+      for (
+        var frame = 0;
+        frame < 200 && find.byTooltip('Zoom in').evaluate().isEmpty;
+        frame++
+      ) {
+        await tester.pump(const Duration(milliseconds: 20));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 5)),
+        );
+      }
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byTooltip('Zoom in'), findsOneWidget);
+      expect(harness.container.exists(syncTransferControllerProvider), isFalse);
+      await tester.tap(find.byTooltip('Close').last);
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('Zoom in'), findsNothing);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      harness.container.dispose();
+      await tester.pump();
+    },
+    skip: !usesSyncV2NoteBackend,
+  );
+
   testWidgets(
     'v2 shell opens sync settings after a sync failure without legacy services',
     (tester) async {
