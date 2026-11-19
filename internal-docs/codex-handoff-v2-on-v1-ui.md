@@ -273,3 +273,13 @@ python -m http.server 8765 --directory build/web
 - App Store Connect upload成功後、Apple処理VALID・内部テストIN_BETA_TESTING・内部グループruhenheimのアクセス・日本語確認項目の保存を確認した。ダウンロードしたIPAのInfo.plistともバージョン／ビルド番号が一致。
 - テスター向け説明から旧ZIP・別QR・6文字条件を撤去し、現行の統合UI、4文字パスコード、統合QR/復元ファイル、競合とロックの修正点へ更新した。
 - フェーズ6のiOSビルド・simulator確認まで完了。物理端末での実CloudKit・生体認証・カメラ・メディア再生とrelease性能は引き続き未完了。App Store本番公開とmergeはしていない。
+
+
+### 2026-11-20: 余白・管理者認証の修正とTestFlight再配信
+
+- 設定の同期／ストレージ間などのカード間隔を共通値に統一（`85fa0bf`）。関連ウィジェット24件成功。
+- 端末認証中の一時inactiveを同期設定のライフサイクル監視でも除外（`bbdfc45`）。hidden/paused/detachedの鍵失効は維持。V1データの初期化は不要。回帰テスト2件は修正前に失敗・修正後に成功し、関連計10件成功、対象静的解析指摘なし。実際のOpusレビューでP1/P2なし。
+- ユーザーの再配信指示により `4e6fe2b` をpushして通常配信workflowを実行。[run 44554188396](https://github.com/mmiyaji/himemo/actions/runs/44554188396) はsuccess、**1.0.0（2611191524）** を再配信。
+- iOS simulator build・production起動/native channel/Quick Look、format・静的解析・全408テスト・Web build・配信ツール・Functions、署名IPA/CloudKit entitlement確認が成功。
+- 2026-11-20 00:56 JSTにApple処理VALID・内部テストIN_BETA_TESTING・内部グループruhenheimのアクセス・日本語確認項目の保存を確認。取得IPAのInfo.plistも番号一致。ログとIPAは未追跡の `artifacts/ios-release-44554188396/` に保存。
+- 実機Face IDの一連の操作、実CloudKit・カメラ・メディア再生とrelease性能受入は引き続き未検証。App Store本番公開とmergeはしていない。

@@ -8,6 +8,16 @@ Codemagic の `ios-testflight-production` と並行運用する前提。
 - [ios-testflight.yml](../.github/workflows/ios-testflight.yml)
 - [ios-verify.yml](../.github/workflows/ios-verify.yml)
 
+## 余白・管理者モード修正版の再配信（2026-11-20 JST）
+
+[run 44554188396](https://github.com/mmiyaji/himemo/actions/runs/44554188396) は成功。対象コミット `4e6fe2b`、アプリ **1.0.0 / build 2611191524**。設定カードの間隔統一（`85fa0bf`）と、端末認証中の一時inactiveで管理者解除が失効する問題の修正（`bbdfc45`）を含む。実際のhidden/paused/detachedでは従来どおりロックする。
+
+- iOS simulator build・production起動・native channel・Quick Look、format・静的解析・全408テスト・Web build・配信ツール・Functions検証が成功。
+- 署名IPAとCloudKit entitlement確認、App Store Connect uploadが成功。ダウンロードしたIPAのInfo.plistでもバージョンとビルド番号が一致。
+- 00:56 JSTにApple処理 `VALID`、内部テスト `IN_BETA_TESTING`、グループ `ruhenheim` の自動アクセスと日本語確認項目を確認。
+- artifactsは `himemo-ios-160` と `ios-launch-smoke-160`。ローカル証拠は `artifacts/ios-release-44554188396/`。Gitには含めない。
+- 管理者認証の回帰テストは修正前に失敗・修正後に成功し、OpusレビューでP1/P2指摘なし。実機Face ID・CloudKit等の受入確認は配信後に行う。初期化は不要。
+
 ## 統合v2版の配信結果（2026-11-19 JST）
 
 [GitHub Actions run 44327979347](https://github.com/mmiyaji/himemo/actions/runs/44327979347) は成功。対象は `feature/v2-on-v1-ui` の `06ba338`、アプリ **1.0.0 / build 2611181449**。IPA内のInfo.plistでも同じバージョン・ビルド番号を照合した。
