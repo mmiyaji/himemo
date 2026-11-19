@@ -6546,7 +6546,9 @@ class AdminModeSessionController extends Notifier<bool> {
     _operation++;
     final changed = state;
     state = false;
-    ref.read(syncV2WorkspaceProvider).lockPrivate();
+    final workspace = ref.read(syncV2WorkspaceProvider);
+    workspace.lockSettingsAdmin();
+    workspace.lockPrivate();
     ref
         .read(notesControllerProvider.notifier)
         .concealPrivateNotes(

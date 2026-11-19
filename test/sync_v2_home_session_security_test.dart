@@ -12,6 +12,7 @@ import 'package:himemo/app/app.dart';
 import 'package:himemo/app/app_flavor.dart';
 import 'package:himemo/app/app_router.dart';
 import 'package:himemo/features/home/presentation/home_providers.dart';
+import 'package:himemo/features/home/presentation/home_page.dart';
 import 'package:himemo/features/security/data/authentication_throttle.dart';
 import 'package:himemo/features/security/data/encryption_service.dart';
 import 'package:himemo/features/security/data/secure_key_value_store.dart';
@@ -132,6 +133,73 @@ void main() {
     },
   );
 
+  test('production workspace wiring reaches credential gate without a dependency cycle', () async {
+    SharedPreferences.setMockInitialValues({});
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(
+          MemorySecureKeyValueStore(),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await expectLater(
+      container.read(adminModeSessionControllerProvider.notifier).unlock(),
+      throwsA(
+        isA<SyncV2WorkspaceException>().having(
+          (e) => e.code,
+          'code',
+          'admin_required',
+        ),
+      ),
+    );
+    expect(container.read(adminModeSessionControllerProvider), isFalse);
+  });
+
+  test(
+    'home administrator uses the remembered key after device authentication',
+    () async {
+      final harness = await _Harness.create();
+      addTearDown(harness.dispose);
+      expect(
+        await harness.container
+            .read(deviceAuthControllerProvider.notifier)
+            .authenticate(reason: 'Enter administrator mode'),
+        isTrue,
+      );
+      await harness.container
+          .read(adminModeSessionControllerProvider.notifier)
+          .unlock();
+      expect(harness.workspace.adminUnlocked, isTrue);
+      expect(
+        harness.container.read(adminModeSessionControllerProvider),
+        isTrue,
+      );
+      harness.container
+          .read(adminModeSessionControllerProvider.notifier)
+          .lock();
+      expect(harness.workspace.adminUnlocked, isFalse);
+      expect(
+        harness.container.read(adminModeSessionControllerProvider),
+        isFalse,
+      );
+      expect(
+        harness.workspace.noteStoreSession!.profiles,
+        isNot(contains(harness.privateId)),
+      );
+      await expectLater(
+        harness.workspace.unlockAdminFromSettings(),
+        throwsA(
+          isA<SyncV2WorkspaceException>().having(
+            (e) => e.code,
+            'code',
+            'admin_required',
+          ),
+        ),
+      );
+    },
+  );
+
   test(
     'biometric key failure records a fixed stage without exception text',
     () async {
@@ -145,20 +213,111 @@ void main() {
         code: 'failed',
         message: 'private exception text',
       );
+      Future<void>? resuming;
+      biometrics.onRead = () {
+        resuming = harness.workspace.resume();
+      };
       await expectLater(
         harness.workspace.unlockAdminBiometric(),
         throwsA(
-          isA<SyncV2WorkspaceException>().having(
-            (e) => e.code,
-            'code',
-            'operation_failed',
-          ),
+          isA<SyncV2WorkspaceException>()
+              .having((e) => e.code, 'code', 'operation_failed')
+              .having(
+                (e) => e.diagnosticCode,
+                'diagnosticCode',
+                'admin_unlock/biometric_read',
+              )
+              .having((e) => e.failureKind, 'failureKind', 'platform_failed'),
         ),
       );
-      expect(harness.workspace.diagnosticCode, 'admin_unlock/biometric_read');
+      await resuming;
+      expect(harness.workspace.diagnosticCode, isNull);
       expect(harness.workspace.adminUnlocked, isFalse);
     },
   );
+
+  testWidgets('settings admin button shows immutable safe failure details', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1100, 2000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final temporary = (await tester.runAsync(
+      () => Directory.systemTemp.createTemp('himemo-admin-error-ui-'),
+    ))!;
+    const channel = MethodChannel('plugins.flutter.io/path_provider');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async => temporary.path);
+    addTearDown(() async {
+      messenger.setMockMethodCallHandler(channel, null);
+      await temporary.delete(recursive: true);
+    });
+    final biometrics = _PendingBiometrics();
+    final harness = (await tester.runAsync(
+      () => _Harness.create(biometricStore: biometrics),
+    ))!;
+    addTearDown(harness.dispose);
+    await tester.runAsync(() async {
+      await harness.workspace.unlockAdmin('1234');
+      await harness.workspace.enableAdminBiometrics();
+      harness.workspace.lockPrivate();
+      await harness.workspace.deviceAdminStore.delete(
+        accountId: harness.workspace.accountId!,
+        generationId: harness.workspace.generationId!,
+      );
+    });
+    biometrics.failure = PlatformException(
+      code: 'failed',
+      message: 'DO_NOT_DISPLAY_PRIVATE_EXCEPTION',
+    );
+    Future<void>? resuming;
+    biometrics.onRead = () {
+      resuming = harness.workspace.resume();
+    };
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: harness.container,
+        child: const HiMemoApp(flavor: AppFlavor.development),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 1200));
+    await tester.pumpAndSettle();
+    harness.container.read(appRouterProvider).go('/settings');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Private profiles').first);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(SettingsScreen.privateProfileAdminModeKey),
+    );
+    await tester.tap(find.byKey(SettingsScreen.privateProfileAdminModeKey));
+    for (
+      var attempt = 0;
+      attempt < 100 && find.byType(SnackBar).evaluate().isEmpty;
+      attempt++
+    ) {
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+    }
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining(
+        'admin_unlock/biometric_read/operation_failed/platform_failed',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('DO_NOT_DISPLAY_PRIVATE_EXCEPTION'),
+      findsNothing,
+    );
+    expect(harness.container.read(adminModeSessionControllerProvider), isFalse);
+    await tester.runAsync(() async {
+      await resuming;
+    });
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 
   for (final appLock in [false, true]) {
     for (final background in [false, true]) {
@@ -388,6 +547,7 @@ class _Harness {
   bool holdSync = false;
   late final SyncV2WorkspaceController workspace;
   late final ProviderContainer container;
+  late Ref workspaceRef;
   late final String privateId;
 
   static Future<_Harness> create({
@@ -436,7 +596,7 @@ class _Harness {
       supported: true,
       biometricStore: biometricStore,
       settingsAdminAuthenticated: () =>
-          harness.container.read(adminModeSessionControllerProvider),
+          harness.workspaceRef.read(adminModeSessionControllerProvider),
       automaticSync: false,
     );
     await harness.workspace.initialize();
@@ -451,12 +611,16 @@ class _Harness {
     harness.workspace.lockPrivate();
     harness.container = ProviderContainer(
       overrides: [
-        syncV2WorkspaceProvider.overrideWithValue(harness.workspace),
+        syncV2WorkspaceProvider.overrideWith((ref) {
+          harness.workspaceRef = ref;
+          return harness.workspace;
+        }),
         secureKeyValueStoreProvider.overrideWithValue(harness.store),
         unseenReleaseNoteProvider.overrideWith((ref) async => null),
         deviceAuthGatewayProvider.overrideWithValue(_DeviceAuth()),
       ],
     );
+    harness.container.read(syncV2WorkspaceProvider);
     await harness.container
         .read(notesControllerProvider.notifier)
         .restoreCompleted;
@@ -503,6 +667,7 @@ class _DeviceAuth implements DeviceAuthGateway {
 class _PendingBiometrics implements SyncV2BiometricKeyStore {
   List<int>? bytes;
   PlatformException? failure;
+  void Function()? onRead;
   final entered = Completer<void>();
   final release = Completer<void>();
   @override
@@ -514,6 +679,7 @@ class _PendingBiometrics implements SyncV2BiometricKeyStore {
 
   @override
   Future<SecretKey?> read(String generationId) async {
+    onRead?.call();
     if (failure != null) throw failure!;
     entered.complete();
     await release.future;

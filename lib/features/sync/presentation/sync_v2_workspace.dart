@@ -89,9 +89,9 @@ final syncV2WorkspaceProvider = Provider<SyncV2WorkspaceController>((ref) {
     ),
     supported: !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS,
   );
-  ref.listen<bool>(adminModeSessionControllerProvider, (previous, current) {
-    if (!current) workspace.lockSettingsAdmin();
-  });
+  // Home's admin controller reads this provider. Listening to that controller
+  // here creates a Riverpod dependency cycle, even though its build is trivial.
+  // Home owns revocation and explicitly calls lockSettingsAdmin when locking.
   ref.onDispose(workspace.dispose);
   return workspace;
 });
@@ -170,8 +170,14 @@ class SyncV2WorkspaceNote {
 }
 
 class SyncV2WorkspaceException implements Exception {
-  const SyncV2WorkspaceException(this.code);
+  const SyncV2WorkspaceException(
+    this.code, {
+    this.diagnosticCode,
+    this.failureKind,
+  });
   final String code;
+  final String? diagnosticCode;
+  final String? failureKind;
   @override
   String toString() => code;
 }
@@ -451,7 +457,36 @@ class SyncV2WorkspaceController extends ChangeNotifier {
           ),
           _ => 'operation_failed',
         };
-        result.completeError(SyncV2WorkspaceException(error!));
+        // Capture safe diagnostics on the failure itself. A queued resume or
+        // sync may clear the controller field before the caller handles it.
+        result.completeError(
+          SyncV2WorkspaceException(
+            error!,
+            diagnosticCode: failure is SyncV2WorkspaceException
+                ? failure.diagnosticCode ?? diagnosticCode
+                : diagnosticCode,
+            failureKind: failure is SyncV2WorkspaceException
+                ? failure.failureKind
+                : switch (failure) {
+                    HimemoDecryptionException() => 'decryption_failed',
+                    FormatException() => 'format_error',
+                    StateError() => 'state_error',
+                    PlatformException(:final code)
+                        when RegExp(r'^-?[0-9]{1,6}$').hasMatch(code) =>
+                      'platform_$code',
+                    PlatformException(:final code)
+                        when const {
+                          'failed',
+                          'cancelled',
+                          'invalidated',
+                          'unavailable',
+                        }.contains(code) =>
+                      'platform_$code',
+                    PlatformException() => 'platform_error',
+                    _ => 'unexpected_error',
+                  },
+          ),
+        );
       } finally {
         busy = false;
         loading = false;

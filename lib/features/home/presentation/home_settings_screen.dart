@@ -300,7 +300,9 @@ class SettingsScreen extends ConsumerWidget {
           code,
         _ => 'operation_failed',
       };
-      final diagnostic = ref.read(syncV2WorkspaceProvider).diagnosticCode;
+      final diagnostic = failure is SyncV2WorkspaceException
+          ? failure.diagnosticCode
+          : null;
       if (stage == 'admin_key' &&
           const {
             'admin_unlock/biometric_read',
@@ -312,16 +314,36 @@ class SettingsScreen extends ConsumerWidget {
           }.contains(diagnostic)) {
         stage = diagnostic!;
       }
+      final kind = failure is SyncV2WorkspaceException
+          ? failure.failureKind
+          : null;
+      final safeKind =
+          kind != null &&
+              (const {
+                    'decryption_failed',
+                    'format_error',
+                    'state_error',
+                    'platform_failed',
+                    'platform_cancelled',
+                    'platform_invalidated',
+                    'platform_unavailable',
+                    'platform_error',
+                    'unexpected_error',
+                  }.contains(kind) ||
+                  RegExp(r'^platform_-?[0-9]{1,6}$').hasMatch(kind))
+          ? kind
+          : null;
+      final detail = '$stage/$code${safeKind == null ? '' : '/$safeKind'}';
       logDiagnostic(
         'admin_unlock',
         'failed',
-        data: {'stage': stage, 'code': code},
+        data: {'stage': stage, 'code': code, 'kind': safeKind},
       );
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            '${strings.localized(en: 'Could not open admin mode. Please try again.', ja: '管理者モードを開けませんでした。もう一度お試しください。')} ($stage/$code)',
+            '${strings.localized(en: 'Could not open admin mode. Please try again.', ja: '管理者モードを開けませんでした。もう一度お試しください。')} ($detail)',
           ),
         ),
       );
