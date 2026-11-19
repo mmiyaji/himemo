@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../home/presentation/home_providers.dart'
+    show deviceAuthControllerProvider;
 import '../data/sync_v2_device_transfer.dart';
 import 'sync_v2_pairing_dialogs.dart';
 import 'sync_v2_privacy.dart';
@@ -72,7 +74,8 @@ class _DeviceSecurityState extends ConsumerState<SyncV2DeviceSecuritySettings>
         state == AppLifecycleState.detached ||
         (state == AppLifecycleState.inactive &&
             !_picker &&
-            !c.biometricAuthenticating)) {
+            !c.biometricAuthenticating &&
+            !ref.read(deviceAuthControllerProvider).isAuthenticating)) {
       _foreground = false;
       _revision++;
       c.background();
