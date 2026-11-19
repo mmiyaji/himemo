@@ -283,3 +283,14 @@ python -m http.server 8765 --directory build/web
 - iOS simulator build・production起動/native channel/Quick Look、format・静的解析・全408テスト・Web build・配信ツール・Functions、署名IPA/CloudKit entitlement確認が成功。
 - 2026-11-20 00:56 JSTにApple処理VALID・内部テストIN_BETA_TESTING・内部グループruhenheimのアクセス・日本語確認項目の保存を確認。取得IPAのInfo.plistも番号一致。ログとIPAは未追跡の `artifacts/ios-release-44554188396/` に保存。
 - 実機Face IDの一連の操作、実CloudKit・カメラ・メディア再生とrelease性能受入は引き続き未検証。App Store本番公開とmergeはしていない。
+
+
+### 2026-11-20: Face ID後の管理者解除失敗の再調査・診断版配信
+
+- ユーザーは2611191524でも「Face IDで認証した後に失敗する」と回答。画像上のアプリ保護は未設定。前回の修正だけでは実機症状を解消できていない。
+- AppLockGateにもワークスペースの生体認証付き鍵読み出し中のinactive除外を追加。共有DeviceAuthの既存挙動は維持し、ワークスペース認証中でも実際のhidden/pausedはロックする。アプリ保護オン時に鍵読み出しを取り消す経路をテストで再現したが、実機報告の原因との一致は未確定。
+- 保護オフで設定側observerが保留解除を失効させた場合、鍵はロック済みでもhome管理者フラグがtrueのまま残る問題を追加テストで検出。操作が最新なら実際のworkspace状態へ合わせ、新しいセッションを破棄しない。古い解除の黙った成功返却はlocked例外へ変更。両呼び出し元は例外を処理する。
+- 失敗時は固定のstage/codeのみ画面と診断ログへ出す。鍵・アカウント・例外本文は出さない。鍵読み出し／検証／端末保存／プロファイル復号等を区別し、新しい解除開始時と成功時に診断をクリアする。
+- 設定ルートとアプリ全体を含むテストで、アプリ保護オン/オフ×inactive/実background、端末認証完了後の鍵読み出しfallback、UI管理者状態、固定診断を確認。関連72件成功。Opus実レビューの指摘を反映し、epochを進めるのは鍵を破棄するlockPrivateのみであること、2か所の呼び出し元の例外処理をソース確認。ローカル全体解析は完了せず中止し、CIで必須の全体解析に成功した。
+- `ad7f50b` をpushし、[run 44568940378](https://github.com/mmiyaji/himemo/actions/runs/44568940378)で **1.0.0（2611191642）** を内部配信。全413テスト、iOS simulator起動、静的解析、Web、Functions、配信ツール、署名・CloudKit entitlement確認に成功。IPAの番号も照合済み。
+- Apple処理VALID、グループruhenheim、日本語確認項目、IN_BETA_TESTINGを2026-11-20 02:23 JSTに確認。新ビルドでの実機解除成功は未確認。再発時は括弧内のstage/codeを確認する。データ初期化は不要で、実施していない。

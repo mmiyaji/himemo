@@ -8,6 +8,16 @@ Codemagic の `ios-testflight-production` と並行運用する前提。
 - [ios-testflight.yml](../.github/workflows/ios-testflight.yml)
 - [ios-verify.yml](../.github/workflows/ios-verify.yml)
 
+## 管理者認証の追加修正・診断版（2026-11-20 02:23 JST）
+
+[run 44568940378](https://github.com/mmiyaji/himemo/actions/runs/44568940378) は成功。対象 `ad7f50b`、**1.0.0 / build 2611191642**。前ビルドでFace ID後の解除失敗が続いたため、アプリ全体のinactive監視と解除失敗後のUI状態を追加修正し、安全な固定stage/codeを表示・記録する。
+
+- iOS simulator build・production起動・native channel・Quick Look、format・静的解析・全413テスト・Web build・配信ツール・Functions検証が成功。
+- 署名IPAとCloudKit entitlement確認、upload成功。取得IPAのInfo.plistも同じ番号。
+- Apple処理VALID、内部グループruhenheimのアクセス、日本語確認項目、内部テストIN_BETA_TESTINGを確認。内部配信確定は02:23 JST。
+- artifactsは `himemo-ios-161`、`ios-launch-smoke-161`。ローカル証拠は未追跡の `artifacts/ios-release-44568940378/`。
+- 実機の失敗原因と同じかは未確定。新ビルドでの実機解除成功も未確認。Face ID後に再発した場合は表示コードで切り分ける。初期化は不要。
+
 ## 余白・管理者モード修正版の再配信（2026-11-20 JST）
 
 [run 44554188396](https://github.com/mmiyaji/himemo/actions/runs/44554188396) は成功。対象コミット `4e6fe2b`、アプリ **1.0.0 / build 2611191524**。設定カードの間隔統一（`85fa0bf`）と、端末認証中の一時inactiveで管理者解除が失効する問題の修正（`bbdfc45`）を含む。実際のhidden/paused/detachedでは従来どおりロックする。
