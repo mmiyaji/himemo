@@ -6,13 +6,13 @@
 
 | 段階 | 状態 | 証拠／限界 |
 |---|---|---|
-| ホストの単体・ウィジェット | 成功 | 413件、静的解析指摘なし。実CloudKitではない |
+| ホストの単体・ウィジェット | 成功 | 416件、静的解析指摘なし。実CloudKitではない |
 | Web開発プレビュー | 成功 | ビルド、暗号化保存・復元smoke、主要操作20件。iOS実装の代替ではない |
-| iOSシミュレータ・今回の配信候補 | 成功 | `ad7f50b` のproduction起動/native channel/Quick Look。[run](https://github.com/mmiyaji/himemo/actions/runs/44568940378) |
+| iOSシミュレータ・今回の配信候補 | 成功 | `c861144` のproduction起動/native channel/Quick Look。[run](https://github.com/mmiyaji/himemo/actions/runs/44579050741) |
 | iOS実機・実CloudKit | 未実施 | Mac、Development署名の端末とiCloudアカウントが必要 |
 | 二台の物理端末・実機性能 | 未実施 | 下記チェックリストを端末・OS・ビルド番号とともに記録する |
 
-2026-11-20 02:23 JST、管理者認証の追加修正と診断表示を含む `ad7f50b` をTestFlight **1.0.0（2611191642）** として内部グループ `ruhenheim` へ再配信した（[run](https://github.com/mmiyaji/himemo/actions/runs/44568940378)）。Apple処理VALID・内部テストIN_BETA_TESTING、iOSビルド・simulator起動・署名・CloudKit entitlement確認と全413テストが成功。前ビルド2611191524ではユーザーがFace ID後の管理者解除失敗を報告。再現したライフサイクル失効と失敗時の管理者フラグ残留を修正したが、実機報告と同一原因か、新ビルドで解消したかは未確認。再発時は画面の固定stage/codeで切り分ける。初期化は不要。実機・実CloudKitの未実施項目は残る。最新の実装・ホスト検証は [引継ぎ記録](codex-handoff-v2-on-v1-ui.md)、性能値は [性能確認](sync-v2-performance.md) を参照。
+2026-11-20 03:21 JST、失敗時の診断保持とデバッグ時の依存循環を修正した `c861144` をTestFlight **1.0.0（2611191738）** として内部グループ `ruhenheim` へ配信した（[run](https://github.com/mmiyaji/himemo/actions/runs/44579050741)）。Apple処理VALID・内部テストIN_BETA_TESTING、iOSビルド・simulator起動・署名・CloudKit entitlement確認と全416テストが成功。前ビルド2611191642でもユーザーはFace ID成功後の `admin_key/operation_failed` を報告。診断が画面復帰の順番待ち処理で消される問題は修正したが、実機の解除失敗の原因は未特定・未解決扱い。新ビルドの実機操作と、再発時の固定stage/code/kindを確認する。初期化は行わない。実機・実CloudKitの未実施項目は残る。最新の実装・ホスト検証は [引継ぎ記録](codex-handoff-v2-on-v1-ui.md)、性能値は [性能確認](sync-v2-performance.md) を参照。
 
 ## 1. 配布しないiOSビルド・起動確認
 

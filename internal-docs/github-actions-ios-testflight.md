@@ -8,6 +8,16 @@ Codemagic の `ios-testflight-production` と並行運用する前提。
 - [ios-testflight.yml](../.github/workflows/ios-testflight.yml)
 - [ios-verify.yml](../.github/workflows/ios-verify.yml)
 
+## 管理者解除の診断保持版（2026-11-20 03:21 JST）
+
+[run 44579050741](https://github.com/mmiyaji/himemo/actions/runs/44579050741) は成功。対象 `c861144`、**1.0.0 / build 2611191738**。認証後のresume処理で失敗工程が消える不具合を修正し、工程と固定のエラー種別を例外に保持する。状態管理のデバッグ時の依存循環も修正。
+
+- iOS simulator build・production起動・native channel・Quick Look、format・静的解析・全416テスト・Web build・配信ツール・Functions検証が成功。
+- 署名IPA、CloudKit entitlement、uploadが成功。IPAのInfo.plistでも同じ番号を確認。
+- 03:21 JSTにApple処理VALID・内部テストIN_BETA_TESTING・ruhenheimのアクセス・日本語確認項目を確認。
+- artifactsは `himemo-ios-162`、`ios-launch-smoke-162`。取得ログ・IPA等は未追跡の `artifacts/ios-release-44579050741/`。
+- 2611191642の実機でFace ID後に `admin_key/operation_failed` が再発。解除不具合の原因は未特定であり、本ビルドで解消したとは扱わない。循環検出はRiverpodのkDebugMode限定なので、これをrelease版の原因と断定しない。
+
 ## 管理者認証の追加修正・診断版（2026-11-20 02:23 JST）
 
 [run 44568940378](https://github.com/mmiyaji/himemo/actions/runs/44568940378) は成功。対象 `ad7f50b`、**1.0.0 / build 2611191642**。前ビルドでFace ID後の解除失敗が続いたため、アプリ全体のinactive監視と解除失敗後のUI状態を追加修正し、安全な固定stage/codeを表示・記録する。

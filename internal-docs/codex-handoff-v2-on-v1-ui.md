@@ -294,3 +294,14 @@ python -m http.server 8765 --directory build/web
 - 設定ルートとアプリ全体を含むテストで、アプリ保護オン/オフ×inactive/実background、端末認証完了後の鍵読み出しfallback、UI管理者状態、固定診断を確認。関連72件成功。Opus実レビューの指摘を反映し、epochを進めるのは鍵を破棄するlockPrivateのみであること、2か所の呼び出し元の例外処理をソース確認。ローカル全体解析は完了せず中止し、CIで必須の全体解析に成功した。
 - `ad7f50b` をpushし、[run 44568940378](https://github.com/mmiyaji/himemo/actions/runs/44568940378)で **1.0.0（2611191642）** を内部配信。全413テスト、iOS simulator起動、静的解析、Web、Functions、配信ツール、署名・CloudKit entitlement確認に成功。IPAの番号も照合済み。
 - Apple処理VALID、グループruhenheim、日本語確認項目、IN_BETA_TESTINGを2026-11-20 02:23 JSTに確認。新ビルドでの実機解除成功は未確認。再発時は括弧内のstage/codeを確認する。データ初期化は不要で、実施していない。
+
+
+### 2026-11-20: admin_key/operation_failedの再発と診断保持版
+
+- ユーザーは2611191642でFace ID成功後の `admin_key/operation_failed` を画像で報告。実機の管理者解除は引き続き未解決扱い。コードから「生体認証の鍵読み出し前」と断定できない点に注意。
+- 本番と同じProviderRefとlistenerの接続をテストするとCircularDependencyErrorを再現。実際のproduction workspace providerをoverrideせず使うテストでも、管理者controllerがworkspaceを読むところで失敗した。workspace側の逆向きref.listenを撤去し、homeのlockからlockSettingsAdminを明示して失効を維持。fixtureはoverrideWithValueをやめ、実際のProviderRefから認証状態を読む。
+- **重要**: pub-cacheのRiverpod 3.4.3 `lib/src/core/ref.dart` を読み、Ref.readの循環チェックは `if (kDebugMode)` 限定と確認。workflowのIPAは--release。したがって、循環は実在するdebug不具合だが、TestFlightの原因ではない可能性があり、根本原因と断定しない。ユーザーにも訂正済み。
+- 実際の診断欠落を再現。認証後のresumedでworkspace.resumeがqueueされ、先の解除失敗を画面側が受け取る前に_runが共有diagnosticCodeを消す。例外に不変のdiagnosticCode/failureKindを保持し、画面は例外から読むように変更。種別は固定値または桁数制限した数値PlatformExceptionコードのみ。例外本文・鍵・アカウントは保持も表示もしない。
+- 回帰検証: 実production接続がcredential gateへ到達、記憶した鍵による管理者解除→終了→直接の設定解除拒否、resumeが共有診断を消しても例外には工程と種別が残ることを確認。設定画面の実際の管理者ボタンでも、安全なコードだけが表示され私的な例外本文が出ないことを確認。関連75件成功。Opus実レビューの指摘を検証・反映し、release原因との区別と安全な診断を確認。
+- `c861144` をpush、[run 44579050741](https://github.com/mmiyaji/himemo/actions/runs/44579050741) で **1.0.0（2611191738）** を配信。静的解析・全416テスト・Web・配信ツール・Functions・iOS simulator起動・署名/CloudKit entitlement確認成功。ダウンロードIPAの番号も照合。
+- Apple処理VALID、内部グループruhenheim、日本語確認項目、IN_BETA_TESTINGを2026-11-20 03:21 JSTに確認。ログ等は未追跡の `artifacts/ios-release-44579050741/`。次は新ビルドでの実機解除と、再発時のstage/code/kindを確認する。初期化・認証迂回・App Store本番公開・mergeはしていない。
