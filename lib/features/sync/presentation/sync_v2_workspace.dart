@@ -880,6 +880,7 @@ class SyncV2WorkspaceController extends ChangeNotifier {
       throw const SyncV2WorkspaceException('biometric_unavailable');
     }
     final epoch = _epoch;
+    diagnosticCode = 'admin_unlock/biometric_read';
     final admin = await _authenticateBiometric(
       () => biometrics.read(generationId!),
     );
@@ -887,11 +888,14 @@ class SyncV2WorkspaceController extends ChangeNotifier {
       throw const SyncV2WorkspaceException('biometric_unavailable');
     }
     try {
+      diagnosticCode = 'admin_unlock/verify_key';
       await _registration.verifyAdminKey(
         accountId: accountId!,
         adminKey: admin,
       );
+      diagnosticCode = 'admin_unlock/remember_key';
       await _rememberDeviceAdmin(admin, epoch);
+      diagnosticCode = 'admin_unlock/open_profiles';
       await _refreshAdminProfiles(admin, epoch);
       if (_paused || _disposed || epoch != _epoch) {
         throw const SyncV2WorkspaceException('locked');
@@ -899,8 +903,11 @@ class SyncV2WorkspaceController extends ChangeNotifier {
       _admin?.destroy();
       _admin = admin;
       _adminFromSettings = false;
+      diagnosticCode = 'admin_unlock/reset_throttle';
       await _unlockThrottle.reset();
+      diagnosticCode = 'admin_unlock/reload_notes';
       await _reloadNotes();
+      diagnosticCode = null;
     } catch (_) {
       admin.destroy();
       rethrow;

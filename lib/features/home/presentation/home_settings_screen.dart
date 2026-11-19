@@ -256,11 +256,14 @@ class SettingsScreen extends ConsumerWidget {
   Future<void> _enterAdminMode(BuildContext context, WidgetRef ref) async {
     final strings = context.strings;
     final controller = ref.read(adminModeSessionControllerProvider.notifier);
+    var stage = 'prepare';
     try {
       final workspace = ref.read(syncV2WorkspaceProvider);
       if (!workspace.biometricEnabled) {
+        stage = 'passcode';
         if (!await _unlockAdminWithPasscode(context, ref)) return;
       } else {
+        stage = 'device_auth';
         final authenticated = await ref
             .read(deviceAuthControllerProvider.notifier)
             .authenticate(
@@ -272,18 +275,53 @@ class SettingsScreen extends ConsumerWidget {
             return;
           }
         } else {
+          stage = 'admin_key';
           await controller.unlock();
         }
       }
-    } catch (_) {
+    } catch (failure) {
+      // Only fixed error identifiers are displayed/logged; never exception text,
+      // credential values, account identifiers or key material.
+      final code = switch (failure) {
+        SyncV2WorkspaceException(code: final code)
+            when const {
+              'locked',
+              'closed',
+              'admin_required',
+              'biometric_unavailable',
+              'authentication_cancelled',
+              'icloud_account',
+              'icloud_network',
+              'icloud_permission',
+              'account_changed',
+              'throttled',
+              'operation_failed',
+            }.contains(code) =>
+          code,
+        _ => 'operation_failed',
+      };
+      final diagnostic = ref.read(syncV2WorkspaceProvider).diagnosticCode;
+      if (stage == 'admin_key' &&
+          const {
+            'admin_unlock/biometric_read',
+            'admin_unlock/verify_key',
+            'admin_unlock/remember_key',
+            'admin_unlock/open_profiles',
+            'admin_unlock/reset_throttle',
+            'admin_unlock/reload_notes',
+          }.contains(diagnostic)) {
+        stage = diagnostic!;
+      }
+      logDiagnostic(
+        'admin_unlock',
+        'failed',
+        data: {'stage': stage, 'code': code},
+      );
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            strings.localized(
-              en: 'Could not open admin mode. Please try again.',
-              ja: '管理者モードを開けませんでした。もう一度お試しください。',
-            ),
+            '${strings.localized(en: 'Could not open admin mode. Please try again.', ja: '管理者モードを開けませんでした。もう一度お試しください。')} ($stage/$code)',
           ),
         ),
       );

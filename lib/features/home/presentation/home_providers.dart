@@ -6482,6 +6482,7 @@ class AdminModeSessionController extends Notifier<bool> {
   Future<List<String>> _unlockSyncV2() async {
     final operation = ++_operation;
     final workspace = ref.read(syncV2WorkspaceProvider);
+    workspace.diagnosticCode = null;
     ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
     final revision = workspace.privateSessionRevision;
     bool active() =>
@@ -6493,12 +6494,12 @@ class AdminModeSessionController extends Notifier<bool> {
     state = true;
     try {
       var unlocked = await workspace.unlockAdminFromSettings();
-      if (!active()) return const [];
+      if (!active()) throw const SyncV2WorkspaceException('locked');
       if (!unlocked && workspace.biometricEnabled) {
         await workspace.unlockAdminBiometric();
         unlocked = workspace.adminUnlocked;
       }
-      if (!active()) return const [];
+      if (!active()) throw const SyncV2WorkspaceException('locked');
       if (!unlocked) {
         throw const SyncV2WorkspaceException('admin_required');
       }
@@ -6509,7 +6510,16 @@ class AdminModeSessionController extends Notifier<bool> {
       );
       return const [];
     } catch (_) {
-      if (active()) lock();
+      if (ref.mounted && operation == _operation) {
+        if (active()) {
+          lock();
+        } else {
+          // A lifecycle observer may revoke workspace keys before the home
+          // provider has an active session to observe. Reconcile the pending
+          // UI grant without revoking a newer workspace session.
+          syncWorkspaceSession();
+        }
+      }
       rethrow;
     }
   }

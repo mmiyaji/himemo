@@ -332,6 +332,10 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       if (ref.read(deviceAuthControllerProvider).isAuthenticating) {
         return;
       }
+      if (state == AppLifecycleState.inactive &&
+          ref.read(syncV2WorkspaceProvider).biometricAuthenticating) {
+        return;
+      }
       unawaited(_markAppBackgrounded());
       unawaited(_lockImmediatelyIfConfigured());
     }
