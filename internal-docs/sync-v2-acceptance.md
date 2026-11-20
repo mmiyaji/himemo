@@ -14,6 +14,10 @@
 
 2026-11-20 03:21 JST、失敗時の診断保持とデバッグ時の依存循環を修正した `c861144` をTestFlight **1.0.0（2611191738）** として内部グループ `ruhenheim` へ配信した（[run](https://github.com/mmiyaji/himemo/actions/runs/44579050741)）。Apple処理VALID・内部テストIN_BETA_TESTING、iOSビルド・simulator起動・署名・CloudKit entitlement確認と全416テストが成功。前ビルド2611191642でもユーザーはFace ID成功後の `admin_key/operation_failed` を報告。診断が画面復帰の順番待ち処理で消される問題は修正したが、実機の解除失敗の原因は未特定・未解決扱い。新ビルドの実機操作と、再発時の固定stage/code/kindを確認する。初期化は行わない。実機・実CloudKitの未実施項目は残る。最新の実装・ホスト検証は [引継ぎ記録](codex-handoff-v2-on-v1-ui.md)、性能値は [性能確認](sync-v2-performance.md) を参照。
 
+### 実機での管理者解除失敗（2026-11-20 11:24 JST）
+
+2611191738でも `admin_unlock/open_profiles/operation_failed/format_error` が報告された。管理者鍵検証後のプロファイル形式の問題で、旧ZIP取り込みのadmin-only鍵version2を含むテストデータで同じ失敗を再現済み。端末の実データは未確認であり原因確定とは扱わない。ZIP取り込み歴の回答待ち。旧形式なら現行の非互換方針ではクラウド世代の再作成が必要で、一般的な「初期化不要」の案内は撤回する。データは削除せず、残すデータと削除対象を確認してから判断する。詳細は引継ぎ記録を参照。アプリコード変更・再配信は行っていない。
+
 ## 1. 配布しないiOSビルド・起動確認
 
 登録済みの `iOS TestFlight` を `verification_only=true` で実行し、検証専用の `.github/workflows/ios-verify.yml`（`iOS Verification`）を呼び出す。新規workflowは既定ブランチに存在せず手動起動できない場合があるため、この入口を使う。Xcode 27.1の既存 `xcode-27` runnerを使用する。署名資材の登録、IPA作成、TestFlightアップロード、実CloudKit試験は含まない。`verification_only=true` は他の入力より優先され、署名・アップロード・配布jobはすべてskipする。これを省略した既存TestFlight workflowは既定でアップロードするので、この確認には使わない。

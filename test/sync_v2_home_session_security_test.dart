@@ -16,12 +16,14 @@ import 'package:himemo/features/home/presentation/home_page.dart';
 import 'package:himemo/features/security/data/authentication_throttle.dart';
 import 'package:himemo/features/security/data/encryption_service.dart';
 import 'package:himemo/features/security/data/secure_key_value_store.dart';
+import 'package:himemo/features/security/data/sync_v2_profile_keys.dart';
 import 'package:himemo/features/sync/data/sync_v2_enrollment_store.dart';
 import 'package:himemo/features/sync/data/sync_v2_generation_registration.dart';
 import 'package:himemo/features/sync/data/sync_v2_header_codec.dart';
 import 'package:himemo/features/sync/data/sync_v2_inbox.dart';
 import 'package:himemo/features/sync/data/sync_v2_note_repository.dart';
 import 'package:himemo/features/sync/data/sync_v2_payload_codec.dart';
+import 'package:himemo/features/sync/data/sync_v2_profile_catalog.dart';
 import 'package:himemo/features/sync/presentation/sync_v2_workspace.dart';
 import 'package:himemo/features/sync/testing/sync_v2_local_preview.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -132,6 +134,85 @@ void main() {
       harness.expectLocked();
     },
   );
+
+  test('an old ZIP-import admin-only profile reproduces open_profiles format_error', () async {
+    final biometrics = _PendingBiometrics();
+    final harness = await _Harness.create(biometricStore: biometrics);
+    addTearDown(harness.dispose);
+    final workspace = harness.workspace;
+    await workspace.unlockAdmin('1234');
+    await workspace.enableAdminBiometrics();
+    workspace.lockPrivate();
+    final session = workspace.noteStoreSession!;
+    final normal = session.profiles[session.normalProfileId]!;
+    final catalog = SyncV2ProfileCatalog(
+      workspace.inbox,
+      workspace.repository,
+      EncryptionService(),
+      harness.store,
+      generationId: session.generationId,
+      syncKey: session.syncKey,
+      normalAccess: normal,
+    );
+    final record = (await catalog.load()).single;
+    final wrapped = record.wrapped;
+    final oldBody = <String, Object?>{
+      'type': 'profile-key',
+      'wrapped': {
+        'format': SyncV2WrappedProfileKey.format,
+        'version': 2,
+        'mode': 'admin-only',
+        'profileId': wrapped.profileId,
+        'keyId': wrapped.keyId,
+        'adminWrap': wrapped.adminWrap,
+      },
+      'name': record.encryptedName,
+    };
+    await workspace.repository.save(
+      generationId: session.generationId,
+      profileId: normal.profileId,
+      noteId: record.noteId,
+      changeId: 'old_zip_profile',
+      expectedHeadIds: record.headIds,
+      body: oldBody,
+      syncKey: session.syncKey,
+      profileKey: normal,
+    );
+    final remembered = await workspace.deviceAdminStore.read(
+      accountId: workspace.accountId!,
+      generationId: workspace.generationId!,
+    );
+    expect(remembered, isNotNull);
+    remembered!.destroy();
+    biometrics.release.complete();
+    await expectLater(
+      harness.container
+          .read(adminModeSessionControllerProvider.notifier)
+          .unlock(),
+      throwsA(
+        isA<SyncV2WorkspaceException>()
+            .having(
+              (e) => e.diagnosticCode,
+              'stage',
+              'admin_unlock/open_profiles',
+            )
+            .having((e) => e.failureKind, 'kind', 'format_error'),
+      ),
+    );
+    expect(biometrics.entered.isCompleted, isTrue);
+    expect(workspace.adminUnlocked, isFalse);
+    final preserved = await workspace.repository.readNote(
+      generationId: session.generationId,
+      profileId: normal.profileId,
+      noteId: record.noteId,
+      syncKey: session.syncKey,
+      profileKey: normal,
+    );
+    expect(preserved.versions.single.body, oldBody);
+    await harness.container
+        .read(notesControllerProvider.notifier)
+        .reloadFromStorage();
+  });
 
   test('production workspace wiring reaches credential gate without a dependency cycle', () async {
     SharedPreferences.setMockInitialValues({});

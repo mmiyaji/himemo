@@ -305,3 +305,13 @@ python -m http.server 8765 --directory build/web
 - 回帰検証: 実production接続がcredential gateへ到達、記憶した鍵による管理者解除→終了→直接の設定解除拒否、resumeが共有診断を消しても例外には工程と種別が残ることを確認。設定画面の実際の管理者ボタンでも、安全なコードだけが表示され私的な例外本文が出ないことを確認。関連75件成功。Opus実レビューの指摘を検証・反映し、release原因との区別と安全な診断を確認。
 - `c861144` をpush、[run 44579050741](https://github.com/mmiyaji/himemo/actions/runs/44579050741) で **1.0.0（2611191738）** を配信。静的解析・全416テスト・Web・配信ツール・Functions・iOS simulator起動・署名/CloudKit entitlement確認成功。ダウンロードIPAの番号も照合。
 - Apple処理VALID、内部グループruhenheim、日本語確認項目、IN_BETA_TESTINGを2026-11-20 03:21 JSTに確認。ログ等は未追跡の `artifacts/ios-release-44579050741/`。次は新ビルドでの実機解除と、再発時のstage/code/kindを確認する。初期化・認証迂回・App Store本番公開・mergeはしていない。
+
+
+### 2026-11-20 11:24 JST: open_profiles/format_errorの再発と旧ZIP形式の再現
+
+- 最新2611191738の画像で `admin_unlock/open_profiles/operation_failed/format_error` を確認。Face ID・ADMIN鍵の検証と端末保存を通過し、_refreshAdminProfiles内のカタログ読取でFormatException。実機の認証自体の失敗と混同しない。
+- フェーズ5の1957e07で旧ZIP専用のadmin-only鍵version2を廃止した非互換方針を再確認。旧版の鍵はformat/version/mode/profileId/keyId/adminWrapの6フィールド、現行version3はkdf/salt/passphraseWrapを含む9フィールドであり、fromJsonは旧形式を拒否する。
+- 実home controllerの記憶ADMIN→生体認証fallbackの経路へ、認証済みカタログ本文として旧version2形状を投入したテストを追加。同じopen_profiles/format_errorを再現し、鍵はロックされ、元の暗号化データが変更・削除されないことを確認。関連15テスト成功。テスト内のデータだけを使い実CloudKitは触っていない。
+- Opus実レビューでも旧ZIP形式が最有力。ただしformat_errorにはID/KDF/本文形式/競合など別の不正形式も含まれるので、症状から旧version2と断定しない。ユーザーへ過去のZIP取り込みの有無を質問し、回答待ち。
+- これまでの「初期化不要」は断定しすぎで、旧クラウド世代の非互換についてユーザーへ訂正。旧形式が原因なら、現在の移行なし方針ではクラウド世代の再作成が必要。アプリの再インストールだけでは同じクラウドのレコードが戻る。データ退避・削除範囲・ユーザー判断を確認する前に自動削除や検証緩和をしない。
+- アプリコードは変更せず、TestFlightの再配信はしていない。最新の配信は引き続き2611191738／run44579050741（416テスト）のまま。実機データの形式特定と復旧方針は未完了。
